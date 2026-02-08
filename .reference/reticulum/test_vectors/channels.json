@@ -1,0 +1,4267 @@
+{
+  "description": "Reticulum v1.1.3 - channel/buffer protocol test vectors",
+  "source": "RNS/Channel.py, RNS/Buffer.py",
+  "constants": {
+    "channel": {
+      "WINDOW": 2,
+      "WINDOW_MIN": 2,
+      "WINDOW_MIN_LIMIT_SLOW": 2,
+      "WINDOW_MIN_LIMIT_MEDIUM": 5,
+      "WINDOW_MIN_LIMIT_FAST": 16,
+      "WINDOW_MAX_SLOW": 5,
+      "WINDOW_MAX_MEDIUM": 12,
+      "WINDOW_MAX_FAST": 48,
+      "WINDOW_MAX": 48,
+      "FAST_RATE_THRESHOLD": 10,
+      "WINDOW_FLEXIBILITY": 4,
+      "SEQ_MAX": 65535,
+      "SEQ_MODULUS": 65536
+    },
+    "rtt_thresholds": {
+      "RTT_FAST": 0.18,
+      "RTT_MEDIUM": 0.75,
+      "RTT_SLOW": 1.45,
+      "note": "RTT <= RTT_FAST \u2192 fast link; RTT_FAST < RTT <= RTT_MEDIUM \u2192 medium; RTT_MEDIUM < RTT <= RTT_SLOW \u2192 slow; RTT > RTT_SLOW \u2192 very slow"
+    },
+    "buffer": {
+      "STREAM_ID_MAX": 16383,
+      "STREAM_DATA_OVERHEAD": 8,
+      "STREAM_DATA_OVERHEAD_note": "2 bytes stream header + 6 bytes channel envelope",
+      "SMT_STREAM_DATA": 65280
+    },
+    "system_message_boundary": {
+      "boundary": 61440,
+      "boundary_hex": "0xf000",
+      "note": "MSGTYPE >= 0xf000 are system-reserved; user types must be < 0xf000"
+    },
+    "envelope_format": {
+      "header_size": 6,
+      "layout": "struct.pack('>HHH', msgtype, sequence, data_length) + data",
+      "field_sizes": {
+        "msgtype": 2,
+        "sequence": 2,
+        "data_length": 2
+      }
+    }
+  },
+  "envelope_vectors": [
+    {
+      "index": 0,
+      "description": "Small message (10 bytes data, msgtype=0x1234, seq=0)",
+      "msgtype": 4660,
+      "sequence": 0,
+      "data_hex": "00010203040506070809",
+      "data_length": 10,
+      "packed_hex": "12340000000a00010203040506070809",
+      "packed_length": 16,
+      "header_hex": "12340000000a",
+      "decoded_msgtype": 4660,
+      "decoded_sequence": 0,
+      "decoded_length": 10,
+      "decoded_data_hex": "00010203040506070809"
+    },
+    {
+      "index": 1,
+      "description": "Large message (456 bytes data, msgtype=0xabcd, seq=100)",
+      "msgtype": 43981,
+      "sequence": 100,
+      "data_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8e9eaebecedeeeff0f1f2f3f4f5f6f7f8f9fafbfcfdfeff000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7",
+      "data_length": 456,
+      "packed_hex": "abcd006401c8000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8e9eaebecedeeeff0f1f2f3f4f5f6f7f8f9fafbfcfdfeff000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7",
+      "packed_length": 462,
+      "header_hex": "abcd006401c8",
+      "decoded_msgtype": 43981,
+      "decoded_sequence": 100,
+      "decoded_length": 456,
+      "decoded_data_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8e9eaebecedeeeff0f1f2f3f4f5f6f7f8f9fafbfcfdfeff000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7"
+    },
+    {
+      "index": 2,
+      "description": "Empty message (0 bytes data, msgtype=0x5678, seq=65535)",
+      "msgtype": 22136,
+      "sequence": 65535,
+      "data_hex": "",
+      "data_length": 0,
+      "packed_hex": "5678ffff0000",
+      "packed_length": 6,
+      "header_hex": "5678ffff0000",
+      "decoded_msgtype": 22136,
+      "decoded_sequence": 65535,
+      "decoded_length": 0,
+      "decoded_data_hex": ""
+    },
+    {
+      "index": 3,
+      "description": "System message type (SMT_STREAM_DATA=0xff00, seq=5, 20 bytes data)",
+      "msgtype": 65280,
+      "sequence": 5,
+      "data_hex": "000102030405060708090a0b0c0d0e0f10111213",
+      "data_length": 20,
+      "packed_hex": "ff0000050014000102030405060708090a0b0c0d0e0f10111213",
+      "packed_length": 26,
+      "header_hex": "ff0000050014",
+      "decoded_msgtype": 65280,
+      "decoded_sequence": 5,
+      "decoded_length": 20,
+      "decoded_data_hex": "000102030405060708090a0b0c0d0e0f10111213"
+    }
+  ],
+  "message_serialization_vectors": [
+    {
+      "index": 0,
+      "description": "Simple string tuple (id, data) \u2014 matches MessageTest pattern",
+      "input_tuple": [
+        "test-id-001",
+        "hello world"
+      ],
+      "packed_hex": "92ab746573742d69642d303031ab68656c6c6f20776f726c64",
+      "packed_length": 25,
+      "unpacked": [
+        "test-id-001",
+        "hello world"
+      ],
+      "note": "umsgpack.packb((id, data)) \u2192 bytes; unpackb reverses"
+    },
+    {
+      "index": 1,
+      "description": "Empty strings tuple",
+      "input_tuple": [
+        "",
+        ""
+      ],
+      "packed_hex": "92a0a0",
+      "packed_length": 3,
+      "unpacked": [
+        "",
+        ""
+      ]
+    },
+    {
+      "index": 2,
+      "description": "Tuple with binary data field",
+      "input_tuple": [
+        "bin-id",
+        "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
+      ],
+      "input_note": "Second element is raw bytes (shown as hex); msgpack encodes as bin type",
+      "packed_hex": "92a662696e2d6964c420000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "packed_length": 42,
+      "unpacked_id": "bin-id",
+      "unpacked_data_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
+    },
+    {
+      "index": 3,
+      "description": "Tuple with large binary data (400 bytes \u2014 near channel MDU)",
+      "input_tuple": [
+        "large-msg",
+        "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8e9eaebecedeeeff0f1f2f3f4f5f6f7f8f9fafbfcfdfeff000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f"
+      ],
+      "input_note": "Second element is 400 raw bytes (shown as hex)",
+      "packed_hex": "92a96c617267652d6d7367c50190000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8e9eaebecedeeeff0f1f2f3f4f5f6f7f8f9fafbfcfdfeff000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f",
+      "packed_length": 414,
+      "unpacked_id": "large-msg",
+      "unpacked_data_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8e9eaebecedeeeff0f1f2f3f4f5f6f7f8f9fafbfcfdfeff000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f",
+      "unpacked_data_length": 400
+    }
+  ],
+  "sequence_number_vectors": [
+    {
+      "index": 0,
+      "description": "Normal sequence increment",
+      "current_seq": 0,
+      "next_seq": 1,
+      "formula": "(current + 1) % SEQ_MODULUS"
+    },
+    {
+      "index": 1,
+      "description": "Mid-range sequence increment",
+      "current_seq": 32767,
+      "next_seq": 32768,
+      "formula": "(current + 1) % SEQ_MODULUS"
+    },
+    {
+      "index": 2,
+      "description": "Sequence wraparound at SEQ_MAX",
+      "current_seq": 65535,
+      "next_seq": 0,
+      "formula": "(65535 + 1) % 65536 = 0"
+    },
+    {
+      "index": 3,
+      "description": "RX validation: exact match (accepted)",
+      "type": "rx_validation",
+      "next_rx_sequence": 10,
+      "incoming_sequence": 10,
+      "accepted": true,
+      "reason": "incoming >= next_rx_sequence, so old-sequence check is skipped"
+    },
+    {
+      "index": 4,
+      "description": "RX validation: future sequence within window (accepted)",
+      "type": "rx_validation",
+      "next_rx_sequence": 10,
+      "incoming_sequence": 15,
+      "accepted": true,
+      "reason": "incoming (15) >= next_rx_sequence (10), not old"
+    },
+    {
+      "index": 5,
+      "description": "RX validation: old sequence, no wraparound (rejected)",
+      "type": "rx_validation",
+      "next_rx_sequence": 100,
+      "incoming_sequence": 50,
+      "window_max": 48,
+      "window_overflow": 148,
+      "accepted": false,
+      "reason": "incoming (50) < next_rx (100); window_overflow (148) >= next_rx (100) \u2192 reject"
+    },
+    {
+      "index": 6,
+      "description": "RX validation: wraparound, incoming in valid window (accepted)",
+      "type": "rx_validation",
+      "next_rx_sequence": 65530,
+      "incoming_sequence": 10,
+      "window_max": 48,
+      "window_overflow": 42,
+      "accepted": true,
+      "reason": "incoming (10) < next_rx (65530); window_overflow (42) < next_rx (65530); incoming (10) <= window_overflow (42) \u2192 accepted"
+    },
+    {
+      "index": 7,
+      "description": "RX validation: wraparound, incoming beyond window (rejected)",
+      "type": "rx_validation",
+      "next_rx_sequence": 65530,
+      "incoming_sequence": 50,
+      "window_max": 48,
+      "window_overflow": 42,
+      "accepted": false,
+      "reason": "incoming (50) < next_rx (65530); window_overflow (42) < next_rx (65530); incoming (50) > window_overflow (42) \u2192 rejected"
+    }
+  ],
+  "stream_data_vectors": [
+    {
+      "index": 0,
+      "description": "Simple data, stream_id=0, no flags",
+      "stream_id": 0,
+      "eof": false,
+      "compressed": false,
+      "data_hex": "48656c6c6f2c205265746963756c756d21",
+      "data_length": 17,
+      "packed_hex": "000048656c6c6f2c205265746963756c756d21",
+      "packed_length": 19,
+      "header_hex": "0000",
+      "header_value": 0,
+      "decoded_stream_id": 0,
+      "decoded_eof": false,
+      "decoded_compressed": false,
+      "decoded_data_hex": "48656c6c6f2c205265746963756c756d21"
+    },
+    {
+      "index": 1,
+      "description": "EOF marker with empty data, stream_id=0",
+      "stream_id": 0,
+      "eof": true,
+      "compressed": false,
+      "data_hex": "",
+      "data_length": 0,
+      "packed_hex": "8000",
+      "packed_length": 2,
+      "header_hex": "8000",
+      "header_value": 32768,
+      "header_value_hex": "0x8000",
+      "decoded_stream_id": 0,
+      "decoded_eof": true,
+      "decoded_compressed": false,
+      "decoded_data_hex": ""
+    },
+    {
+      "index": 2,
+      "description": "Compressed data, stream_id=5",
+      "stream_id": 5,
+      "eof": false,
+      "compressed": true,
+      "original_data_hex": "4141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141",
+      "original_data_length": 500,
+      "compressed_data_hex": "425a68393141592653598b55efb60000008400a0002008200021264198a80e2ee48a70a12116abdf6c",
+      "compressed_data_length": 41,
+      "packed_hex": "4005425a68393141592653598b55efb60000008400a0002008200021264198a80e2ee48a70a12116abdf6c",
+      "packed_length": 43,
+      "header_hex": "4005",
+      "header_value": 16389,
+      "header_value_hex": "0x4005",
+      "decoded_stream_id": 5,
+      "decoded_eof": false,
+      "decoded_compressed": true,
+      "decoded_data_hex": "4141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141",
+      "decoded_data_length": 500,
+      "decompression_verified": true
+    },
+    {
+      "index": 3,
+      "description": "Compressed + EOF, stream_id=100",
+      "stream_id": 100,
+      "eof": true,
+      "compressed": true,
+      "original_data_hex": "424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242",
+      "original_data_length": 300,
+      "compressed_data_hex": "425a68393141592653593350f5200000029400802010000008200020aa6d4198c5478bb9229c284819a87a9000",
+      "compressed_data_length": 45,
+      "packed_hex": "c064425a68393141592653593350f5200000029400802010000008200020aa6d4198c5478bb9229c284819a87a9000",
+      "packed_length": 47,
+      "header_hex": "c064",
+      "header_value": 49252,
+      "header_value_hex": "0xc064",
+      "decoded_stream_id": 100,
+      "decoded_eof": true,
+      "decoded_compressed": true,
+      "decoded_data_hex": "424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242",
+      "decoded_data_length": 300,
+      "decompression_verified": true
+    },
+    {
+      "index": 4,
+      "description": "Max stream_id (16383), no flags",
+      "stream_id": 16383,
+      "eof": false,
+      "compressed": false,
+      "data_hex": "01020304",
+      "data_length": 4,
+      "packed_hex": "3fff01020304",
+      "packed_length": 6,
+      "header_hex": "3fff",
+      "header_value": 16383,
+      "header_value_hex": "0x3fff",
+      "decoded_stream_id": 16383,
+      "decoded_eof": false,
+      "decoded_compressed": false,
+      "decoded_data_hex": "01020304"
+    },
+    {
+      "index": 5,
+      "description": "All flags set (eof+compressed) with max stream_id (16383)",
+      "stream_id": 16383,
+      "eof": true,
+      "compressed": true,
+      "original_data_hex": "dead",
+      "original_data_length": 2,
+      "compressed_data_hex": "425a683931415926535983af986c0000008012000200012000210082b17724538509083af986c0",
+      "compressed_data_length": 39,
+      "packed_hex": "ffff425a683931415926535983af986c0000008012000200012000210082b17724538509083af986c0",
+      "packed_length": 41,
+      "header_hex": "ffff",
+      "header_value": 65535,
+      "header_value_hex": "0xffff",
+      "header_breakdown": {
+        "stream_id_bits": "0x3fff (bits 0-13)",
+        "compressed_bit": "0x4000 (bit 14)",
+        "eof_bit": "0x8000 (bit 15)",
+        "combined": "0xffff"
+      },
+      "decoded_stream_id": 16383,
+      "decoded_eof": true,
+      "decoded_compressed": true,
+      "decoded_data_hex": "dead",
+      "decompression_verified": true
+    }
+  ],
+  "window_init_vectors": [
+    {
+      "index": 0,
+      "description": "Very slow link (RTT=2.0 > RTT_SLOW=1.45)",
+      "rtt": 2.0,
+      "window": 1,
+      "window_max": 1,
+      "window_min": 1,
+      "window_flexibility": 1,
+      "condition": "rtt (2.0) > RTT_SLOW (1.45)"
+    },
+    {
+      "index": 1,
+      "description": "RTT at boundary (RTT=1.45 == RTT_SLOW=1.45): uses normal init",
+      "rtt": 1.45,
+      "window": 2,
+      "window_max": 5,
+      "window_min": 2,
+      "window_flexibility": 4,
+      "condition": "rtt (1.45) <= RTT_SLOW (1.45) \u2192 normal init"
+    },
+    {
+      "index": 2,
+      "description": "Normal link (RTT=0.5 < RTT_SLOW=1.45)",
+      "rtt": 0.5,
+      "window": 2,
+      "window_max": 5,
+      "window_min": 2,
+      "window_flexibility": 4,
+      "condition": "rtt (0.5) <= RTT_SLOW (1.45) \u2192 normal init"
+    },
+    {
+      "index": 3,
+      "description": "Fast link (RTT=0.01)",
+      "rtt": 0.01,
+      "window": 2,
+      "window_max": 5,
+      "window_min": 2,
+      "window_flexibility": 4,
+      "condition": "rtt (0.01) <= RTT_SLOW (1.45) \u2192 normal init (window grows via adaptation)",
+      "note": "All non-very-slow links start with WINDOW_MAX_SLOW; fast/medium upgrades happen during delivery callbacks"
+    },
+    {
+      "index": 4,
+      "description": "Just above boundary (RTT=1.46 > RTT_SLOW=1.45)",
+      "rtt": 1.46,
+      "window": 1,
+      "window_max": 1,
+      "window_min": 1,
+      "window_flexibility": 1,
+      "condition": "rtt (1.46) > RTT_SLOW (1.45) \u2192 very slow init"
+    }
+  ],
+  "window_adaptation_vectors": [
+    {
+      "index": 0,
+      "description": "Delivery: window grows by 1 (below max)",
+      "event": "delivery",
+      "before": {
+        "window": 2,
+        "window_max": 5,
+        "window_min": 2,
+        "fast_rate_rounds": 0,
+        "medium_rate_rounds": 0
+      },
+      "rtt": 0.5,
+      "after": {
+        "window": 3,
+        "window_max": 5,
+        "window_min": 2,
+        "fast_rate_rounds": 0,
+        "medium_rate_rounds": 1
+      },
+      "note": "RTT (0.5) > RTT_FAST (0.18) \u2192 fast_rate_rounds reset to 0; RTT <= RTT_MEDIUM (0.75) \u2192 medium_rate_rounds += 1"
+    },
+    {
+      "index": 1,
+      "description": "Delivery: window at max, no growth",
+      "event": "delivery",
+      "before": {
+        "window": 5,
+        "window_max": 5,
+        "window_min": 2,
+        "fast_rate_rounds": 0,
+        "medium_rate_rounds": 0
+      },
+      "rtt": 0.5,
+      "after": {
+        "window": 5,
+        "window_max": 5,
+        "window_min": 2,
+        "fast_rate_rounds": 0,
+        "medium_rate_rounds": 1
+      },
+      "note": "window (5) >= window_max (5) \u2192 no increment"
+    },
+    {
+      "index": 2,
+      "description": "Delivery: fast RTT, fast_rate_rounds increments",
+      "event": "delivery",
+      "before": {
+        "window": 3,
+        "window_max": 5,
+        "window_min": 2,
+        "fast_rate_rounds": 5,
+        "medium_rate_rounds": 0
+      },
+      "rtt": 0.01,
+      "after": {
+        "window": 4,
+        "window_max": 5,
+        "window_min": 2,
+        "fast_rate_rounds": 6,
+        "medium_rate_rounds": 0
+      },
+      "note": "RTT (0.01) <= RTT_FAST (0.18) \u2192 fast_rate_rounds += 1 (5\u21926)"
+    },
+    {
+      "index": 3,
+      "description": "Delivery: fast_rate_rounds reaches threshold, upgrade to FAST",
+      "event": "delivery",
+      "before": {
+        "window": 4,
+        "window_max": 5,
+        "window_min": 2,
+        "fast_rate_rounds": 9,
+        "medium_rate_rounds": 0
+      },
+      "rtt": 0.01,
+      "after": {
+        "window": 5,
+        "window_max": 48,
+        "window_min": 16,
+        "fast_rate_rounds": 10,
+        "medium_rate_rounds": 0
+      },
+      "note": "fast_rate_rounds reaches FAST_RATE_THRESHOLD (10) \u2192 window_max upgraded to WINDOW_MAX_FAST (48), window_min to WINDOW_MIN_LIMIT_FAST (16)"
+    },
+    {
+      "index": 4,
+      "description": "Delivery: medium_rate_rounds reaches threshold, upgrade to MEDIUM",
+      "event": "delivery",
+      "before": {
+        "window": 4,
+        "window_max": 5,
+        "window_min": 2,
+        "fast_rate_rounds": 0,
+        "medium_rate_rounds": 9
+      },
+      "rtt": 0.5,
+      "after": {
+        "window": 5,
+        "window_max": 12,
+        "window_min": 5,
+        "fast_rate_rounds": 0,
+        "medium_rate_rounds": 10
+      },
+      "note": "medium_rate_rounds reaches FAST_RATE_THRESHOLD (10) \u2192 window_max upgraded to WINDOW_MAX_MEDIUM (12), window_min to WINDOW_MIN_LIMIT_MEDIUM (5)"
+    },
+    {
+      "index": 5,
+      "description": "Delivery: slow RTT resets both rate counters",
+      "event": "delivery",
+      "before": {
+        "window": 3,
+        "window_max": 5,
+        "window_min": 2,
+        "fast_rate_rounds": 5,
+        "medium_rate_rounds": 7
+      },
+      "rtt": 1.0,
+      "after": {
+        "window": 4,
+        "window_max": 5,
+        "window_min": 2,
+        "fast_rate_rounds": 0,
+        "medium_rate_rounds": 0
+      },
+      "note": "RTT (1.0) > RTT_MEDIUM (0.75) \u2192 both fast_rate_rounds and medium_rate_rounds reset to 0"
+    },
+    {
+      "index": 6,
+      "description": "Delivery: RTT == 0, no rate adaptation",
+      "event": "delivery",
+      "before": {
+        "window": 2,
+        "window_max": 5,
+        "window_min": 2,
+        "fast_rate_rounds": 3,
+        "medium_rate_rounds": 3
+      },
+      "rtt": 0,
+      "after": {
+        "window": 3,
+        "window_max": 5,
+        "window_min": 2,
+        "fast_rate_rounds": 3,
+        "medium_rate_rounds": 3
+      },
+      "note": "RTT == 0 \u2192 rate adaptation block is skipped entirely; counters unchanged"
+    },
+    {
+      "index": 7,
+      "description": "Timeout: window and window_max both shrink",
+      "event": "timeout",
+      "before": {
+        "window": 4,
+        "window_max": 12,
+        "window_min": 2,
+        "window_flexibility": 4
+      },
+      "after": {
+        "window": 3,
+        "window_max": 11,
+        "window_min": 2,
+        "window_flexibility": 4
+      },
+      "note": "window (4) > window_min (2) \u2192 window -= 1 (4\u21923); window_max (12) > window_min + flexibility (2+4=6) \u2192 window_max -= 1 (12\u219211)"
+    },
+    {
+      "index": 8,
+      "description": "Timeout: window at minimum, no shrink",
+      "event": "timeout",
+      "before": {
+        "window": 2,
+        "window_max": 5,
+        "window_min": 2,
+        "window_flexibility": 4
+      },
+      "after": {
+        "window": 2,
+        "window_max": 5,
+        "window_min": 2,
+        "window_flexibility": 4
+      },
+      "note": "window (2) <= window_min (2) \u2192 no shrink; window_max (5) <= window_min + flexibility (2+4=6) \u2192 no max shrink"
+    },
+    {
+      "index": 9,
+      "description": "Timeout: both window and window_max shrink (fast link)",
+      "event": "timeout",
+      "before": {
+        "window": 20,
+        "window_max": 48,
+        "window_min": 16,
+        "window_flexibility": 4
+      },
+      "after": {
+        "window": 19,
+        "window_max": 47,
+        "window_min": 16,
+        "window_flexibility": 4
+      },
+      "note": "window (20) > window_min (16) \u2192 window -= 1 (20\u219219); window_max (48) > window_min + flexibility (16+4=20) \u2192 window_max -= 1 (48\u219247)"
+    },
+    {
+      "index": 10,
+      "description": "Timeout: window shrinks but window_max at floor",
+      "event": "timeout",
+      "before": {
+        "window": 4,
+        "window_max": 6,
+        "window_min": 2,
+        "window_flexibility": 4
+      },
+      "after": {
+        "window": 3,
+        "window_max": 6,
+        "window_min": 2,
+        "window_flexibility": 4
+      },
+      "note": "window (4) > window_min (2) \u2192 window -= 1 (4\u21923); window_max (6) > window_min + flexibility (2+4=6)? 6 > 6 is False \u2192 window_max unchanged"
+    }
+  ],
+  "timeout_vectors": [
+    {
+      "index": 0,
+      "description": "First try, fast RTT, empty queue",
+      "tries": 1,
+      "rtt": 0.01,
+      "tx_ring_length": 0,
+      "timeout": 0.0375,
+      "formula": "pow(1.5, tries-1) * max(rtt*2.5, 0.025) * (tx_ring_length + 1.5)",
+      "breakdown": {
+        "exponential_factor": 1.0,
+        "rtt_factor": 0.025,
+        "rtt_factor_note": "max(0.01*2.5, 0.025) = max(0.025, 0.025) = 0.025",
+        "ring_factor": 1.5
+      },
+      "computation": "1.0 * 0.025 * 1.5 = 0.0375"
+    },
+    {
+      "index": 1,
+      "description": "First try, fast RTT, 1 in queue",
+      "tries": 1,
+      "rtt": 0.01,
+      "tx_ring_length": 1,
+      "timeout": 0.0625,
+      "formula": "pow(1.5, tries-1) * max(rtt*2.5, 0.025) * (tx_ring_length + 1.5)",
+      "breakdown": {
+        "exponential_factor": 1.0,
+        "rtt_factor": 0.025,
+        "rtt_factor_note": "max(0.01*2.5, 0.025) = max(0.025, 0.025) = 0.025",
+        "ring_factor": 2.5
+      },
+      "computation": "1.0 * 0.025 * 2.5 = 0.0625"
+    },
+    {
+      "index": 2,
+      "description": "Second try, fast RTT, 1 in queue",
+      "tries": 2,
+      "rtt": 0.01,
+      "tx_ring_length": 1,
+      "timeout": 0.09375,
+      "formula": "pow(1.5, tries-1) * max(rtt*2.5, 0.025) * (tx_ring_length + 1.5)",
+      "breakdown": {
+        "exponential_factor": 1.5,
+        "rtt_factor": 0.025,
+        "rtt_factor_note": "max(0.01*2.5, 0.025) = max(0.025, 0.025) = 0.025",
+        "ring_factor": 2.5
+      },
+      "computation": "1.5 * 0.025 * 2.5 = 0.09375"
+    },
+    {
+      "index": 3,
+      "description": "Third try, medium RTT, 2 in queue",
+      "tries": 3,
+      "rtt": 0.5,
+      "tx_ring_length": 2,
+      "timeout": 9.84375,
+      "formula": "pow(1.5, tries-1) * max(rtt*2.5, 0.025) * (tx_ring_length + 1.5)",
+      "breakdown": {
+        "exponential_factor": 2.25,
+        "rtt_factor": 1.25,
+        "rtt_factor_note": "max(0.5*2.5, 0.025) = max(1.25, 0.025) = 1.25",
+        "ring_factor": 3.5
+      },
+      "computation": "2.25 * 1.25 * 3.5 = 9.84375"
+    },
+    {
+      "index": 4,
+      "description": "Fifth try, slow RTT, 5 in queue",
+      "tries": 5,
+      "rtt": 1.0,
+      "tx_ring_length": 5,
+      "timeout": 82.265625,
+      "formula": "pow(1.5, tries-1) * max(rtt*2.5, 0.025) * (tx_ring_length + 1.5)",
+      "breakdown": {
+        "exponential_factor": 5.0625,
+        "rtt_factor": 2.5,
+        "rtt_factor_note": "max(1.0*2.5, 0.025) = max(2.5, 0.025) = 2.5",
+        "ring_factor": 6.5
+      },
+      "computation": "5.0625 * 2.5 * 6.5 = 82.265625"
+    },
+    {
+      "index": 5,
+      "description": "First try, zero RTT, empty queue (floor kicks in)",
+      "tries": 1,
+      "rtt": 0.0,
+      "tx_ring_length": 0,
+      "timeout": 0.0375,
+      "formula": "pow(1.5, tries-1) * max(rtt*2.5, 0.025) * (tx_ring_length + 1.5)",
+      "breakdown": {
+        "exponential_factor": 1.0,
+        "rtt_factor": 0.025,
+        "rtt_factor_note": "max(0.0*2.5, 0.025) = max(0.0, 0.025) = 0.025",
+        "ring_factor": 1.5
+      },
+      "computation": "1.0 * 0.025 * 1.5 = 0.0375"
+    },
+    {
+      "index": 6,
+      "description": "First try, very low RTT (below floor), empty queue",
+      "tries": 1,
+      "rtt": 0.005,
+      "tx_ring_length": 0,
+      "timeout": 0.0375,
+      "formula": "pow(1.5, tries-1) * max(rtt*2.5, 0.025) * (tx_ring_length + 1.5)",
+      "breakdown": {
+        "exponential_factor": 1.0,
+        "rtt_factor": 0.025,
+        "rtt_factor_note": "max(0.005*2.5, 0.025) = max(0.0125, 0.025) = 0.025",
+        "ring_factor": 1.5
+      },
+      "computation": "1.0 * 0.025 * 1.5 = 0.0375"
+    },
+    {
+      "index": 7,
+      "description": "Fourth try, moderate RTT, 3 in queue",
+      "tries": 4,
+      "rtt": 0.3,
+      "tx_ring_length": 3,
+      "timeout": 11.390625,
+      "formula": "pow(1.5, tries-1) * max(rtt*2.5, 0.025) * (tx_ring_length + 1.5)",
+      "breakdown": {
+        "exponential_factor": 3.375,
+        "rtt_factor": 0.75,
+        "rtt_factor_note": "max(0.3*2.5, 0.025) = max(0.75, 0.025) = 0.75",
+        "ring_factor": 4.5
+      },
+      "computation": "3.375 * 0.75 * 4.5 = 11.390625"
+    }
+  ],
+  "mdu_vectors": [
+    {
+      "index": 0,
+      "description": "Standard outlet MDU (500)",
+      "outlet_mdu": 500,
+      "channel_mdu": 494,
+      "formula": "min(outlet_mdu - 6, 0xFFFF)",
+      "computation": "min(500 - 6, 65535) = min(494, 65535) = 494"
+    },
+    {
+      "index": 1,
+      "description": "Link MDU (431)",
+      "outlet_mdu": 431,
+      "channel_mdu": 425,
+      "formula": "min(outlet_mdu - 6, 0xFFFF)",
+      "computation": "min(431 - 6, 65535) = min(425, 65535) = 425"
+    },
+    {
+      "index": 2,
+      "description": "Small outlet MDU (100)",
+      "outlet_mdu": 100,
+      "channel_mdu": 94,
+      "formula": "min(outlet_mdu - 6, 0xFFFF)",
+      "computation": "min(100 - 6, 65535) = min(94, 65535) = 94"
+    },
+    {
+      "index": 3,
+      "description": "Minimum viable outlet MDU (6) \u2014 yields MDU of 0",
+      "outlet_mdu": 6,
+      "channel_mdu": 0,
+      "formula": "min(outlet_mdu - 6, 0xFFFF)",
+      "computation": "min(6 - 6, 65535) = min(0, 65535) = 0"
+    },
+    {
+      "index": 4,
+      "description": "Outlet MDU of 7 \u2014 yields MDU of 1",
+      "outlet_mdu": 7,
+      "channel_mdu": 1,
+      "formula": "min(outlet_mdu - 6, 0xFFFF)",
+      "computation": "min(7 - 6, 65535) = min(1, 65535) = 1"
+    },
+    {
+      "index": 5,
+      "description": "Very large outlet MDU \u2014 capped at 0xFFFF",
+      "outlet_mdu": 70000,
+      "channel_mdu": 65535,
+      "formula": "min(outlet_mdu - 6, 0xFFFF)",
+      "computation": "min(70000 - 6, 65535) = min(69994, 65535) = 65535"
+    }
+  ],
+  "system_message_vectors": [
+    {
+      "msgtype": 0,
+      "msgtype_hex": "0x0000",
+      "description": "Minimum user type",
+      "is_system": false,
+      "is_valid_user_type": true
+    },
+    {
+      "msgtype": 1,
+      "msgtype_hex": "0x0001",
+      "description": "Low user type",
+      "is_system": false,
+      "is_valid_user_type": true
+    },
+    {
+      "msgtype": 43981,
+      "msgtype_hex": "0xabcd",
+      "description": "Typical user type",
+      "is_system": false,
+      "is_valid_user_type": true
+    },
+    {
+      "msgtype": 61439,
+      "msgtype_hex": "0xefff",
+      "description": "Maximum user type",
+      "is_system": false,
+      "is_valid_user_type": true
+    },
+    {
+      "msgtype": 61440,
+      "msgtype_hex": "0xf000",
+      "description": "Minimum system type (boundary)",
+      "is_system": true,
+      "is_valid_user_type": false
+    },
+    {
+      "msgtype": 65280,
+      "msgtype_hex": "0xff00",
+      "description": "SMT_STREAM_DATA",
+      "is_system": true,
+      "is_valid_user_type": false
+    },
+    {
+      "msgtype": 65535,
+      "msgtype_hex": "0xffff",
+      "description": "Maximum system type",
+      "is_system": true,
+      "is_valid_user_type": false
+    }
+  ],
+  "round_trip_vectors": [
+    {
+      "index": 0,
+      "description": "Simple message round-trip (pack \u2192 envelope \u2192 decode)",
+      "message": {
+        "id": "rt-test-001",
+        "data": "round trip test",
+        "msgtype": 43981
+      },
+      "message_packed_hex": "92ab72742d746573742d303031af726f756e6420747269702074657374",
+      "sequence": 42,
+      "envelope_raw_hex": "abcd002a001d92ab72742d746573742d303031af726f756e6420747269702074657374",
+      "envelope_length": 35,
+      "decoded_msgtype": 43981,
+      "decoded_sequence": 42,
+      "decoded_data_length": 29,
+      "decoded_message_id": "rt-test-001",
+      "decoded_message_data": "round trip test",
+      "verified": true
+    },
+    {
+      "index": 1,
+      "description": "StreamDataMessage round-trip via channel envelope",
+      "stream_id": 7,
+      "stream_data_hex": "73747265616d207061796c6f61642064617461",
+      "stream_msg_packed_hex": "000773747265616d207061796c6f61642064617461",
+      "envelope_msgtype": 65280,
+      "envelope_sequence": 0,
+      "envelope_raw_hex": "ff0000000015000773747265616d207061796c6f61642064617461",
+      "envelope_length": 27,
+      "decoded_envelope_msgtype": 65280,
+      "decoded_envelope_sequence": 0,
+      "decoded_stream_id": 7,
+      "decoded_stream_eof": false,
+      "decoded_stream_compressed": false,
+      "decoded_stream_data_hex": "73747265616d207061796c6f61642064617461",
+      "verified": true
+    },
+    {
+      "index": 2,
+      "description": "Message at SEQ_MAX (65535) \u2014 wraparound boundary",
+      "message": {
+        "id": "wrap-test",
+        "data": "at max sequence",
+        "msgtype": 4660
+      },
+      "message_packed_hex": "92a9777261702d74657374af6174206d61782073657175656e6365",
+      "sequence": 65535,
+      "next_sequence": 0,
+      "envelope_raw_hex": "1234ffff001b92a9777261702d74657374af6174206d61782073657175656e6365",
+      "envelope_length": 33,
+      "decoded_msgtype": 4660,
+      "decoded_sequence": 65535,
+      "decoded_message_id": "wrap-test",
+      "decoded_message_data": "at max sequence",
+      "verified": true
+    }
+  ],
+  "send_receive_vectors": [
+    {
+      "index": 0,
+      "type": "tx_send_progression",
+      "description": "3 sends with seq 0,1,2 using Alpha and Beta types; tracks _next_sequence state",
+      "steps": [
+        {
+          "step": 0,
+          "message_type": "Alpha",
+          "msgtype": 43981,
+          "msgtype_hex": "0xabcd",
+          "tx_sequence_before": 0,
+          "tx_sequence_after": 1,
+          "message_packed_hex": "92ab616c7068612d6d73672d30a568656c6c6f",
+          "message_packed_length": 19,
+          "envelope_raw_hex": "abcd0000001392ab616c7068612d6d73672d30a568656c6c6f",
+          "envelope_length": 25
+        },
+        {
+          "step": 1,
+          "message_type": "Beta",
+          "msgtype": 4660,
+          "msgtype_hex": "0x1234",
+          "tx_sequence_before": 1,
+          "tx_sequence_after": 2,
+          "message_packed_hex": "92aa626574612d6d73672d31c404deadbeef",
+          "message_packed_length": 18,
+          "envelope_raw_hex": "12340001001292aa626574612d6d73672d31c404deadbeef",
+          "envelope_length": 24
+        },
+        {
+          "step": 2,
+          "message_type": "Alpha",
+          "msgtype": 43981,
+          "msgtype_hex": "0xabcd",
+          "tx_sequence_before": 2,
+          "tx_sequence_after": 3,
+          "message_packed_hex": "92ab616c7068612d6d73672d32ae7465737420726f756e642074776f",
+          "message_packed_length": 28,
+          "envelope_raw_hex": "abcd0002001c92ab616c7068612d6d73672d32ae7465737420726f756e642074776f",
+          "envelope_length": 34
+        }
+      ],
+      "final_next_sequence": 3
+    },
+    {
+      "index": 1,
+      "type": "rx_receive_progression",
+      "description": "3 receives of the same envelopes; MSGTYPE-based factory dispatch; tracks _next_rx_sequence state",
+      "steps": [
+        {
+          "step": 0,
+          "envelope_raw_hex": "abcd0000001392ab616c7068612d6d73672d30a568656c6c6f",
+          "rx_sequence_before": 0,
+          "rx_sequence_after": 1,
+          "decoded_msgtype": 43981,
+          "decoded_msgtype_hex": "0xabcd",
+          "decoded_sequence": 0,
+          "decoded_data_length": 19,
+          "factory_used": "Alpha",
+          "decoded_fields": [
+            {
+              "type": "str",
+              "value": "alpha-msg-0"
+            },
+            {
+              "type": "str",
+              "value": "hello"
+            }
+          ]
+        },
+        {
+          "step": 1,
+          "envelope_raw_hex": "12340001001292aa626574612d6d73672d31c404deadbeef",
+          "rx_sequence_before": 1,
+          "rx_sequence_after": 2,
+          "decoded_msgtype": 4660,
+          "decoded_msgtype_hex": "0x1234",
+          "decoded_sequence": 1,
+          "decoded_data_length": 18,
+          "factory_used": "Beta",
+          "decoded_fields": [
+            {
+              "type": "str",
+              "value": "beta-msg-1"
+            },
+            {
+              "type": "bytes",
+              "hex": "deadbeef"
+            }
+          ]
+        },
+        {
+          "step": 2,
+          "envelope_raw_hex": "abcd0002001c92ab616c7068612d6d73672d32ae7465737420726f756e642074776f",
+          "rx_sequence_before": 2,
+          "rx_sequence_after": 3,
+          "decoded_msgtype": 43981,
+          "decoded_msgtype_hex": "0xabcd",
+          "decoded_sequence": 2,
+          "decoded_data_length": 28,
+          "factory_used": "Alpha",
+          "decoded_fields": [
+            {
+              "type": "str",
+              "value": "alpha-msg-2"
+            },
+            {
+              "type": "str",
+              "value": "test round two"
+            }
+          ]
+        }
+      ],
+      "final_next_rx_sequence": 3
+    },
+    {
+      "index": 2,
+      "type": "non_serialized_field_loss",
+      "description": "Fields not in pack() don't survive round-trip unpack()",
+      "original_fields": {
+        "id": "field-loss-test",
+        "data": "some data",
+        "timestamp": "2025-01-01T00:00:00Z"
+      },
+      "serialized_fields": [
+        "id",
+        "data"
+      ],
+      "non_serialized_fields": [
+        "timestamp"
+      ],
+      "packed_hex": "92af6669656c642d6c6f73732d74657374a9736f6d652064617461",
+      "packed_length": 27,
+      "unpacked_fields": [
+        "field-loss-test",
+        "some data"
+      ],
+      "unpacked_field_count": 2,
+      "timestamp_preserved": false,
+      "note": "Only fields included in pack() survive; timestamp is lost"
+    },
+    {
+      "index": 3,
+      "type": "full_round_trip",
+      "description": "Complete send-receive integrity check for Alpha message",
+      "message_type": "Alpha",
+      "msgtype": 43981,
+      "msgtype_hex": "0xabcd",
+      "original_id": "alpha-rt-001",
+      "original_data": "alpha round trip verification",
+      "sequence": 42,
+      "message_packed_hex": "92ac616c7068612d72742d303031bd616c70686120726f756e64207472697020766572696669636174696f6e",
+      "envelope_raw_hex": "abcd002a002c92ac616c7068612d72742d303031bd616c70686120726f756e64207472697020766572696669636174696f6e",
+      "envelope_length": 50,
+      "decoded_msgtype": 43981,
+      "decoded_sequence": 42,
+      "decoded_data_length": 44,
+      "decoded_id": "alpha-rt-001",
+      "decoded_data": "alpha round trip verification",
+      "verified": true
+    },
+    {
+      "index": 4,
+      "type": "full_round_trip",
+      "description": "Complete send-receive integrity check for Beta message",
+      "message_type": "Beta",
+      "msgtype": 4660,
+      "msgtype_hex": "0x1234",
+      "original_tag": "beta-rt-002",
+      "original_payload_hex": "cafebabe00ff0102",
+      "sequence": 99,
+      "message_packed_hex": "92ab626574612d72742d303032c408cafebabe00ff0102",
+      "envelope_raw_hex": "12340063001792ab626574612d72742d303032c408cafebabe00ff0102",
+      "envelope_length": 29,
+      "decoded_msgtype": 4660,
+      "decoded_sequence": 99,
+      "decoded_data_length": 23,
+      "decoded_tag": "beta-rt-002",
+      "decoded_payload_hex": "cafebabe00ff0102",
+      "verified": true
+    }
+  ],
+  "handler_chaining_vectors": [
+    {
+      "index": 0,
+      "description": "Single handler returns True \u2014 short-circuits at handler_0",
+      "handlers": [
+        {
+          "name": "handler_0",
+          "returns": true,
+          "raises": null
+        }
+      ],
+      "message_envelope_hex": "abcd0000001e92b268616e646c65722d636861696e2d74657374a9746573742064617461",
+      "message_msgtype": 43981,
+      "message_msgtype_hex": "0xabcd",
+      "expected_calls": [
+        "handler_0"
+      ],
+      "expected_call_count": 1,
+      "short_circuited": true,
+      "short_circuit_handler": "handler_0"
+    },
+    {
+      "index": 1,
+      "description": "Single handler returns False \u2014 no short-circuit",
+      "handlers": [
+        {
+          "name": "handler_0",
+          "returns": false,
+          "raises": null
+        }
+      ],
+      "message_envelope_hex": "abcd0000001e92b268616e646c65722d636861696e2d74657374a9746573742064617461",
+      "message_msgtype": 43981,
+      "message_msgtype_hex": "0xabcd",
+      "expected_calls": [
+        "handler_0"
+      ],
+      "expected_call_count": 1,
+      "short_circuited": false,
+      "short_circuit_handler": null
+    },
+    {
+      "index": 2,
+      "description": "Single handler returns None \u2014 no short-circuit (None is falsy)",
+      "handlers": [
+        {
+          "name": "handler_0",
+          "returns": null,
+          "raises": null
+        }
+      ],
+      "message_envelope_hex": "abcd0000001e92b268616e646c65722d636861696e2d74657374a9746573742064617461",
+      "message_msgtype": 43981,
+      "message_msgtype_hex": "0xabcd",
+      "expected_calls": [
+        "handler_0"
+      ],
+      "expected_call_count": 1,
+      "short_circuited": false,
+      "short_circuit_handler": null
+    },
+    {
+      "index": 3,
+      "description": "Two handlers, first returns True \u2014 short-circuits at handler_0, handler_1 not called",
+      "handlers": [
+        {
+          "name": "handler_0",
+          "returns": true,
+          "raises": null
+        },
+        {
+          "name": "handler_1",
+          "returns": false,
+          "raises": null
+        }
+      ],
+      "message_envelope_hex": "abcd0000001e92b268616e646c65722d636861696e2d74657374a9746573742064617461",
+      "message_msgtype": 43981,
+      "message_msgtype_hex": "0xabcd",
+      "expected_calls": [
+        "handler_0"
+      ],
+      "expected_call_count": 1,
+      "short_circuited": true,
+      "short_circuit_handler": "handler_0"
+    },
+    {
+      "index": 4,
+      "description": "Two handlers, first returns False, second returns True \u2014 short-circuits at handler_1",
+      "handlers": [
+        {
+          "name": "handler_0",
+          "returns": false,
+          "raises": null
+        },
+        {
+          "name": "handler_1",
+          "returns": true,
+          "raises": null
+        }
+      ],
+      "message_envelope_hex": "abcd0000001e92b268616e646c65722d636861696e2d74657374a9746573742064617461",
+      "message_msgtype": 43981,
+      "message_msgtype_hex": "0xabcd",
+      "expected_calls": [
+        "handler_0",
+        "handler_1"
+      ],
+      "expected_call_count": 2,
+      "short_circuited": true,
+      "short_circuit_handler": "handler_1"
+    },
+    {
+      "index": 5,
+      "description": "Two handlers, both return False \u2014 no short-circuit, all called",
+      "handlers": [
+        {
+          "name": "handler_0",
+          "returns": false,
+          "raises": null
+        },
+        {
+          "name": "handler_1",
+          "returns": false,
+          "raises": null
+        }
+      ],
+      "message_envelope_hex": "abcd0000001e92b268616e646c65722d636861696e2d74657374a9746573742064617461",
+      "message_msgtype": 43981,
+      "message_msgtype_hex": "0xabcd",
+      "expected_calls": [
+        "handler_0",
+        "handler_1"
+      ],
+      "expected_call_count": 2,
+      "short_circuited": false,
+      "short_circuit_handler": null
+    },
+    {
+      "index": 6,
+      "description": "Three handlers, middle returns True \u2014 short-circuits at handler_1, handler_2 not called",
+      "handlers": [
+        {
+          "name": "handler_0",
+          "returns": false,
+          "raises": null
+        },
+        {
+          "name": "handler_1",
+          "returns": true,
+          "raises": null
+        },
+        {
+          "name": "handler_2",
+          "returns": false,
+          "raises": null
+        }
+      ],
+      "message_envelope_hex": "abcd0000001e92b268616e646c65722d636861696e2d74657374a9746573742064617461",
+      "message_msgtype": 43981,
+      "message_msgtype_hex": "0xabcd",
+      "expected_calls": [
+        "handler_0",
+        "handler_1"
+      ],
+      "expected_call_count": 2,
+      "short_circuited": true,
+      "short_circuit_handler": "handler_1"
+    },
+    {
+      "index": 7,
+      "description": "First handler raises exception (caught), second returns True \u2014 short-circuits at handler_1",
+      "handlers": [
+        {
+          "name": "handler_0",
+          "returns": null,
+          "raises": "ValueError"
+        },
+        {
+          "name": "handler_1",
+          "returns": true,
+          "raises": null
+        }
+      ],
+      "message_envelope_hex": "abcd0000001e92b268616e646c65722d636861696e2d74657374a9746573742064617461",
+      "message_msgtype": 43981,
+      "message_msgtype_hex": "0xabcd",
+      "expected_calls": [
+        "handler_0",
+        "handler_1"
+      ],
+      "expected_call_count": 2,
+      "short_circuited": true,
+      "short_circuit_handler": "handler_1"
+    },
+    {
+      "index": 8,
+      "description": "Only handler raises exception \u2014 caught and logged, no short-circuit",
+      "handlers": [
+        {
+          "name": "handler_0",
+          "returns": null,
+          "raises": "RuntimeError"
+        }
+      ],
+      "message_envelope_hex": "abcd0000001e92b268616e646c65722d636861696e2d74657374a9746573742064617461",
+      "message_msgtype": 43981,
+      "message_msgtype_hex": "0xabcd",
+      "expected_calls": [
+        "handler_0"
+      ],
+      "expected_call_count": 1,
+      "short_circuited": false,
+      "short_circuit_handler": null
+    },
+    {
+      "index": 9,
+      "description": "Duplicate handler prevention \u2014 handler_0 added twice (second ignored), handler_1 returns True",
+      "handlers": [
+        {
+          "name": "handler_0",
+          "returns": false,
+          "raises": null
+        },
+        {
+          "name": "handler_0_duplicate",
+          "returns": false,
+          "raises": null,
+          "note": "Same callable as handler_0; add_message_handler silently ignores duplicate"
+        },
+        {
+          "name": "handler_1",
+          "returns": true,
+          "raises": null
+        }
+      ],
+      "effective_handlers": [
+        "handler_0",
+        "handler_1"
+      ],
+      "message_envelope_hex": "abcd0000001e92b268616e646c65722d636861696e2d74657374a9746573742064617461",
+      "message_msgtype": 43981,
+      "message_msgtype_hex": "0xabcd",
+      "expected_calls": [
+        "handler_0",
+        "handler_1"
+      ],
+      "expected_call_count": 2,
+      "short_circuited": true,
+      "short_circuit_handler": "handler_1"
+    }
+  ],
+  "registration_validation_vectors": [
+    {
+      "index": 0,
+      "description": "Valid user type (0xABCD) \u2014 all validation gates pass",
+      "msgtype": 43981,
+      "msgtype_hex": "0xabcd",
+      "is_subclass_of_message_base": true,
+      "msgtype_is_none": false,
+      "constructor_succeeds": true,
+      "use_internal_api": false,
+      "is_system_type_flag": false,
+      "expected_result": "success",
+      "validation_gate": null,
+      "ce_type": null,
+      "factory_registered": true
+    },
+    {
+      "index": 1,
+      "description": "MSGTYPE is None \u2014 fails msgtype_none gate",
+      "msgtype": null,
+      "msgtype_hex": null,
+      "is_subclass_of_message_base": true,
+      "msgtype_is_none": true,
+      "constructor_succeeds": true,
+      "use_internal_api": false,
+      "is_system_type_flag": false,
+      "expected_result": "raises",
+      "validation_gate": "msgtype_none",
+      "ce_type": 1,
+      "factory_registered": false
+    },
+    {
+      "index": 2,
+      "description": "Not a MessageBase subclass \u2014 fails subclass gate",
+      "msgtype": 43981,
+      "msgtype_hex": "0xabcd",
+      "is_subclass_of_message_base": false,
+      "msgtype_is_none": false,
+      "constructor_succeeds": true,
+      "use_internal_api": false,
+      "is_system_type_flag": false,
+      "expected_result": "raises",
+      "validation_gate": "subclass",
+      "ce_type": 1,
+      "factory_registered": false
+    },
+    {
+      "index": 3,
+      "description": "System type (0xF000) via public register_message_type \u2014 fails system_type gate",
+      "msgtype": 61440,
+      "msgtype_hex": "0xf000",
+      "is_subclass_of_message_base": true,
+      "msgtype_is_none": false,
+      "constructor_succeeds": true,
+      "use_internal_api": false,
+      "is_system_type_flag": false,
+      "expected_result": "raises",
+      "validation_gate": "system_type",
+      "ce_type": 1,
+      "factory_registered": false
+    },
+    {
+      "index": 4,
+      "description": "System type (0xF000) via _register_message_type with is_system_type=True \u2014 succeeds",
+      "msgtype": 61440,
+      "msgtype_hex": "0xf000",
+      "is_subclass_of_message_base": true,
+      "msgtype_is_none": false,
+      "constructor_succeeds": true,
+      "use_internal_api": true,
+      "is_system_type_flag": true,
+      "expected_result": "success",
+      "validation_gate": null,
+      "ce_type": null,
+      "factory_registered": true
+    },
+    {
+      "index": 5,
+      "description": "System type (0xFFFF) via public register_message_type \u2014 fails system_type gate",
+      "msgtype": 65535,
+      "msgtype_hex": "0xffff",
+      "is_subclass_of_message_base": true,
+      "msgtype_is_none": false,
+      "constructor_succeeds": true,
+      "use_internal_api": false,
+      "is_system_type_flag": false,
+      "expected_result": "raises",
+      "validation_gate": "system_type",
+      "ce_type": 1,
+      "factory_registered": false
+    },
+    {
+      "index": 6,
+      "description": "Max user type (0xEFFF) \u2014 just below system boundary, all gates pass",
+      "msgtype": 61439,
+      "msgtype_hex": "0xefff",
+      "is_subclass_of_message_base": true,
+      "msgtype_is_none": false,
+      "constructor_succeeds": true,
+      "use_internal_api": false,
+      "is_system_type_flag": false,
+      "expected_result": "success",
+      "validation_gate": null,
+      "ce_type": null,
+      "factory_registered": true
+    },
+    {
+      "index": 7,
+      "description": "No-arg constructor raises exception \u2014 fails constructor gate",
+      "msgtype": 48059,
+      "msgtype_hex": "0xbbbb",
+      "is_subclass_of_message_base": true,
+      "msgtype_is_none": false,
+      "constructor_succeeds": false,
+      "use_internal_api": false,
+      "is_system_type_flag": false,
+      "expected_result": "raises",
+      "validation_gate": "constructor",
+      "ce_type": 1,
+      "factory_registered": false
+    }
+  ],
+  "sequence_dedup_vectors": [
+    {
+      "index": 0,
+      "description": "Basic duplicate rejection: in-ring duplicate and post-delivery old sequence",
+      "initial_state": {
+        "ring": [],
+        "next_rx_sequence": 5
+      },
+      "steps": [
+        {
+          "step": 0,
+          "incoming_sequence": 5,
+          "envelope_raw_hex": "abcd0005001292aa64656475702d74657374a56d73672d35",
+          "accepted": true,
+          "reason": "accepted",
+          "delivered_sequences": [
+            5
+          ],
+          "ring_after": [],
+          "next_rx_after": 6
+        },
+        {
+          "step": 1,
+          "incoming_sequence": 7,
+          "envelope_raw_hex": "abcd0007001292aa64656475702d74657374a56d73672d37",
+          "accepted": true,
+          "reason": "accepted",
+          "delivered_sequences": [],
+          "ring_after": [
+            7
+          ],
+          "next_rx_after": 6
+        },
+        {
+          "step": 2,
+          "incoming_sequence": 7,
+          "envelope_raw_hex": "abcd0007001692aa64656475702d74657374a96d73672d372d647570",
+          "accepted": false,
+          "reason": "duplicate_rejected",
+          "delivered_sequences": [],
+          "ring_after": [
+            7
+          ],
+          "next_rx_after": 6
+        },
+        {
+          "step": 3,
+          "incoming_sequence": 5,
+          "envelope_raw_hex": "abcd0005001692aa64656475702d74657374a96d73672d352d6f6c64",
+          "accepted": false,
+          "reason": "old_sequence_rejected",
+          "delivered_sequences": [],
+          "ring_after": [
+            7
+          ],
+          "next_rx_after": 6
+        }
+      ]
+    },
+    {
+      "index": 1,
+      "description": "Out-of-order arrival (2,0,1) with contiguous in-order delivery",
+      "initial_state": {
+        "ring": [],
+        "next_rx_sequence": 0
+      },
+      "steps": [
+        {
+          "step": 0,
+          "incoming_sequence": 2,
+          "envelope_raw_hex": "abcd0002001292aa64656475702d74657374a56d73672d32",
+          "accepted": true,
+          "reason": "accepted",
+          "delivered_sequences": [],
+          "ring_after": [
+            2
+          ],
+          "next_rx_after": 0
+        },
+        {
+          "step": 1,
+          "incoming_sequence": 0,
+          "envelope_raw_hex": "abcd0000001292aa64656475702d74657374a56d73672d30",
+          "accepted": true,
+          "reason": "accepted",
+          "delivered_sequences": [
+            0
+          ],
+          "ring_after": [
+            2
+          ],
+          "next_rx_after": 1
+        },
+        {
+          "step": 2,
+          "incoming_sequence": 1,
+          "envelope_raw_hex": "abcd0001001292aa64656475702d74657374a56d73672d31",
+          "accepted": true,
+          "reason": "accepted",
+          "delivered_sequences": [
+            1,
+            2
+          ],
+          "ring_after": [],
+          "next_rx_after": 3
+        }
+      ]
+    },
+    {
+      "index": 2,
+      "description": "Gap with partial delivery: 0,1 delivered; 3,4 buffered; 2 fills gap delivering 2,3,4",
+      "initial_state": {
+        "ring": [],
+        "next_rx_sequence": 0
+      },
+      "steps": [
+        {
+          "step": 0,
+          "incoming_sequence": 0,
+          "envelope_raw_hex": "abcd0000001292aa64656475702d74657374a56d73672d30",
+          "accepted": true,
+          "reason": "accepted",
+          "delivered_sequences": [
+            0
+          ],
+          "ring_after": [],
+          "next_rx_after": 1
+        },
+        {
+          "step": 1,
+          "incoming_sequence": 1,
+          "envelope_raw_hex": "abcd0001001292aa64656475702d74657374a56d73672d31",
+          "accepted": true,
+          "reason": "accepted",
+          "delivered_sequences": [
+            1
+          ],
+          "ring_after": [],
+          "next_rx_after": 2
+        },
+        {
+          "step": 2,
+          "incoming_sequence": 3,
+          "envelope_raw_hex": "abcd0003001292aa64656475702d74657374a56d73672d33",
+          "accepted": true,
+          "reason": "accepted",
+          "delivered_sequences": [],
+          "ring_after": [
+            3
+          ],
+          "next_rx_after": 2
+        },
+        {
+          "step": 3,
+          "incoming_sequence": 4,
+          "envelope_raw_hex": "abcd0004001292aa64656475702d74657374a56d73672d34",
+          "accepted": true,
+          "reason": "accepted",
+          "delivered_sequences": [],
+          "ring_after": [
+            3,
+            4
+          ],
+          "next_rx_after": 2
+        },
+        {
+          "step": 4,
+          "incoming_sequence": 2,
+          "envelope_raw_hex": "abcd0002001292aa64656475702d74657374a56d73672d32",
+          "accepted": true,
+          "reason": "accepted",
+          "delivered_sequences": [
+            2,
+            3,
+            4
+          ],
+          "ring_after": [],
+          "next_rx_after": 5
+        }
+      ]
+    },
+    {
+      "index": 3,
+      "description": "Wraparound during contiguous delivery: seq 65534,65535,0 delivered across boundary",
+      "initial_state": {
+        "ring": [],
+        "next_rx_sequence": 65534
+      },
+      "steps": [
+        {
+          "step": 0,
+          "incoming_sequence": 65534,
+          "envelope_raw_hex": "abcdfffe001692aa64656475702d74657374a96d73672d3635353334",
+          "accepted": true,
+          "reason": "accepted",
+          "delivered_sequences": [
+            65534
+          ],
+          "ring_after": [],
+          "next_rx_after": 65535
+        },
+        {
+          "step": 1,
+          "incoming_sequence": 65535,
+          "envelope_raw_hex": "abcdffff001692aa64656475702d74657374a96d73672d3635353335",
+          "accepted": true,
+          "reason": "accepted",
+          "delivered_sequences": [
+            65535
+          ],
+          "ring_after": [],
+          "next_rx_after": 0
+        },
+        {
+          "step": 2,
+          "incoming_sequence": 0,
+          "envelope_raw_hex": "abcd0000001292aa64656475702d74657374a56d73672d30",
+          "accepted": true,
+          "reason": "accepted",
+          "delivered_sequences": [
+            0
+          ],
+          "ring_after": [],
+          "next_rx_after": 1
+        }
+      ]
+    },
+    {
+      "index": 4,
+      "description": "Duplicate across wraparound: deliver 65534-1, then reject old 65535 and old 0",
+      "initial_state": {
+        "ring": [],
+        "next_rx_sequence": 65534
+      },
+      "steps": [
+        {
+          "step": 0,
+          "incoming_sequence": 65534,
+          "envelope_raw_hex": "abcdfffe001692aa64656475702d74657374a96d73672d3635353334",
+          "accepted": true,
+          "reason": "accepted",
+          "delivered_sequences": [
+            65534
+          ],
+          "ring_after": [],
+          "next_rx_after": 65535
+        },
+        {
+          "step": 1,
+          "incoming_sequence": 65535,
+          "envelope_raw_hex": "abcdffff001692aa64656475702d74657374a96d73672d3635353335",
+          "accepted": true,
+          "reason": "accepted",
+          "delivered_sequences": [
+            65535
+          ],
+          "ring_after": [],
+          "next_rx_after": 0
+        },
+        {
+          "step": 2,
+          "incoming_sequence": 0,
+          "envelope_raw_hex": "abcd0000001292aa64656475702d74657374a56d73672d30",
+          "accepted": true,
+          "reason": "accepted",
+          "delivered_sequences": [
+            0
+          ],
+          "ring_after": [],
+          "next_rx_after": 1
+        },
+        {
+          "step": 3,
+          "incoming_sequence": 1,
+          "envelope_raw_hex": "abcd0001001292aa64656475702d74657374a56d73672d31",
+          "accepted": true,
+          "reason": "accepted",
+          "delivered_sequences": [
+            1
+          ],
+          "ring_after": [],
+          "next_rx_after": 2
+        },
+        {
+          "step": 4,
+          "incoming_sequence": 65535,
+          "envelope_raw_hex": "abcdffff001a92aa64656475702d74657374ad6d73672d36353533352d6f6c64",
+          "accepted": true,
+          "reason": "accepted",
+          "delivered_sequences": [],
+          "ring_after": [
+            65535
+          ],
+          "next_rx_after": 2
+        },
+        {
+          "step": 5,
+          "incoming_sequence": 0,
+          "envelope_raw_hex": "abcd0000001692aa64656475702d74657374a96d73672d302d6f6c64",
+          "accepted": false,
+          "reason": "old_sequence_rejected",
+          "delivered_sequences": [],
+          "ring_after": [
+            65535
+          ],
+          "next_rx_after": 2
+        }
+      ]
+    },
+    {
+      "index": 5,
+      "description": "Ring ordering: 6 out-of-order inserts maintain sorted ring with contiguous delivery",
+      "initial_state": {
+        "ring": [],
+        "next_rx_sequence": 10
+      },
+      "steps": [
+        {
+          "step": 0,
+          "incoming_sequence": 15,
+          "envelope_raw_hex": "abcd000f001392aa64656475702d74657374a66d73672d3135",
+          "accepted": true,
+          "reason": "accepted",
+          "delivered_sequences": [],
+          "ring_after": [
+            15
+          ],
+          "next_rx_after": 10
+        },
+        {
+          "step": 1,
+          "incoming_sequence": 12,
+          "envelope_raw_hex": "abcd000c001392aa64656475702d74657374a66d73672d3132",
+          "accepted": true,
+          "reason": "accepted",
+          "delivered_sequences": [],
+          "ring_after": [
+            12,
+            15
+          ],
+          "next_rx_after": 10
+        },
+        {
+          "step": 2,
+          "incoming_sequence": 18,
+          "envelope_raw_hex": "abcd0012001392aa64656475702d74657374a66d73672d3138",
+          "accepted": true,
+          "reason": "accepted",
+          "delivered_sequences": [],
+          "ring_after": [
+            12,
+            15,
+            18
+          ],
+          "next_rx_after": 10
+        },
+        {
+          "step": 3,
+          "incoming_sequence": 10,
+          "envelope_raw_hex": "abcd000a001392aa64656475702d74657374a66d73672d3130",
+          "accepted": true,
+          "reason": "accepted",
+          "delivered_sequences": [
+            10
+          ],
+          "ring_after": [
+            12,
+            15,
+            18
+          ],
+          "next_rx_after": 11
+        },
+        {
+          "step": 4,
+          "incoming_sequence": 14,
+          "envelope_raw_hex": "abcd000e001392aa64656475702d74657374a66d73672d3134",
+          "accepted": true,
+          "reason": "accepted",
+          "delivered_sequences": [],
+          "ring_after": [
+            12,
+            14,
+            15,
+            18
+          ],
+          "next_rx_after": 11
+        },
+        {
+          "step": 5,
+          "incoming_sequence": 11,
+          "envelope_raw_hex": "abcd000b001392aa64656475702d74657374a66d73672d3131",
+          "accepted": true,
+          "reason": "accepted",
+          "delivered_sequences": [
+            11,
+            12
+          ],
+          "ring_after": [
+            14,
+            15,
+            18
+          ],
+          "next_rx_after": 13
+        }
+      ]
+    },
+    {
+      "index": 6,
+      "type": "tx_wraparound_progression",
+      "description": "Extended TX progression: 12 sends from seq 65530, crossing 65535\u21920 boundary",
+      "initial_tx_sequence": 65530,
+      "steps": [
+        {
+          "step": 0,
+          "tx_sequence": 65530,
+          "envelope_raw_hex": "abcdfffa001592aa64656475702d74657374a874782d6d73672d30",
+          "next_tx_sequence": 65531
+        },
+        {
+          "step": 1,
+          "tx_sequence": 65531,
+          "envelope_raw_hex": "abcdfffb001592aa64656475702d74657374a874782d6d73672d31",
+          "next_tx_sequence": 65532
+        },
+        {
+          "step": 2,
+          "tx_sequence": 65532,
+          "envelope_raw_hex": "abcdfffc001592aa64656475702d74657374a874782d6d73672d32",
+          "next_tx_sequence": 65533
+        },
+        {
+          "step": 3,
+          "tx_sequence": 65533,
+          "envelope_raw_hex": "abcdfffd001592aa64656475702d74657374a874782d6d73672d33",
+          "next_tx_sequence": 65534
+        },
+        {
+          "step": 4,
+          "tx_sequence": 65534,
+          "envelope_raw_hex": "abcdfffe001592aa64656475702d74657374a874782d6d73672d34",
+          "next_tx_sequence": 65535
+        },
+        {
+          "step": 5,
+          "tx_sequence": 65535,
+          "envelope_raw_hex": "abcdffff001592aa64656475702d74657374a874782d6d73672d35",
+          "next_tx_sequence": 0
+        },
+        {
+          "step": 6,
+          "tx_sequence": 0,
+          "envelope_raw_hex": "abcd0000001592aa64656475702d74657374a874782d6d73672d36",
+          "next_tx_sequence": 1
+        },
+        {
+          "step": 7,
+          "tx_sequence": 1,
+          "envelope_raw_hex": "abcd0001001592aa64656475702d74657374a874782d6d73672d37",
+          "next_tx_sequence": 2
+        },
+        {
+          "step": 8,
+          "tx_sequence": 2,
+          "envelope_raw_hex": "abcd0002001592aa64656475702d74657374a874782d6d73672d38",
+          "next_tx_sequence": 3
+        },
+        {
+          "step": 9,
+          "tx_sequence": 3,
+          "envelope_raw_hex": "abcd0003001592aa64656475702d74657374a874782d6d73672d39",
+          "next_tx_sequence": 4
+        },
+        {
+          "step": 10,
+          "tx_sequence": 4,
+          "envelope_raw_hex": "abcd0004001692aa64656475702d74657374a974782d6d73672d3130",
+          "next_tx_sequence": 5
+        },
+        {
+          "step": 11,
+          "tx_sequence": 5,
+          "envelope_raw_hex": "abcd0005001692aa64656475702d74657374a974782d6d73672d3131",
+          "next_tx_sequence": 6
+        }
+      ],
+      "final_tx_sequence": 6
+    },
+    {
+      "index": 7,
+      "description": "Wraparound-aware ring ordering: next_rx=65533, arrivals 0,65535,65534,65533 sort correctly",
+      "initial_state": {
+        "ring": [],
+        "next_rx_sequence": 65533
+      },
+      "steps": [
+        {
+          "step": 0,
+          "incoming_sequence": 0,
+          "envelope_raw_hex": "abcd0000001292aa64656475702d74657374a56d73672d30",
+          "accepted": true,
+          "reason": "accepted",
+          "delivered_sequences": [],
+          "ring_after": [
+            0
+          ],
+          "next_rx_after": 65533
+        },
+        {
+          "step": 1,
+          "incoming_sequence": 65535,
+          "envelope_raw_hex": "abcdffff001692aa64656475702d74657374a96d73672d3635353335",
+          "accepted": true,
+          "reason": "accepted",
+          "delivered_sequences": [],
+          "ring_after": [
+            0,
+            65535
+          ],
+          "next_rx_after": 65533
+        },
+        {
+          "step": 2,
+          "incoming_sequence": 65534,
+          "envelope_raw_hex": "abcdfffe001692aa64656475702d74657374a96d73672d3635353334",
+          "accepted": true,
+          "reason": "accepted",
+          "delivered_sequences": [],
+          "ring_after": [
+            0,
+            65534,
+            65535
+          ],
+          "next_rx_after": 65533
+        },
+        {
+          "step": 3,
+          "incoming_sequence": 65533,
+          "envelope_raw_hex": "abcdfffd001692aa64656475702d74657374a96d73672d3635353333",
+          "accepted": true,
+          "reason": "accepted",
+          "delivered_sequences": [
+            65533,
+            65534,
+            65535,
+            0
+          ],
+          "ring_after": [],
+          "next_rx_after": 1
+        }
+      ]
+    }
+  ],
+  "retry_sequence_vectors": [
+    {
+      "index": 0,
+      "description": "Full retry to exhaustion on slow link (RTT=0.5, tx_ring=1)",
+      "initial_state": {
+        "tries": 0,
+        "rtt": 0.5,
+        "tx_ring_length": 1,
+        "window": 3,
+        "window_max": 5,
+        "window_min": 2,
+        "window_flexibility": 4
+      },
+      "steps": [
+        {
+          "step": 0,
+          "event": "timeout",
+          "tries_before": 0,
+          "tries_after": 1,
+          "window_before": 3,
+          "window_after": 2,
+          "window_max_before": 5,
+          "window_max_after": 5,
+          "tx_ring_length": 1,
+          "outcome": "retry",
+          "timeout": 3.125,
+          "timeout_breakdown": {
+            "exponential_factor": 1.0,
+            "rtt_factor": 1.25,
+            "ring_factor": 2.5
+          }
+        },
+        {
+          "step": 1,
+          "event": "timeout",
+          "tries_before": 1,
+          "tries_after": 2,
+          "window_before": 2,
+          "window_after": 2,
+          "window_max_before": 5,
+          "window_max_after": 5,
+          "tx_ring_length": 1,
+          "outcome": "retry",
+          "timeout": 4.6875,
+          "timeout_breakdown": {
+            "exponential_factor": 1.5,
+            "rtt_factor": 1.25,
+            "ring_factor": 2.5
+          }
+        },
+        {
+          "step": 2,
+          "event": "timeout",
+          "tries_before": 2,
+          "tries_after": 3,
+          "window_before": 2,
+          "window_after": 2,
+          "window_max_before": 5,
+          "window_max_after": 5,
+          "tx_ring_length": 1,
+          "outcome": "retry",
+          "timeout": 7.03125,
+          "timeout_breakdown": {
+            "exponential_factor": 2.25,
+            "rtt_factor": 1.25,
+            "ring_factor": 2.5
+          }
+        },
+        {
+          "step": 3,
+          "event": "timeout",
+          "tries_before": 3,
+          "tries_after": 4,
+          "window_before": 2,
+          "window_after": 2,
+          "window_max_before": 5,
+          "window_max_after": 5,
+          "tx_ring_length": 1,
+          "outcome": "retry",
+          "timeout": 10.546875,
+          "timeout_breakdown": {
+            "exponential_factor": 3.375,
+            "rtt_factor": 1.25,
+            "ring_factor": 2.5
+          }
+        },
+        {
+          "step": 4,
+          "event": "timeout",
+          "tries_before": 4,
+          "tries_after": 5,
+          "window_before": 2,
+          "window_after": 2,
+          "window_max_before": 5,
+          "window_max_after": 5,
+          "tx_ring_length": 1,
+          "outcome": "retry",
+          "timeout": 15.8203125,
+          "timeout_breakdown": {
+            "exponential_factor": 5.0625,
+            "rtt_factor": 1.25,
+            "ring_factor": 2.5
+          }
+        },
+        {
+          "step": 5,
+          "event": "timeout",
+          "tries_before": 5,
+          "tries_after": 5,
+          "window_before": 2,
+          "window_after": 2,
+          "window_max_before": 5,
+          "window_max_after": 5,
+          "tx_ring_length": 1,
+          "outcome": "fail"
+        }
+      ],
+      "final_state": {
+        "tries": 5,
+        "window": 2,
+        "window_max": 5,
+        "outcome": "fail"
+      }
+    },
+    {
+      "index": 1,
+      "description": "Retry with delivery mid-sequence (RTT=0.1, tx_ring=1): 1 timeout then delivery on retry",
+      "initial_state": {
+        "tries": 0,
+        "rtt": 0.1,
+        "tx_ring_length": 1,
+        "window": 3,
+        "window_max": 5,
+        "window_min": 2,
+        "window_flexibility": 4,
+        "fast_rate_rounds": 0,
+        "medium_rate_rounds": 0
+      },
+      "steps": [
+        {
+          "step": 0,
+          "event": "timeout",
+          "tries_before": 0,
+          "tries_after": 1,
+          "window_before": 3,
+          "window_after": 2,
+          "window_max_before": 5,
+          "window_max_after": 5,
+          "tx_ring_length": 1,
+          "outcome": "retry",
+          "timeout": 0.625,
+          "timeout_breakdown": {
+            "exponential_factor": 1.0,
+            "rtt_factor": 0.25,
+            "ring_factor": 2.5
+          }
+        },
+        {
+          "step": 1,
+          "event": "delivery",
+          "window_before": 2,
+          "window_after": 3,
+          "window_max_before": 5,
+          "window_max_after": 5,
+          "fast_rate_rounds_before": 0,
+          "fast_rate_rounds_after": 1,
+          "medium_rate_rounds_before": 0,
+          "medium_rate_rounds_after": 0,
+          "upgrade_triggered": null,
+          "outcome": "delivered"
+        }
+      ],
+      "final_state": {
+        "tries": 1,
+        "window": 3,
+        "window_max": 5,
+        "fast_rate_rounds": 1,
+        "medium_rate_rounds": 0,
+        "outcome": "delivered"
+      }
+    },
+    {
+      "index": 2,
+      "description": "Retry exhaustion on fast link (RTT=0.01, tx_ring=0): window already at min, exponential timeout escalation",
+      "initial_state": {
+        "tries": 0,
+        "rtt": 0.01,
+        "tx_ring_length": 0,
+        "window": 2,
+        "window_max": 5,
+        "window_min": 2,
+        "window_flexibility": 4
+      },
+      "steps": [
+        {
+          "step": 0,
+          "event": "timeout",
+          "tries_before": 0,
+          "tries_after": 1,
+          "window_before": 2,
+          "window_after": 2,
+          "window_max_before": 5,
+          "window_max_after": 5,
+          "tx_ring_length": 0,
+          "outcome": "retry",
+          "timeout": 0.0375,
+          "timeout_breakdown": {
+            "exponential_factor": 1.0,
+            "rtt_factor": 0.025,
+            "ring_factor": 1.5
+          }
+        },
+        {
+          "step": 1,
+          "event": "timeout",
+          "tries_before": 1,
+          "tries_after": 2,
+          "window_before": 2,
+          "window_after": 2,
+          "window_max_before": 5,
+          "window_max_after": 5,
+          "tx_ring_length": 0,
+          "outcome": "retry",
+          "timeout": 0.05625,
+          "timeout_breakdown": {
+            "exponential_factor": 1.5,
+            "rtt_factor": 0.025,
+            "ring_factor": 1.5
+          }
+        },
+        {
+          "step": 2,
+          "event": "timeout",
+          "tries_before": 2,
+          "tries_after": 3,
+          "window_before": 2,
+          "window_after": 2,
+          "window_max_before": 5,
+          "window_max_after": 5,
+          "tx_ring_length": 0,
+          "outcome": "retry",
+          "timeout": 0.084375,
+          "timeout_breakdown": {
+            "exponential_factor": 2.25,
+            "rtt_factor": 0.025,
+            "ring_factor": 1.5
+          }
+        },
+        {
+          "step": 3,
+          "event": "timeout",
+          "tries_before": 3,
+          "tries_after": 4,
+          "window_before": 2,
+          "window_after": 2,
+          "window_max_before": 5,
+          "window_max_after": 5,
+          "tx_ring_length": 0,
+          "outcome": "retry",
+          "timeout": 0.1265625,
+          "timeout_breakdown": {
+            "exponential_factor": 3.375,
+            "rtt_factor": 0.025,
+            "ring_factor": 1.5
+          }
+        },
+        {
+          "step": 4,
+          "event": "timeout",
+          "tries_before": 4,
+          "tries_after": 5,
+          "window_before": 2,
+          "window_after": 2,
+          "window_max_before": 5,
+          "window_max_after": 5,
+          "tx_ring_length": 0,
+          "outcome": "retry",
+          "timeout": 0.18984375,
+          "timeout_breakdown": {
+            "exponential_factor": 5.0625,
+            "rtt_factor": 0.025,
+            "ring_factor": 1.5
+          }
+        },
+        {
+          "step": 5,
+          "event": "timeout",
+          "tries_before": 5,
+          "tries_after": 5,
+          "window_before": 2,
+          "window_after": 2,
+          "window_max_before": 5,
+          "window_max_after": 5,
+          "tx_ring_length": 0,
+          "outcome": "fail"
+        }
+      ],
+      "final_state": {
+        "tries": 5,
+        "window": 2,
+        "window_max": 5,
+        "outcome": "fail"
+      }
+    },
+    {
+      "index": 3,
+      "description": "Retry with window_max shrink (RTT=0.3, tx_ring=2): medium-upgraded link, window_max shrinks then hits floor",
+      "initial_state": {
+        "tries": 0,
+        "rtt": 0.3,
+        "tx_ring_length": 2,
+        "window": 8,
+        "window_max": 12,
+        "window_min": 5,
+        "window_flexibility": 4
+      },
+      "steps": [
+        {
+          "step": 0,
+          "event": "timeout",
+          "tries_before": 0,
+          "tries_after": 1,
+          "window_before": 8,
+          "window_after": 7,
+          "window_max_before": 12,
+          "window_max_after": 11,
+          "tx_ring_length": 2,
+          "outcome": "retry",
+          "timeout": 2.625,
+          "timeout_breakdown": {
+            "exponential_factor": 1.0,
+            "rtt_factor": 0.75,
+            "ring_factor": 3.5
+          }
+        },
+        {
+          "step": 1,
+          "event": "timeout",
+          "tries_before": 1,
+          "tries_after": 2,
+          "window_before": 7,
+          "window_after": 6,
+          "window_max_before": 11,
+          "window_max_after": 10,
+          "tx_ring_length": 2,
+          "outcome": "retry",
+          "timeout": 3.9375,
+          "timeout_breakdown": {
+            "exponential_factor": 1.5,
+            "rtt_factor": 0.75,
+            "ring_factor": 3.5
+          }
+        },
+        {
+          "step": 2,
+          "event": "timeout",
+          "tries_before": 2,
+          "tries_after": 3,
+          "window_before": 6,
+          "window_after": 5,
+          "window_max_before": 10,
+          "window_max_after": 9,
+          "tx_ring_length": 2,
+          "outcome": "retry",
+          "timeout": 5.90625,
+          "timeout_breakdown": {
+            "exponential_factor": 2.25,
+            "rtt_factor": 0.75,
+            "ring_factor": 3.5
+          }
+        },
+        {
+          "step": 3,
+          "event": "timeout",
+          "tries_before": 3,
+          "tries_after": 4,
+          "window_before": 5,
+          "window_after": 5,
+          "window_max_before": 9,
+          "window_max_after": 9,
+          "tx_ring_length": 2,
+          "outcome": "retry",
+          "timeout": 8.859375,
+          "timeout_breakdown": {
+            "exponential_factor": 3.375,
+            "rtt_factor": 0.75,
+            "ring_factor": 3.5
+          }
+        },
+        {
+          "step": 4,
+          "event": "timeout",
+          "tries_before": 4,
+          "tries_after": 5,
+          "window_before": 5,
+          "window_after": 5,
+          "window_max_before": 9,
+          "window_max_after": 9,
+          "tx_ring_length": 2,
+          "outcome": "retry",
+          "timeout": 13.2890625,
+          "timeout_breakdown": {
+            "exponential_factor": 5.0625,
+            "rtt_factor": 0.75,
+            "ring_factor": 3.5
+          }
+        },
+        {
+          "step": 5,
+          "event": "timeout",
+          "tries_before": 5,
+          "tries_after": 5,
+          "window_before": 5,
+          "window_after": 5,
+          "window_max_before": 9,
+          "window_max_after": 9,
+          "tx_ring_length": 2,
+          "outcome": "fail"
+        }
+      ],
+      "final_state": {
+        "tries": 5,
+        "window": 5,
+        "window_max": 9,
+        "outcome": "fail"
+      }
+    },
+    {
+      "index": 4,
+      "description": "Retry on very slow link (RTT=2.0): window=1/max=1/min=1, all clamped, extreme timeout values",
+      "initial_state": {
+        "tries": 0,
+        "rtt": 2.0,
+        "tx_ring_length": 0,
+        "window": 1,
+        "window_max": 1,
+        "window_min": 1,
+        "window_flexibility": 1
+      },
+      "steps": [
+        {
+          "step": 0,
+          "event": "timeout",
+          "tries_before": 0,
+          "tries_after": 1,
+          "window_before": 1,
+          "window_after": 1,
+          "window_max_before": 1,
+          "window_max_after": 1,
+          "tx_ring_length": 0,
+          "outcome": "retry",
+          "timeout": 7.5,
+          "timeout_breakdown": {
+            "exponential_factor": 1.0,
+            "rtt_factor": 5.0,
+            "ring_factor": 1.5
+          }
+        },
+        {
+          "step": 1,
+          "event": "timeout",
+          "tries_before": 1,
+          "tries_after": 2,
+          "window_before": 1,
+          "window_after": 1,
+          "window_max_before": 1,
+          "window_max_after": 1,
+          "tx_ring_length": 0,
+          "outcome": "retry",
+          "timeout": 11.25,
+          "timeout_breakdown": {
+            "exponential_factor": 1.5,
+            "rtt_factor": 5.0,
+            "ring_factor": 1.5
+          }
+        },
+        {
+          "step": 2,
+          "event": "timeout",
+          "tries_before": 2,
+          "tries_after": 3,
+          "window_before": 1,
+          "window_after": 1,
+          "window_max_before": 1,
+          "window_max_after": 1,
+          "tx_ring_length": 0,
+          "outcome": "retry",
+          "timeout": 16.875,
+          "timeout_breakdown": {
+            "exponential_factor": 2.25,
+            "rtt_factor": 5.0,
+            "ring_factor": 1.5
+          }
+        },
+        {
+          "step": 3,
+          "event": "timeout",
+          "tries_before": 3,
+          "tries_after": 4,
+          "window_before": 1,
+          "window_after": 1,
+          "window_max_before": 1,
+          "window_max_after": 1,
+          "tx_ring_length": 0,
+          "outcome": "retry",
+          "timeout": 25.3125,
+          "timeout_breakdown": {
+            "exponential_factor": 3.375,
+            "rtt_factor": 5.0,
+            "ring_factor": 1.5
+          }
+        },
+        {
+          "step": 4,
+          "event": "timeout",
+          "tries_before": 4,
+          "tries_after": 5,
+          "window_before": 1,
+          "window_after": 1,
+          "window_max_before": 1,
+          "window_max_after": 1,
+          "tx_ring_length": 0,
+          "outcome": "retry",
+          "timeout": 37.96875,
+          "timeout_breakdown": {
+            "exponential_factor": 5.0625,
+            "rtt_factor": 5.0,
+            "ring_factor": 1.5
+          }
+        },
+        {
+          "step": 5,
+          "event": "timeout",
+          "tries_before": 5,
+          "tries_after": 5,
+          "window_before": 1,
+          "window_after": 1,
+          "window_max_before": 1,
+          "window_max_after": 1,
+          "tx_ring_length": 0,
+          "outcome": "fail"
+        }
+      ],
+      "final_state": {
+        "tries": 5,
+        "window": 1,
+        "window_max": 1,
+        "outcome": "fail"
+      }
+    },
+    {
+      "index": 5,
+      "description": "Single timeout then delivery (RTT=0.5, tx_ring=3): quick recovery, shows tx_ring_length effect",
+      "initial_state": {
+        "tries": 0,
+        "rtt": 0.5,
+        "tx_ring_length": 3,
+        "window": 4,
+        "window_max": 5,
+        "window_min": 2,
+        "window_flexibility": 4,
+        "fast_rate_rounds": 0,
+        "medium_rate_rounds": 0
+      },
+      "steps": [
+        {
+          "step": 0,
+          "event": "timeout",
+          "tries_before": 0,
+          "tries_after": 1,
+          "window_before": 4,
+          "window_after": 3,
+          "window_max_before": 5,
+          "window_max_after": 5,
+          "tx_ring_length": 3,
+          "outcome": "retry",
+          "timeout": 5.625,
+          "timeout_breakdown": {
+            "exponential_factor": 1.0,
+            "rtt_factor": 1.25,
+            "ring_factor": 4.5
+          }
+        },
+        {
+          "step": 1,
+          "event": "delivery",
+          "window_before": 3,
+          "window_after": 4,
+          "window_max_before": 5,
+          "window_max_after": 5,
+          "fast_rate_rounds_before": 0,
+          "fast_rate_rounds_after": 0,
+          "medium_rate_rounds_before": 0,
+          "medium_rate_rounds_after": 1,
+          "upgrade_triggered": null,
+          "outcome": "delivered"
+        }
+      ],
+      "final_state": {
+        "tries": 1,
+        "window": 4,
+        "window_max": 5,
+        "fast_rate_rounds": 0,
+        "medium_rate_rounds": 1,
+        "outcome": "delivered"
+      }
+    }
+  ],
+  "window_adaptation_sequence_vectors": [
+    {
+      "index": 0,
+      "description": "12 fast deliveries (RTT=0.05): SLOW\u2192FAST upgrade at step 9",
+      "initial_state": {
+        "window": 2,
+        "window_max": 5,
+        "window_min": 2,
+        "fast_rate_rounds": 0,
+        "medium_rate_rounds": 0
+      },
+      "rtt": 0.05,
+      "steps": [
+        {
+          "step": 0,
+          "event": "delivery",
+          "rtt": 0.05,
+          "window_before": 2,
+          "window_after": 3,
+          "window_max_before": 5,
+          "window_max_after": 5,
+          "window_min_before": 2,
+          "window_min_after": 2,
+          "fast_rate_rounds_before": 0,
+          "fast_rate_rounds_after": 1,
+          "medium_rate_rounds_before": 0,
+          "medium_rate_rounds_after": 0,
+          "upgrade_triggered": null
+        },
+        {
+          "step": 1,
+          "event": "delivery",
+          "rtt": 0.05,
+          "window_before": 3,
+          "window_after": 4,
+          "window_max_before": 5,
+          "window_max_after": 5,
+          "window_min_before": 2,
+          "window_min_after": 2,
+          "fast_rate_rounds_before": 1,
+          "fast_rate_rounds_after": 2,
+          "medium_rate_rounds_before": 0,
+          "medium_rate_rounds_after": 0,
+          "upgrade_triggered": null
+        },
+        {
+          "step": 2,
+          "event": "delivery",
+          "rtt": 0.05,
+          "window_before": 4,
+          "window_after": 5,
+          "window_max_before": 5,
+          "window_max_after": 5,
+          "window_min_before": 2,
+          "window_min_after": 2,
+          "fast_rate_rounds_before": 2,
+          "fast_rate_rounds_after": 3,
+          "medium_rate_rounds_before": 0,
+          "medium_rate_rounds_after": 0,
+          "upgrade_triggered": null
+        },
+        {
+          "step": 3,
+          "event": "delivery",
+          "rtt": 0.05,
+          "window_before": 5,
+          "window_after": 5,
+          "window_max_before": 5,
+          "window_max_after": 5,
+          "window_min_before": 2,
+          "window_min_after": 2,
+          "fast_rate_rounds_before": 3,
+          "fast_rate_rounds_after": 4,
+          "medium_rate_rounds_before": 0,
+          "medium_rate_rounds_after": 0,
+          "upgrade_triggered": null
+        },
+        {
+          "step": 4,
+          "event": "delivery",
+          "rtt": 0.05,
+          "window_before": 5,
+          "window_after": 5,
+          "window_max_before": 5,
+          "window_max_after": 5,
+          "window_min_before": 2,
+          "window_min_after": 2,
+          "fast_rate_rounds_before": 4,
+          "fast_rate_rounds_after": 5,
+          "medium_rate_rounds_before": 0,
+          "medium_rate_rounds_after": 0,
+          "upgrade_triggered": null
+        },
+        {
+          "step": 5,
+          "event": "delivery",
+          "rtt": 0.05,
+          "window_before": 5,
+          "window_after": 5,
+          "window_max_before": 5,
+          "window_max_after": 5,
+          "window_min_before": 2,
+          "window_min_after": 2,
+          "fast_rate_rounds_before": 5,
+          "fast_rate_rounds_after": 6,
+          "medium_rate_rounds_before": 0,
+          "medium_rate_rounds_after": 0,
+          "upgrade_triggered": null
+        },
+        {
+          "step": 6,
+          "event": "delivery",
+          "rtt": 0.05,
+          "window_before": 5,
+          "window_after": 5,
+          "window_max_before": 5,
+          "window_max_after": 5,
+          "window_min_before": 2,
+          "window_min_after": 2,
+          "fast_rate_rounds_before": 6,
+          "fast_rate_rounds_after": 7,
+          "medium_rate_rounds_before": 0,
+          "medium_rate_rounds_after": 0,
+          "upgrade_triggered": null
+        },
+        {
+          "step": 7,
+          "event": "delivery",
+          "rtt": 0.05,
+          "window_before": 5,
+          "window_after": 5,
+          "window_max_before": 5,
+          "window_max_after": 5,
+          "window_min_before": 2,
+          "window_min_after": 2,
+          "fast_rate_rounds_before": 7,
+          "fast_rate_rounds_after": 8,
+          "medium_rate_rounds_before": 0,
+          "medium_rate_rounds_after": 0,
+          "upgrade_triggered": null
+        },
+        {
+          "step": 8,
+          "event": "delivery",
+          "rtt": 0.05,
+          "window_before": 5,
+          "window_after": 5,
+          "window_max_before": 5,
+          "window_max_after": 5,
+          "window_min_before": 2,
+          "window_min_after": 2,
+          "fast_rate_rounds_before": 8,
+          "fast_rate_rounds_after": 9,
+          "medium_rate_rounds_before": 0,
+          "medium_rate_rounds_after": 0,
+          "upgrade_triggered": null
+        },
+        {
+          "step": 9,
+          "event": "delivery",
+          "rtt": 0.05,
+          "window_before": 5,
+          "window_after": 5,
+          "window_max_before": 5,
+          "window_max_after": 48,
+          "window_min_before": 2,
+          "window_min_after": 16,
+          "fast_rate_rounds_before": 9,
+          "fast_rate_rounds_after": 10,
+          "medium_rate_rounds_before": 0,
+          "medium_rate_rounds_after": 0,
+          "upgrade_triggered": "fast"
+        },
+        {
+          "step": 10,
+          "event": "delivery",
+          "rtt": 0.05,
+          "window_before": 5,
+          "window_after": 6,
+          "window_max_before": 48,
+          "window_max_after": 48,
+          "window_min_before": 16,
+          "window_min_after": 16,
+          "fast_rate_rounds_before": 10,
+          "fast_rate_rounds_after": 11,
+          "medium_rate_rounds_before": 0,
+          "medium_rate_rounds_after": 0,
+          "upgrade_triggered": null
+        },
+        {
+          "step": 11,
+          "event": "delivery",
+          "rtt": 0.05,
+          "window_before": 6,
+          "window_after": 7,
+          "window_max_before": 48,
+          "window_max_after": 48,
+          "window_min_before": 16,
+          "window_min_after": 16,
+          "fast_rate_rounds_before": 11,
+          "fast_rate_rounds_after": 12,
+          "medium_rate_rounds_before": 0,
+          "medium_rate_rounds_after": 0,
+          "upgrade_triggered": null
+        }
+      ],
+      "final_state": {
+        "window": 7,
+        "window_max": 48,
+        "window_min": 16,
+        "fast_rate_rounds": 12,
+        "medium_rate_rounds": 0
+      }
+    },
+    {
+      "index": 1,
+      "description": "12 medium deliveries (RTT=0.5): SLOW\u2192MEDIUM upgrade at step 9",
+      "initial_state": {
+        "window": 2,
+        "window_max": 5,
+        "window_min": 2,
+        "fast_rate_rounds": 0,
+        "medium_rate_rounds": 0
+      },
+      "rtt": 0.5,
+      "steps": [
+        {
+          "step": 0,
+          "event": "delivery",
+          "rtt": 0.5,
+          "window_before": 2,
+          "window_after": 3,
+          "window_max_before": 5,
+          "window_max_after": 5,
+          "window_min_before": 2,
+          "window_min_after": 2,
+          "fast_rate_rounds_before": 0,
+          "fast_rate_rounds_after": 0,
+          "medium_rate_rounds_before": 0,
+          "medium_rate_rounds_after": 1,
+          "upgrade_triggered": null
+        },
+        {
+          "step": 1,
+          "event": "delivery",
+          "rtt": 0.5,
+          "window_before": 3,
+          "window_after": 4,
+          "window_max_before": 5,
+          "window_max_after": 5,
+          "window_min_before": 2,
+          "window_min_after": 2,
+          "fast_rate_rounds_before": 0,
+          "fast_rate_rounds_after": 0,
+          "medium_rate_rounds_before": 1,
+          "medium_rate_rounds_after": 2,
+          "upgrade_triggered": null
+        },
+        {
+          "step": 2,
+          "event": "delivery",
+          "rtt": 0.5,
+          "window_before": 4,
+          "window_after": 5,
+          "window_max_before": 5,
+          "window_max_after": 5,
+          "window_min_before": 2,
+          "window_min_after": 2,
+          "fast_rate_rounds_before": 0,
+          "fast_rate_rounds_after": 0,
+          "medium_rate_rounds_before": 2,
+          "medium_rate_rounds_after": 3,
+          "upgrade_triggered": null
+        },
+        {
+          "step": 3,
+          "event": "delivery",
+          "rtt": 0.5,
+          "window_before": 5,
+          "window_after": 5,
+          "window_max_before": 5,
+          "window_max_after": 5,
+          "window_min_before": 2,
+          "window_min_after": 2,
+          "fast_rate_rounds_before": 0,
+          "fast_rate_rounds_after": 0,
+          "medium_rate_rounds_before": 3,
+          "medium_rate_rounds_after": 4,
+          "upgrade_triggered": null
+        },
+        {
+          "step": 4,
+          "event": "delivery",
+          "rtt": 0.5,
+          "window_before": 5,
+          "window_after": 5,
+          "window_max_before": 5,
+          "window_max_after": 5,
+          "window_min_before": 2,
+          "window_min_after": 2,
+          "fast_rate_rounds_before": 0,
+          "fast_rate_rounds_after": 0,
+          "medium_rate_rounds_before": 4,
+          "medium_rate_rounds_after": 5,
+          "upgrade_triggered": null
+        },
+        {
+          "step": 5,
+          "event": "delivery",
+          "rtt": 0.5,
+          "window_before": 5,
+          "window_after": 5,
+          "window_max_before": 5,
+          "window_max_after": 5,
+          "window_min_before": 2,
+          "window_min_after": 2,
+          "fast_rate_rounds_before": 0,
+          "fast_rate_rounds_after": 0,
+          "medium_rate_rounds_before": 5,
+          "medium_rate_rounds_after": 6,
+          "upgrade_triggered": null
+        },
+        {
+          "step": 6,
+          "event": "delivery",
+          "rtt": 0.5,
+          "window_before": 5,
+          "window_after": 5,
+          "window_max_before": 5,
+          "window_max_after": 5,
+          "window_min_before": 2,
+          "window_min_after": 2,
+          "fast_rate_rounds_before": 0,
+          "fast_rate_rounds_after": 0,
+          "medium_rate_rounds_before": 6,
+          "medium_rate_rounds_after": 7,
+          "upgrade_triggered": null
+        },
+        {
+          "step": 7,
+          "event": "delivery",
+          "rtt": 0.5,
+          "window_before": 5,
+          "window_after": 5,
+          "window_max_before": 5,
+          "window_max_after": 5,
+          "window_min_before": 2,
+          "window_min_after": 2,
+          "fast_rate_rounds_before": 0,
+          "fast_rate_rounds_after": 0,
+          "medium_rate_rounds_before": 7,
+          "medium_rate_rounds_after": 8,
+          "upgrade_triggered": null
+        },
+        {
+          "step": 8,
+          "event": "delivery",
+          "rtt": 0.5,
+          "window_before": 5,
+          "window_after": 5,
+          "window_max_before": 5,
+          "window_max_after": 5,
+          "window_min_before": 2,
+          "window_min_after": 2,
+          "fast_rate_rounds_before": 0,
+          "fast_rate_rounds_after": 0,
+          "medium_rate_rounds_before": 8,
+          "medium_rate_rounds_after": 9,
+          "upgrade_triggered": null
+        },
+        {
+          "step": 9,
+          "event": "delivery",
+          "rtt": 0.5,
+          "window_before": 5,
+          "window_after": 5,
+          "window_max_before": 5,
+          "window_max_after": 12,
+          "window_min_before": 2,
+          "window_min_after": 5,
+          "fast_rate_rounds_before": 0,
+          "fast_rate_rounds_after": 0,
+          "medium_rate_rounds_before": 9,
+          "medium_rate_rounds_after": 10,
+          "upgrade_triggered": "medium"
+        },
+        {
+          "step": 10,
+          "event": "delivery",
+          "rtt": 0.5,
+          "window_before": 5,
+          "window_after": 6,
+          "window_max_before": 12,
+          "window_max_after": 12,
+          "window_min_before": 5,
+          "window_min_after": 5,
+          "fast_rate_rounds_before": 0,
+          "fast_rate_rounds_after": 0,
+          "medium_rate_rounds_before": 10,
+          "medium_rate_rounds_after": 11,
+          "upgrade_triggered": null
+        },
+        {
+          "step": 11,
+          "event": "delivery",
+          "rtt": 0.5,
+          "window_before": 6,
+          "window_after": 7,
+          "window_max_before": 12,
+          "window_max_after": 12,
+          "window_min_before": 5,
+          "window_min_after": 5,
+          "fast_rate_rounds_before": 0,
+          "fast_rate_rounds_after": 0,
+          "medium_rate_rounds_before": 11,
+          "medium_rate_rounds_after": 12,
+          "upgrade_triggered": null
+        }
+      ],
+      "final_state": {
+        "window": 7,
+        "window_max": 12,
+        "window_min": 5,
+        "fast_rate_rounds": 0,
+        "medium_rate_rounds": 12
+      }
+    },
+    {
+      "index": 2,
+      "description": "Mixed delivery/timeout oscillation (8 steps, RTT=0.5): window grows on delivery, shrinks on timeout",
+      "initial_state": {
+        "window": 3,
+        "window_max": 5,
+        "window_min": 2,
+        "window_flexibility": 4,
+        "fast_rate_rounds": 0,
+        "medium_rate_rounds": 0
+      },
+      "rtt": 0.5,
+      "steps": [
+        {
+          "step": 0,
+          "event": "delivery",
+          "rtt": 0.5,
+          "window_before": 3,
+          "window_after": 4,
+          "window_max_before": 5,
+          "window_max_after": 5,
+          "window_min_before": 2,
+          "window_min_after": 2,
+          "fast_rate_rounds_before": 0,
+          "fast_rate_rounds_after": 0,
+          "medium_rate_rounds_before": 0,
+          "medium_rate_rounds_after": 1,
+          "upgrade_triggered": null
+        },
+        {
+          "step": 1,
+          "event": "delivery",
+          "rtt": 0.5,
+          "window_before": 4,
+          "window_after": 5,
+          "window_max_before": 5,
+          "window_max_after": 5,
+          "window_min_before": 2,
+          "window_min_after": 2,
+          "fast_rate_rounds_before": 0,
+          "fast_rate_rounds_after": 0,
+          "medium_rate_rounds_before": 1,
+          "medium_rate_rounds_after": 2,
+          "upgrade_triggered": null
+        },
+        {
+          "step": 2,
+          "event": "timeout",
+          "tries_before": 0,
+          "tries_after": 1,
+          "window_before": 5,
+          "window_after": 4,
+          "window_max_before": 5,
+          "window_max_after": 5,
+          "tx_ring_length": 1,
+          "outcome": "retry",
+          "timeout": 3.125
+        },
+        {
+          "step": 3,
+          "event": "delivery",
+          "rtt": 0.5,
+          "window_before": 4,
+          "window_after": 5,
+          "window_max_before": 5,
+          "window_max_after": 5,
+          "window_min_before": 2,
+          "window_min_after": 2,
+          "fast_rate_rounds_before": 0,
+          "fast_rate_rounds_after": 0,
+          "medium_rate_rounds_before": 2,
+          "medium_rate_rounds_after": 3,
+          "upgrade_triggered": null
+        },
+        {
+          "step": 4,
+          "event": "timeout",
+          "tries_before": 1,
+          "tries_after": 2,
+          "window_before": 5,
+          "window_after": 4,
+          "window_max_before": 5,
+          "window_max_after": 5,
+          "tx_ring_length": 1,
+          "outcome": "retry",
+          "timeout": 4.6875
+        },
+        {
+          "step": 5,
+          "event": "delivery",
+          "rtt": 0.5,
+          "window_before": 4,
+          "window_after": 5,
+          "window_max_before": 5,
+          "window_max_after": 5,
+          "window_min_before": 2,
+          "window_min_after": 2,
+          "fast_rate_rounds_before": 0,
+          "fast_rate_rounds_after": 0,
+          "medium_rate_rounds_before": 3,
+          "medium_rate_rounds_after": 4,
+          "upgrade_triggered": null
+        },
+        {
+          "step": 6,
+          "event": "timeout",
+          "tries_before": 2,
+          "tries_after": 3,
+          "window_before": 5,
+          "window_after": 4,
+          "window_max_before": 5,
+          "window_max_after": 5,
+          "tx_ring_length": 1,
+          "outcome": "retry",
+          "timeout": 7.03125
+        },
+        {
+          "step": 7,
+          "event": "delivery",
+          "rtt": 0.5,
+          "window_before": 4,
+          "window_after": 5,
+          "window_max_before": 5,
+          "window_max_after": 5,
+          "window_min_before": 2,
+          "window_min_after": 2,
+          "fast_rate_rounds_before": 0,
+          "fast_rate_rounds_after": 0,
+          "medium_rate_rounds_before": 4,
+          "medium_rate_rounds_after": 5,
+          "upgrade_triggered": null
+        }
+      ],
+      "final_state": {
+        "window": 5,
+        "window_max": 5,
+        "window_min": 2,
+        "fast_rate_rounds": 0,
+        "medium_rate_rounds": 5
+      }
+    },
+    {
+      "index": 3,
+      "description": "Timeout cascade to minimum (5 steps, RTT=0.3): window shrinks 8\u21925 (clamped), window_max shrinks 12\u21929",
+      "initial_state": {
+        "window": 8,
+        "window_max": 12,
+        "window_min": 5,
+        "window_flexibility": 4
+      },
+      "rtt": 0.3,
+      "steps": [
+        {
+          "step": 0,
+          "event": "timeout",
+          "tries_before": 0,
+          "tries_after": 1,
+          "window_before": 8,
+          "window_after": 7,
+          "window_max_before": 12,
+          "window_max_after": 11,
+          "tx_ring_length": 2,
+          "outcome": "retry",
+          "timeout": 2.625
+        },
+        {
+          "step": 1,
+          "event": "timeout",
+          "tries_before": 1,
+          "tries_after": 2,
+          "window_before": 7,
+          "window_after": 6,
+          "window_max_before": 11,
+          "window_max_after": 10,
+          "tx_ring_length": 2,
+          "outcome": "retry",
+          "timeout": 3.9375
+        },
+        {
+          "step": 2,
+          "event": "timeout",
+          "tries_before": 2,
+          "tries_after": 3,
+          "window_before": 6,
+          "window_after": 5,
+          "window_max_before": 10,
+          "window_max_after": 9,
+          "tx_ring_length": 2,
+          "outcome": "retry",
+          "timeout": 5.90625
+        },
+        {
+          "step": 3,
+          "event": "timeout",
+          "tries_before": 3,
+          "tries_after": 4,
+          "window_before": 5,
+          "window_after": 5,
+          "window_max_before": 9,
+          "window_max_after": 9,
+          "tx_ring_length": 2,
+          "outcome": "retry",
+          "timeout": 8.859375
+        },
+        {
+          "step": 4,
+          "event": "timeout",
+          "tries_before": 4,
+          "tries_after": 5,
+          "window_before": 5,
+          "window_after": 5,
+          "window_max_before": 9,
+          "window_max_after": 9,
+          "tx_ring_length": 2,
+          "outcome": "retry",
+          "timeout": 13.2890625
+        }
+      ],
+      "final_state": {
+        "window": 5,
+        "window_max": 9
+      }
+    },
+    {
+      "index": 4,
+      "description": "RTT transition fast\u2192slow\u2192fast (10 deliveries): slow resets rate counters, fast accumulation restarts",
+      "initial_state": {
+        "window": 2,
+        "window_max": 5,
+        "window_min": 2,
+        "fast_rate_rounds": 0,
+        "medium_rate_rounds": 0
+      },
+      "rtt_sequence": [
+        0.05,
+        0.05,
+        0.05,
+        0.05,
+        1.0,
+        1.0,
+        0.05,
+        0.05,
+        0.05,
+        0.05
+      ],
+      "steps": [
+        {
+          "step": 0,
+          "event": "delivery",
+          "rtt": 0.05,
+          "window_before": 2,
+          "window_after": 3,
+          "window_max_before": 5,
+          "window_max_after": 5,
+          "window_min_before": 2,
+          "window_min_after": 2,
+          "fast_rate_rounds_before": 0,
+          "fast_rate_rounds_after": 1,
+          "medium_rate_rounds_before": 0,
+          "medium_rate_rounds_after": 0,
+          "upgrade_triggered": null,
+          "note": "fast RTT"
+        },
+        {
+          "step": 1,
+          "event": "delivery",
+          "rtt": 0.05,
+          "window_before": 3,
+          "window_after": 4,
+          "window_max_before": 5,
+          "window_max_after": 5,
+          "window_min_before": 2,
+          "window_min_after": 2,
+          "fast_rate_rounds_before": 1,
+          "fast_rate_rounds_after": 2,
+          "medium_rate_rounds_before": 0,
+          "medium_rate_rounds_after": 0,
+          "upgrade_triggered": null,
+          "note": "fast RTT"
+        },
+        {
+          "step": 2,
+          "event": "delivery",
+          "rtt": 0.05,
+          "window_before": 4,
+          "window_after": 5,
+          "window_max_before": 5,
+          "window_max_after": 5,
+          "window_min_before": 2,
+          "window_min_after": 2,
+          "fast_rate_rounds_before": 2,
+          "fast_rate_rounds_after": 3,
+          "medium_rate_rounds_before": 0,
+          "medium_rate_rounds_after": 0,
+          "upgrade_triggered": null,
+          "note": "fast RTT"
+        },
+        {
+          "step": 3,
+          "event": "delivery",
+          "rtt": 0.05,
+          "window_before": 5,
+          "window_after": 5,
+          "window_max_before": 5,
+          "window_max_after": 5,
+          "window_min_before": 2,
+          "window_min_after": 2,
+          "fast_rate_rounds_before": 3,
+          "fast_rate_rounds_after": 4,
+          "medium_rate_rounds_before": 0,
+          "medium_rate_rounds_after": 0,
+          "upgrade_triggered": null,
+          "note": "fast RTT"
+        },
+        {
+          "step": 4,
+          "event": "delivery",
+          "rtt": 1.0,
+          "window_before": 5,
+          "window_after": 5,
+          "window_max_before": 5,
+          "window_max_after": 5,
+          "window_min_before": 2,
+          "window_min_after": 2,
+          "fast_rate_rounds_before": 4,
+          "fast_rate_rounds_after": 0,
+          "medium_rate_rounds_before": 0,
+          "medium_rate_rounds_after": 0,
+          "upgrade_triggered": null,
+          "note": "slow RTT"
+        },
+        {
+          "step": 5,
+          "event": "delivery",
+          "rtt": 1.0,
+          "window_before": 5,
+          "window_after": 5,
+          "window_max_before": 5,
+          "window_max_after": 5,
+          "window_min_before": 2,
+          "window_min_after": 2,
+          "fast_rate_rounds_before": 0,
+          "fast_rate_rounds_after": 0,
+          "medium_rate_rounds_before": 0,
+          "medium_rate_rounds_after": 0,
+          "upgrade_triggered": null,
+          "note": "slow RTT"
+        },
+        {
+          "step": 6,
+          "event": "delivery",
+          "rtt": 0.05,
+          "window_before": 5,
+          "window_after": 5,
+          "window_max_before": 5,
+          "window_max_after": 5,
+          "window_min_before": 2,
+          "window_min_after": 2,
+          "fast_rate_rounds_before": 0,
+          "fast_rate_rounds_after": 1,
+          "medium_rate_rounds_before": 0,
+          "medium_rate_rounds_after": 0,
+          "upgrade_triggered": null,
+          "note": "fast RTT"
+        },
+        {
+          "step": 7,
+          "event": "delivery",
+          "rtt": 0.05,
+          "window_before": 5,
+          "window_after": 5,
+          "window_max_before": 5,
+          "window_max_after": 5,
+          "window_min_before": 2,
+          "window_min_after": 2,
+          "fast_rate_rounds_before": 1,
+          "fast_rate_rounds_after": 2,
+          "medium_rate_rounds_before": 0,
+          "medium_rate_rounds_after": 0,
+          "upgrade_triggered": null,
+          "note": "fast RTT"
+        },
+        {
+          "step": 8,
+          "event": "delivery",
+          "rtt": 0.05,
+          "window_before": 5,
+          "window_after": 5,
+          "window_max_before": 5,
+          "window_max_after": 5,
+          "window_min_before": 2,
+          "window_min_after": 2,
+          "fast_rate_rounds_before": 2,
+          "fast_rate_rounds_after": 3,
+          "medium_rate_rounds_before": 0,
+          "medium_rate_rounds_after": 0,
+          "upgrade_triggered": null,
+          "note": "fast RTT"
+        },
+        {
+          "step": 9,
+          "event": "delivery",
+          "rtt": 0.05,
+          "window_before": 5,
+          "window_after": 5,
+          "window_max_before": 5,
+          "window_max_after": 5,
+          "window_min_before": 2,
+          "window_min_after": 2,
+          "fast_rate_rounds_before": 3,
+          "fast_rate_rounds_after": 4,
+          "medium_rate_rounds_before": 0,
+          "medium_rate_rounds_after": 0,
+          "upgrade_triggered": null,
+          "note": "fast RTT"
+        }
+      ],
+      "final_state": {
+        "window": 5,
+        "window_max": 5,
+        "window_min": 2,
+        "fast_rate_rounds": 4,
+        "medium_rate_rounds": 0
+      }
+    }
+  ],
+  "packet_loss_scenario_vectors": [
+    {
+      "index": 0,
+      "description": "5 messages, #2 and #4 time out then retry-deliver: window oscillates",
+      "initial_state": {
+        "rtt": 0.5,
+        "window": 4,
+        "window_max": 5,
+        "window_min": 2,
+        "window_flexibility": 4,
+        "fast_rate_rounds": 0,
+        "medium_rate_rounds": 0
+      },
+      "events": [
+        {
+          "event": "send",
+          "sequence": 0,
+          "tx_ring": [
+            0
+          ],
+          "tx_ring_length": 1,
+          "window": 4,
+          "window_max": 5
+        },
+        {
+          "event": "send",
+          "sequence": 1,
+          "tx_ring": [
+            0,
+            1
+          ],
+          "tx_ring_length": 2,
+          "window": 4,
+          "window_max": 5
+        },
+        {
+          "event": "send",
+          "sequence": 2,
+          "tx_ring": [
+            0,
+            1,
+            2
+          ],
+          "tx_ring_length": 3,
+          "window": 4,
+          "window_max": 5
+        },
+        {
+          "event": "send",
+          "sequence": 3,
+          "tx_ring": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "tx_ring_length": 4,
+          "window": 4,
+          "window_max": 5
+        },
+        {
+          "event": "send",
+          "sequence": 4,
+          "tx_ring": [
+            0,
+            1,
+            2,
+            3,
+            4
+          ],
+          "tx_ring_length": 5,
+          "window": 4,
+          "window_max": 5
+        },
+        {
+          "event": "delivery",
+          "sequence": 0,
+          "window_before": 4,
+          "window_after": 5,
+          "window_max_before": 5,
+          "window_max_after": 5,
+          "tx_ring": [
+            1,
+            2,
+            3,
+            4
+          ],
+          "tx_ring_length": 4,
+          "upgrade_triggered": null,
+          "outcome": "delivered"
+        },
+        {
+          "event": "delivery",
+          "sequence": 1,
+          "window_before": 5,
+          "window_after": 5,
+          "window_max_before": 5,
+          "window_max_after": 5,
+          "tx_ring": [
+            2,
+            3,
+            4
+          ],
+          "tx_ring_length": 3,
+          "upgrade_triggered": null,
+          "outcome": "delivered"
+        },
+        {
+          "event": "timeout",
+          "sequence": 2,
+          "tries_before": 0,
+          "tries_after": 1,
+          "window_before": 5,
+          "window_after": 4,
+          "window_max_before": 5,
+          "window_max_after": 5,
+          "tx_ring": [
+            2,
+            3,
+            4
+          ],
+          "tx_ring_length": 3,
+          "timeout": 5.625,
+          "outcome": "retry"
+        },
+        {
+          "event": "delivery",
+          "sequence": 3,
+          "window_before": 4,
+          "window_after": 5,
+          "window_max_before": 5,
+          "window_max_after": 5,
+          "tx_ring": [
+            2,
+            4
+          ],
+          "tx_ring_length": 2,
+          "upgrade_triggered": null,
+          "outcome": "delivered"
+        },
+        {
+          "event": "timeout",
+          "sequence": 4,
+          "tries_before": 0,
+          "tries_after": 1,
+          "window_before": 5,
+          "window_after": 4,
+          "window_max_before": 5,
+          "window_max_after": 5,
+          "tx_ring": [
+            2,
+            4
+          ],
+          "tx_ring_length": 2,
+          "timeout": 4.375,
+          "outcome": "retry"
+        },
+        {
+          "event": "delivery",
+          "sequence": 2,
+          "window_before": 4,
+          "window_after": 5,
+          "window_max_before": 5,
+          "window_max_after": 5,
+          "tx_ring": [
+            4
+          ],
+          "tx_ring_length": 1,
+          "upgrade_triggered": null,
+          "outcome": "delivered",
+          "note": "retry delivery"
+        },
+        {
+          "event": "delivery",
+          "sequence": 4,
+          "window_before": 5,
+          "window_after": 5,
+          "window_max_before": 5,
+          "window_max_after": 5,
+          "tx_ring": [],
+          "tx_ring_length": 0,
+          "upgrade_triggered": null,
+          "outcome": "delivered",
+          "note": "retry delivery"
+        }
+      ],
+      "final_state": {
+        "window": 5,
+        "window_max": 5,
+        "tx_ring": []
+      }
+    },
+    {
+      "index": 1,
+      "description": "Burst loss: 3 of 5 timeout (RTT=0.3): window cascades down, retries eventually deliver",
+      "initial_state": {
+        "rtt": 0.3,
+        "window": 4,
+        "window_max": 5,
+        "window_min": 2,
+        "window_flexibility": 4,
+        "fast_rate_rounds": 0,
+        "medium_rate_rounds": 0
+      },
+      "events": [
+        {
+          "event": "send",
+          "sequence": 0,
+          "tx_ring": [
+            0
+          ],
+          "tx_ring_length": 1,
+          "window": 4,
+          "window_max": 5
+        },
+        {
+          "event": "send",
+          "sequence": 1,
+          "tx_ring": [
+            0,
+            1
+          ],
+          "tx_ring_length": 2,
+          "window": 4,
+          "window_max": 5
+        },
+        {
+          "event": "send",
+          "sequence": 2,
+          "tx_ring": [
+            0,
+            1,
+            2
+          ],
+          "tx_ring_length": 3,
+          "window": 4,
+          "window_max": 5
+        },
+        {
+          "event": "send",
+          "sequence": 3,
+          "tx_ring": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "tx_ring_length": 4,
+          "window": 4,
+          "window_max": 5
+        },
+        {
+          "event": "send",
+          "sequence": 4,
+          "tx_ring": [
+            0,
+            1,
+            2,
+            3,
+            4
+          ],
+          "tx_ring_length": 5,
+          "window": 4,
+          "window_max": 5
+        },
+        {
+          "event": "delivery",
+          "sequence": 0,
+          "window_before": 4,
+          "window_after": 5,
+          "window_max_before": 5,
+          "window_max_after": 5,
+          "tx_ring": [
+            1,
+            2,
+            3,
+            4
+          ],
+          "tx_ring_length": 4,
+          "upgrade_triggered": null,
+          "outcome": "delivered"
+        },
+        {
+          "event": "delivery",
+          "sequence": 1,
+          "window_before": 5,
+          "window_after": 5,
+          "window_max_before": 5,
+          "window_max_after": 5,
+          "tx_ring": [
+            2,
+            3,
+            4
+          ],
+          "tx_ring_length": 3,
+          "upgrade_triggered": null,
+          "outcome": "delivered"
+        },
+        {
+          "event": "timeout",
+          "sequence": 2,
+          "tries_before": 0,
+          "tries_after": 1,
+          "window_before": 5,
+          "window_after": 4,
+          "window_max_before": 5,
+          "window_max_after": 5,
+          "tx_ring": [
+            2,
+            3,
+            4
+          ],
+          "tx_ring_length": 3,
+          "timeout": 3.375,
+          "outcome": "retry"
+        },
+        {
+          "event": "timeout",
+          "sequence": 3,
+          "tries_before": 0,
+          "tries_after": 1,
+          "window_before": 4,
+          "window_after": 3,
+          "window_max_before": 5,
+          "window_max_after": 5,
+          "tx_ring": [
+            2,
+            3,
+            4
+          ],
+          "tx_ring_length": 3,
+          "timeout": 3.375,
+          "outcome": "retry"
+        },
+        {
+          "event": "timeout",
+          "sequence": 4,
+          "tries_before": 0,
+          "tries_after": 1,
+          "window_before": 3,
+          "window_after": 2,
+          "window_max_before": 5,
+          "window_max_after": 5,
+          "tx_ring": [
+            2,
+            3,
+            4
+          ],
+          "tx_ring_length": 3,
+          "timeout": 3.375,
+          "outcome": "retry"
+        },
+        {
+          "event": "delivery",
+          "sequence": 2,
+          "window_before": 2,
+          "window_after": 3,
+          "window_max_before": 5,
+          "window_max_after": 5,
+          "tx_ring": [
+            3,
+            4
+          ],
+          "tx_ring_length": 2,
+          "upgrade_triggered": null,
+          "outcome": "delivered",
+          "note": "retry delivery"
+        },
+        {
+          "event": "delivery",
+          "sequence": 3,
+          "window_before": 3,
+          "window_after": 4,
+          "window_max_before": 5,
+          "window_max_after": 5,
+          "tx_ring": [
+            4
+          ],
+          "tx_ring_length": 1,
+          "upgrade_triggered": null,
+          "outcome": "delivered",
+          "note": "retry delivery"
+        },
+        {
+          "event": "delivery",
+          "sequence": 4,
+          "window_before": 4,
+          "window_after": 5,
+          "window_max_before": 5,
+          "window_max_after": 5,
+          "tx_ring": [],
+          "tx_ring_length": 0,
+          "upgrade_triggered": null,
+          "outcome": "delivered",
+          "note": "retry delivery"
+        }
+      ],
+      "final_state": {
+        "window": 5,
+        "window_max": 5,
+        "tx_ring": []
+      }
+    },
+    {
+      "index": 2,
+      "description": "Interleaved send-deliver on fast link (RTT=0.05) with 1 loss: window grows then briefly shrinks",
+      "initial_state": {
+        "rtt": 0.05,
+        "window": 2,
+        "window_max": 5,
+        "window_min": 2,
+        "window_flexibility": 4,
+        "fast_rate_rounds": 0,
+        "medium_rate_rounds": 0
+      },
+      "events": [
+        {
+          "event": "send",
+          "sequence": 0,
+          "tx_ring": [
+            0
+          ],
+          "tx_ring_length": 1,
+          "window": 2,
+          "window_max": 5
+        },
+        {
+          "event": "delivery",
+          "sequence": 0,
+          "window_before": 2,
+          "window_after": 3,
+          "window_max_before": 5,
+          "window_max_after": 5,
+          "tx_ring": [],
+          "tx_ring_length": 0,
+          "fast_rate_rounds": 1,
+          "upgrade_triggered": null,
+          "outcome": "delivered"
+        },
+        {
+          "event": "send",
+          "sequence": 1,
+          "tx_ring": [
+            1
+          ],
+          "tx_ring_length": 1,
+          "window": 3,
+          "window_max": 5
+        },
+        {
+          "event": "delivery",
+          "sequence": 1,
+          "window_before": 3,
+          "window_after": 4,
+          "window_max_before": 5,
+          "window_max_after": 5,
+          "tx_ring": [],
+          "tx_ring_length": 0,
+          "fast_rate_rounds": 2,
+          "upgrade_triggered": null,
+          "outcome": "delivered"
+        },
+        {
+          "event": "send",
+          "sequence": 2,
+          "tx_ring": [
+            2
+          ],
+          "tx_ring_length": 1,
+          "window": 4,
+          "window_max": 5
+        },
+        {
+          "event": "timeout",
+          "sequence": 2,
+          "tries_before": 0,
+          "tries_after": 1,
+          "window_before": 4,
+          "window_after": 3,
+          "window_max_before": 5,
+          "window_max_after": 5,
+          "tx_ring": [
+            2
+          ],
+          "tx_ring_length": 1,
+          "timeout": 0.3125,
+          "outcome": "retry"
+        },
+        {
+          "event": "send",
+          "sequence": 3,
+          "tx_ring": [
+            2,
+            3
+          ],
+          "tx_ring_length": 2,
+          "window": 3,
+          "window_max": 5
+        },
+        {
+          "event": "delivery",
+          "sequence": 3,
+          "window_before": 3,
+          "window_after": 4,
+          "window_max_before": 5,
+          "window_max_after": 5,
+          "tx_ring": [
+            2
+          ],
+          "tx_ring_length": 1,
+          "fast_rate_rounds": 3,
+          "upgrade_triggered": null,
+          "outcome": "delivered"
+        },
+        {
+          "event": "delivery",
+          "sequence": 2,
+          "window_before": 4,
+          "window_after": 5,
+          "window_max_before": 5,
+          "window_max_after": 5,
+          "tx_ring": [],
+          "tx_ring_length": 0,
+          "fast_rate_rounds": 4,
+          "upgrade_triggered": null,
+          "outcome": "delivered",
+          "note": "retry delivery"
+        }
+      ],
+      "final_state": {
+        "window": 5,
+        "window_max": 5,
+        "fast_rate_rounds": 4,
+        "tx_ring": []
+      }
+    },
+    {
+      "index": 3,
+      "description": "Total loss: 2 messages both exhaust retries, first triggers shutdown",
+      "initial_state": {
+        "rtt": 0.5,
+        "window": 3,
+        "window_max": 5,
+        "window_min": 2,
+        "window_flexibility": 4
+      },
+      "events": [
+        {
+          "event": "send",
+          "sequence": 0,
+          "tx_ring": [
+            0
+          ],
+          "tx_ring_length": 1,
+          "window": 3,
+          "window_max": 5
+        },
+        {
+          "event": "send",
+          "sequence": 1,
+          "tx_ring": [
+            0,
+            1
+          ],
+          "tx_ring_length": 2,
+          "window": 3,
+          "window_max": 5
+        },
+        {
+          "event": "timeout",
+          "sequence": 0,
+          "tries_before": 0,
+          "tries_after": 1,
+          "window_before": 3,
+          "window_after": 2,
+          "window_max_before": 5,
+          "window_max_after": 5,
+          "tx_ring": [
+            0,
+            1
+          ],
+          "tx_ring_length": 2,
+          "timeout": 4.375,
+          "outcome": "retry"
+        },
+        {
+          "event": "timeout",
+          "sequence": 1,
+          "tries_before": 0,
+          "tries_after": 1,
+          "window_before": 2,
+          "window_after": 2,
+          "window_max_before": 5,
+          "window_max_after": 5,
+          "tx_ring": [
+            0,
+            1
+          ],
+          "tx_ring_length": 2,
+          "timeout": 4.375,
+          "outcome": "retry"
+        },
+        {
+          "event": "timeout",
+          "sequence": 0,
+          "tries_before": 1,
+          "tries_after": 2,
+          "window_before": 2,
+          "window_after": 2,
+          "window_max_before": 5,
+          "window_max_after": 5,
+          "tx_ring": [
+            0,
+            1
+          ],
+          "tx_ring_length": 2,
+          "timeout": 6.5625,
+          "outcome": "retry"
+        },
+        {
+          "event": "timeout",
+          "sequence": 1,
+          "tries_before": 1,
+          "tries_after": 2,
+          "window_before": 2,
+          "window_after": 2,
+          "window_max_before": 5,
+          "window_max_after": 5,
+          "tx_ring": [
+            0,
+            1
+          ],
+          "tx_ring_length": 2,
+          "timeout": 6.5625,
+          "outcome": "retry"
+        },
+        {
+          "event": "timeout",
+          "sequence": 0,
+          "tries_before": 2,
+          "tries_after": 3,
+          "window_before": 2,
+          "window_after": 2,
+          "window_max_before": 5,
+          "window_max_after": 5,
+          "tx_ring": [
+            0,
+            1
+          ],
+          "tx_ring_length": 2,
+          "timeout": 9.84375,
+          "outcome": "retry"
+        },
+        {
+          "event": "timeout",
+          "sequence": 1,
+          "tries_before": 2,
+          "tries_after": 3,
+          "window_before": 2,
+          "window_after": 2,
+          "window_max_before": 5,
+          "window_max_after": 5,
+          "tx_ring": [
+            0,
+            1
+          ],
+          "tx_ring_length": 2,
+          "timeout": 9.84375,
+          "outcome": "retry"
+        },
+        {
+          "event": "timeout",
+          "sequence": 0,
+          "tries_before": 3,
+          "tries_after": 4,
+          "window_before": 2,
+          "window_after": 2,
+          "window_max_before": 5,
+          "window_max_after": 5,
+          "tx_ring": [
+            0,
+            1
+          ],
+          "tx_ring_length": 2,
+          "timeout": 14.765625,
+          "outcome": "retry"
+        },
+        {
+          "event": "timeout",
+          "sequence": 1,
+          "tries_before": 3,
+          "tries_after": 4,
+          "window_before": 2,
+          "window_after": 2,
+          "window_max_before": 5,
+          "window_max_after": 5,
+          "tx_ring": [
+            0,
+            1
+          ],
+          "tx_ring_length": 2,
+          "timeout": 14.765625,
+          "outcome": "retry"
+        },
+        {
+          "event": "timeout",
+          "sequence": 0,
+          "tries_before": 4,
+          "tries_after": 5,
+          "window_before": 2,
+          "window_after": 2,
+          "window_max_before": 5,
+          "window_max_after": 5,
+          "tx_ring": [
+            0,
+            1
+          ],
+          "tx_ring_length": 2,
+          "timeout": 22.1484375,
+          "outcome": "retry"
+        },
+        {
+          "event": "timeout",
+          "sequence": 1,
+          "tries_before": 4,
+          "tries_after": 5,
+          "window_before": 2,
+          "window_after": 2,
+          "window_max_before": 5,
+          "window_max_after": 5,
+          "tx_ring": [
+            0,
+            1
+          ],
+          "tx_ring_length": 2,
+          "timeout": 22.1484375,
+          "outcome": "retry"
+        },
+        {
+          "event": "timeout",
+          "sequence": 0,
+          "tries_before": 5,
+          "tries_after": 5,
+          "window_before": 2,
+          "window_after": 2,
+          "window_max_before": 5,
+          "window_max_after": 5,
+          "tx_ring": [
+            0,
+            1
+          ],
+          "tx_ring_length": 2,
+          "timeout": null,
+          "outcome": "fail"
+        }
+      ],
+      "final_state": {
+        "window": 2,
+        "window_max": 5,
+        "tx_ring": [
+          0,
+          1
+        ],
+        "outcome": "shutdown"
+      }
+    }
+  ]
+}

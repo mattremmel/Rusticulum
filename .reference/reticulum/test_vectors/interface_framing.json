@@ -1,0 +1,458 @@
+{
+  "description": "Reticulum v1.1.3 reference implementation - Interface framing test vectors",
+  "sources": [
+    "RNS/Interfaces/TCPInterface.py (HDLC, KISS classes)",
+    "RNS/Transport.py (transmit/inbound with IFAC)",
+    "RNS/Reticulum.py (_add_interface IFAC key derivation)"
+  ],
+  "hdlc": {
+    "description": "HDLC-style byte-stuffing framing used by TCP, Serial, Local, Pipe, I2P interfaces",
+    "constants": {
+      "FLAG": "0x7E",
+      "ESC": "0x7D",
+      "ESC_MASK": "0x20"
+    },
+    "escape_rules": [
+      {
+        "input_byte": "0x7D (ESC)",
+        "escaped_to": "0x7D 0x5D",
+        "note": "ESC is escaped FIRST (before FLAG)"
+      },
+      {
+        "input_byte": "0x7E (FLAG)",
+        "escaped_to": "0x7D 0x5E",
+        "note": "FLAG is escaped SECOND (after ESC)"
+      }
+    ],
+    "frame_format": "FLAG + escape(data) + FLAG",
+    "escape_order_note": "The reference implementation uses two sequential replace() calls: ESC first, then FLAG. This order is critical \u2014 reversing it would corrupt ESC bytes.",
+    "vectors": [
+      {
+        "description": "Normal packet with no special bytes needing escape",
+        "input": "0102030405102030",
+        "escaped": "0102030405102030",
+        "framed": "7e01020304051020307e",
+        "escaped_length": 8,
+        "framed_length": 10
+      },
+      {
+        "description": "Packet containing ESC byte (0x7D -> 0x7D 0x5D)",
+        "input": "017d0304",
+        "escaped": "017d5d0304",
+        "framed": "7e017d5d03047e",
+        "escaped_length": 5,
+        "framed_length": 7
+      },
+      {
+        "description": "Packet containing FLAG byte (0x7E -> 0x7D 0x5E)",
+        "input": "017e0304",
+        "escaped": "017d5e0304",
+        "framed": "7e017d5e03047e",
+        "escaped_length": 5,
+        "framed_length": 7
+      },
+      {
+        "description": "Packet with both ESC (0x7D) and FLAG (0x7E) bytes, alternating",
+        "input": "7d7e7d7e",
+        "escaped": "7d5d7d5e7d5d7d5e",
+        "framed": "7e7d5d7d5e7d5d7d5e7e",
+        "escaped_length": 8,
+        "framed_length": 10
+      },
+      {
+        "description": "Worst case: all special bytes (4x ESC + 4x FLAG), maximum expansion",
+        "input": "7d7d7d7d7e7e7e7e",
+        "escaped": "7d5d7d5d7d5d7d5d7d5e7d5e7d5e7d5e",
+        "framed": "7e7d5d7d5d7d5d7d5d7d5e7d5e7d5e7d5e7e",
+        "escaped_length": 16,
+        "framed_length": 18
+      },
+      {
+        "description": "MTU-size packet (500 bytes) with special bytes at boundaries (0, 1, 249, 250, 498, 499)",
+        "input": "7e7dca4f0c7a2478f22476cdfdbc79ba8a9ef3a4a7c0c2290d100300017b954cfe760506616480974d9b8bb79cc4a7c0ce6e36e523a30d7101d6cbaf6b1ed6e9c6842536e59ac89bd27520826a122ade0e84c2af7933c549677d0654b8ca6ea4fb3cd8fa52f34ffd3104b429bf5afd268eca6bc19e22b1f5f971b3309d7935ae3df7c09676546f4b0e70c8ccc47546b3f7d5021977f946aa212ef3e2d5b0728dc4a4c65fdb54d76223e68c85ec546d5c76025d437b7aa4e1bd641af4f7f9ead5ae6c95da7fc6e4618374f4bfa751af96354dc80d18538fa160922d2bbadec8af29627860524352ced966cb78f4d6bfeea9172b690256f751317e7d03e4562994b1a3a7c39c98c342ba6018f9cf29c35ca2a30f85b9ed99f14d2876b32315592a5080f2e9eff830eeef5b770668495638af0dfbab831e7577692ee6a1da535002ecc94413127fcb218423c1f1fdeb60851730b53286a637f2f4c9e071610cd935fde48fe40eb3f6b24deac27dc53fde98b085954d2941086acaaac727922ef032f07c0bb7446eb2e47d5498eff09c2c6c876d751ad5be20e17c27bcbd07909c6f5c9289533e958d7ca9d294732bf3eadaada80edf0f21260f3519ab404ae54eb768e01bdbaf77288bba3692633f3bab9b3eab20e600116581bf9fc8c6dc600fa48acf36dfea084816eda0b687cbbac6b277097d7e",
+        "escaped": "7d5e7d5dca4f0c7a2478f22476cdfdbc79ba8a9ef3a4a7c0c2290d100300017b954cfe760506616480974d9b8bb79cc4a7c0ce6e36e523a30d7101d6cbaf6b1ed6e9c6842536e59ac89bd27520826a122ade0e84c2af7933c549677d5d0654b8ca6ea4fb3cd8fa52f34ffd3104b429bf5afd268eca6bc19e22b1f5f971b3309d7935ae3df7c09676546f4b0e70c8ccc47546b3f7d5021977f946aa212ef3e2d5b0728dc4a4c65fdb54d76223e68c85ec546d5c76025d437b7aa4e1bd641af4f7f9ead5ae6c95da7fc6e4618374f4bfa751af96354dc80d18538fa160922d2bbadec8af29627860524352ced966cb78f4d6bfeea9172b690256f751317d5e7d5d03e4562994b1a3a7c39c98c342ba6018f9cf29c35ca2a30f85b9ed99f14d2876b32315592a5080f2e9eff830eeef5b770668495638af0dfbab831e7577692ee6a1da535002ecc94413127fcb218423c1f1fdeb60851730b53286a637f2f4c9e071610cd935fde48fe40eb3f6b24deac27d5dc53fde98b085954d2941086acaaac727922ef032f07c0bb7446eb2e47d5d5498eff09c2c6c876d751ad5be20e17c27bcbd07909c6f5c9289533e958d7ca9d294732bf3eadaada80edf0f21260f3519ab404ae54eb768e01bdbaf77288bba3692633f3bab9b3eab20e600116581bf9fc8c6dc600fa48acf36dfea084816eda0b687cbbac6b277097d5d7d5e",
+        "framed": "7e7d5e7d5dca4f0c7a2478f22476cdfdbc79ba8a9ef3a4a7c0c2290d100300017b954cfe760506616480974d9b8bb79cc4a7c0ce6e36e523a30d7101d6cbaf6b1ed6e9c6842536e59ac89bd27520826a122ade0e84c2af7933c549677d5d0654b8ca6ea4fb3cd8fa52f34ffd3104b429bf5afd268eca6bc19e22b1f5f971b3309d7935ae3df7c09676546f4b0e70c8ccc47546b3f7d5021977f946aa212ef3e2d5b0728dc4a4c65fdb54d76223e68c85ec546d5c76025d437b7aa4e1bd641af4f7f9ead5ae6c95da7fc6e4618374f4bfa751af96354dc80d18538fa160922d2bbadec8af29627860524352ced966cb78f4d6bfeea9172b690256f751317d5e7d5d03e4562994b1a3a7c39c98c342ba6018f9cf29c35ca2a30f85b9ed99f14d2876b32315592a5080f2e9eff830eeef5b770668495638af0dfbab831e7577692ee6a1da535002ecc94413127fcb218423c1f1fdeb60851730b53286a637f2f4c9e071610cd935fde48fe40eb3f6b24deac27d5dc53fde98b085954d2941086acaaac727922ef032f07c0bb7446eb2e47d5d5498eff09c2c6c876d751ad5be20e17c27bcbd07909c6f5c9289533e958d7ca9d294732bf3eadaada80edf0f21260f3519ab404ae54eb768e01bdbaf77288bba3692633f3bab9b3eab20e600116581bf9fc8c6dc600fa48acf36dfea084816eda0b687cbbac6b277097d5d7d5e7e",
+        "escaped_length": 509,
+        "framed_length": 511
+      },
+      {
+        "description": "Adjacent special bytes testing escape order: ESC ESC FLAG FLAG ESC",
+        "input": "7d7d7e7e7d",
+        "escaped": "7d5d7d5d7d5e7d5e7d5d",
+        "framed": "7e7d5d7d5d7d5e7d5e7d5d7e",
+        "escaped_length": 10,
+        "framed_length": 12
+      },
+      {
+        "description": "Empty data (frame is just FLAG FLAG)",
+        "input": "",
+        "escaped": "",
+        "framed": "7e7e",
+        "escaped_length": 0,
+        "framed_length": 2
+      }
+    ]
+  },
+  "kiss": {
+    "description": "KISS framing used by TCP KISS, KISS serial, RNode, AX25KISS interfaces",
+    "constants": {
+      "FEND": "0xC0",
+      "FESC": "0xDB",
+      "TFEND": "0xDC",
+      "TFESC": "0xDD",
+      "CMD_DATA": "0x00"
+    },
+    "escape_rules": [
+      {
+        "input_byte": "0xDB (FESC)",
+        "escaped_to": "0xDB 0xDD",
+        "note": "FESC is escaped FIRST (before FEND)"
+      },
+      {
+        "input_byte": "0xC0 (FEND)",
+        "escaped_to": "0xDB 0xDC",
+        "note": "FEND is escaped SECOND (after FESC)"
+      }
+    ],
+    "frame_format": "FEND + CMD_DATA + escape(data) + FEND",
+    "escape_order_note": "The reference implementation uses two sequential replace() calls: FESC first, then FEND. This order is critical \u2014 reversing it would corrupt FESC bytes.",
+    "vectors": [
+      {
+        "description": "Normal packet with no special bytes needing escape",
+        "input": "0102030405102030",
+        "escaped": "0102030405102030",
+        "framed": "c0000102030405102030c0",
+        "escaped_length": 8,
+        "framed_length": 11
+      },
+      {
+        "description": "Packet containing FEND byte (0xC0 -> 0xDB 0xDC)",
+        "input": "01c00304",
+        "escaped": "01dbdc0304",
+        "framed": "c00001dbdc0304c0",
+        "escaped_length": 5,
+        "framed_length": 8
+      },
+      {
+        "description": "Packet containing FESC byte (0xDB -> 0xDB 0xDD)",
+        "input": "01db0304",
+        "escaped": "01dbdd0304",
+        "framed": "c00001dbdd0304c0",
+        "escaped_length": 5,
+        "framed_length": 8
+      },
+      {
+        "description": "Packet with both FEND (0xC0) and FESC (0xDB) bytes, alternating",
+        "input": "c0dbc0db",
+        "escaped": "dbdcdbdddbdcdbdd",
+        "framed": "c000dbdcdbdddbdcdbddc0",
+        "escaped_length": 8,
+        "framed_length": 11
+      },
+      {
+        "description": "Worst case: all special bytes (4x FESC + 4x FEND), maximum expansion",
+        "input": "dbdbdbdbc0c0c0c0",
+        "escaped": "dbdddbdddbdddbdddbdcdbdcdbdcdbdc",
+        "framed": "c000dbdddbdddbdddbdddbdcdbdcdbdcdbdcc0",
+        "escaped_length": 16,
+        "framed_length": 19
+      },
+      {
+        "description": "MTU-size packet (500 bytes) with special bytes at boundaries (0, 1, 249, 250, 498, 499)",
+        "input": "c0db6c91983b7a263288b8881e30b79069a018f5fa36a3982e61ee33975e3122186fbb404c78967e82adfc3b3438918c1267b54593d1d9c26c6977036e541cb7ec316712ef5690724d8b1ecd59a3a2369499d5a6e1451e90b744cbd48c2852fc6915c01b87d7861de8c528b23b7b523ce9c45794df31c52c5710d454a3fae0fbc411ad1a037b7232c5972b9558b6da7eb291d2414381a7b4a30539d45b6df695f142dcdde3af43d16c02f6b3e102610be828b168b6671feac2188ddbe471d94e244156dff2fc5043ac6119c941b59d218c9100b1c8831bfadfaf45b0de8163547c8ac0a7725acf6bbc70e27e46e04e2585281d70bfb65aa6e7c0db917cb3ed1e39b5e397b6b820ca66bac04950581abfc505a6bf2bcf81c2b5aab4adac66801485c94e22ddc81191f71955db62cc14af32ee07f82050478a71681d544341ce95cbf712be33cc378b536188e0e7d0111e4685dd44cf5805172247385b08f8b24698bc87b321e06524bd3453c569e26186a48debed7b6224ff17d4b31da27a0e6def4816c01e066ab1fde2484528e4df415d692d07829942d0035eee08bb68ac7c56da820bd472719f4069d42e08ab5631fc1ac4edec7844ed7897a791fd0cd57b2f2eb759acb01b20a8ccc57044ad4a443e8dfabbdb080b87d9bb204ce2a3f578d10f7aa94682d242c3ef8d3047e31c16b765dbc0",
+        "escaped": "dbdcdbdd6c91983b7a263288b8881e30b79069a018f5fa36a3982e61ee33975e3122186fbb404c78967e82adfc3b3438918c1267b54593d1d9c26c6977036e541cb7ec316712ef5690724d8b1ecd59a3a2369499d5a6e1451e90b744cbd48c2852fc6915dbdc1b87d7861de8c528b23b7b523ce9c45794df31c52c5710d454a3fae0fbc411ad1a037b7232c5972b9558b6da7eb291d2414381a7b4a30539d45b6df695f142dcdde3af43d16c02f6b3e102610be828b168b6671feac2188ddbdde471d94e244156dff2fc5043ac6119c941b59d218c9100b1c8831bfadfaf45b0de8163547c8adbdca7725acf6bbc70e27e46e04e2585281d70bfb65aa6e7dbdcdbdd917cb3ed1e39b5e397b6b820ca66badbdc4950581abfc505a6bf2bcf81c2b5aab4adac66801485c94e22ddc81191f71955dbdd62cc14af32ee07f82050478a71681d544341ce95cbf712be33cc378b536188e0e7d0111e4685dd44cf5805172247385b08f8b24698bc87b321e06524bd3453c569e26186a48debed7b6224ff17d4b31da27a0e6def4816dbdc1e066ab1fde2484528e4df415d692d07829942d0035eee08bb68ac7c56da820bd472719f4069d42e08ab5631fc1ac4edec7844ed7897a791fd0cd57b2f2eb759acb01b20a8ccc57044ad4a443e8dfabbdbdd080b87d9bb204ce2a3f578d10f7aa94682d242c3ef8d3047e31c16b765dbdddbdc",
+        "framed": "c000dbdcdbdd6c91983b7a263288b8881e30b79069a018f5fa36a3982e61ee33975e3122186fbb404c78967e82adfc3b3438918c1267b54593d1d9c26c6977036e541cb7ec316712ef5690724d8b1ecd59a3a2369499d5a6e1451e90b744cbd48c2852fc6915dbdc1b87d7861de8c528b23b7b523ce9c45794df31c52c5710d454a3fae0fbc411ad1a037b7232c5972b9558b6da7eb291d2414381a7b4a30539d45b6df695f142dcdde3af43d16c02f6b3e102610be828b168b6671feac2188ddbdde471d94e244156dff2fc5043ac6119c941b59d218c9100b1c8831bfadfaf45b0de8163547c8adbdca7725acf6bbc70e27e46e04e2585281d70bfb65aa6e7dbdcdbdd917cb3ed1e39b5e397b6b820ca66badbdc4950581abfc505a6bf2bcf81c2b5aab4adac66801485c94e22ddc81191f71955dbdd62cc14af32ee07f82050478a71681d544341ce95cbf712be33cc378b536188e0e7d0111e4685dd44cf5805172247385b08f8b24698bc87b321e06524bd3453c569e26186a48debed7b6224ff17d4b31da27a0e6def4816dbdc1e066ab1fde2484528e4df415d692d07829942d0035eee08bb68ac7c56da820bd472719f4069d42e08ab5631fc1ac4edec7844ed7897a791fd0cd57b2f2eb759acb01b20a8ccc57044ad4a443e8dfabbdbdd080b87d9bb204ce2a3f578d10f7aa94682d242c3ef8d3047e31c16b765dbdddbdcc0",
+        "escaped_length": 513,
+        "framed_length": 516
+      },
+      {
+        "description": "Adjacent special bytes testing escape order: FESC FESC FEND FEND FESC",
+        "input": "dbdbc0c0db",
+        "escaped": "dbdddbdddbdcdbdcdbdd",
+        "framed": "c000dbdddbdddbdcdbdcdbddc0",
+        "escaped_length": 10,
+        "framed_length": 13
+      },
+      {
+        "description": "Empty data (frame is FEND CMD_DATA FEND)",
+        "input": "",
+        "escaped": "",
+        "framed": "c000c0",
+        "escaped_length": 0,
+        "framed_length": 3
+      }
+    ]
+  },
+  "consecutive_frames": {
+    "description": "Three consecutive frames on the same wire",
+    "packets": [
+      "010203",
+      "7d7ec0db",
+      "040506"
+    ],
+    "hdlc_concatenated": "7e0102037e7e7d5d7d5ec0db7e7e0405067e",
+    "kiss_concatenated": "c000010203c0c0007d7edbdcdbddc0c000040506c0",
+    "hdlc_separator": "7e",
+    "kiss_separator": "c0",
+    "note": "Consecutive frames share boundary markers (last FLAG/FEND of frame N serves as first FLAG/FEND of frame N+1 in some implementations, but Reticulum uses distinct delimiters)"
+  },
+  "ifac": {
+    "description": "Interface Access Code (IFAC) authentication layer between raw packets and wire framing",
+    "constants": {
+      "IFAC_SALT": "adf54d882c9a9b80771eb4995d702d4a3e733391b2a0f53f416d9f907e55cff8",
+      "default_ifac_size": 16,
+      "valid_ifac_sizes": [
+        8,
+        16
+      ]
+    },
+    "key_derivation": {
+      "description": "IFAC key derivation from netname and/or netkey",
+      "algorithm": [
+        "1. ifac_origin = SHA256(netname.encode('utf-8')) || SHA256(netkey.encode('utf-8')) (concatenate whichever are set)",
+        "2. ifac_origin_hash = SHA256(ifac_origin)",
+        "3. ifac_key = HKDF(length=64, derive_from=ifac_origin_hash, salt=IFAC_SALT, context=None)",
+        "4. ifac_identity = Identity.from_bytes(ifac_key) \u2014 first 32 bytes are X25519 key, last 32 are Ed25519 seed"
+      ],
+      "vectors": [
+        {
+          "description": "IFAC key derivation with netname only",
+          "ifac_netname": "testnet",
+          "ifac_netkey": null,
+          "ifac_origin": "9afbce9f2416520733bacb370315d32b6b2c43d6097576df1c1222859d91eecc",
+          "ifac_origin_hash": "80aff1fd382a55d7544341f2448a104abf9dbbd47a00918d745ecde19f5f160f",
+          "ifac_key": "bedfc668194da1f48eeff6901693069d77357193277c8a8335a0caae715c879c4966121fdfb14a3096c3eab295c0014501b37f9dd8c680ee328247451120cd17",
+          "identity_public_key": "82a4369a995bcd5543ef9e2c787d9c49a03473c34eab981676090893ecd1c970b51c01160da48c1f6e09863af9cdc84e114a9bdf8b2e6f910fa63e87f9fa1c69"
+        },
+        {
+          "description": "IFAC key derivation with netkey only",
+          "ifac_netname": null,
+          "ifac_netkey": "secretpassword",
+          "ifac_origin": "95d30169a59c418b52013315fc81bc99fdf0a7b03a116f346ab628496f349ed5",
+          "ifac_origin_hash": "ef8ae476ad36712ec0850e367a11d821216e47a513759809c745f67c36acee47",
+          "ifac_key": "bfd92cb5f060c5d65ed0934fa524e6a87a86e24e3d58b075356bfd5933b0c42526d5ba877091ed45b06c91bb9790c16af201b108f27a5365e7d7800d944558cf",
+          "identity_public_key": "0267cc54afaf49fce9985627655d0507967f74742763f474e4606b83a884673893710c9b7b4f3dc09a9d46b914977329555f3b348f81177ec87c62527242bb15"
+        },
+        {
+          "description": "IFAC key derivation with both netname and netkey",
+          "ifac_netname": "mynetwork",
+          "ifac_netkey": "mypassword",
+          "ifac_origin": "6d1b23123e260851a6eb07cf742ea9323a32a855c59a3ca3b6e82057de6f045289e01536ac207279409d4de1e5253e01f4a1769e696db0d6062ca9b8f56767c8",
+          "ifac_origin_hash": "2108c9136817a798c031daa851bd140e96721d620516a7a794450b4a29973120",
+          "ifac_key": "b20f352f600292f548f5f74a1b1c3b74aa43a0f2c18f0bc7eeed4e6dc3a24245f7baa9bde595c6531146e5c0d730bd03e62d53f51e8b2c999930dfcbe262cbb6",
+          "identity_public_key": "ec1f81704e1d4f87ad9617fa610fff5fa0b8423d92e2be8f2fe3385126b51d6487f15a42a4e2fff13c1422fd12ed1cd4d527d3a048c7e711b0e57e00963a6f96"
+        }
+      ]
+    },
+    "transmit_apply": {
+      "description": "IFAC application on transmit (Transport.transmit)",
+      "algorithm": [
+        "1. ifac = identity.sign(raw)[-ifac_size:]  (last ifac_size bytes of Ed25519 signature)",
+        "2. mask = HKDF(length=len(raw)+ifac_size, derive_from=ifac, salt=ifac_key, context=None)",
+        "3. new_header = [raw[0] | 0x80, raw[1]]  (set IFAC flag in header byte 0)",
+        "4. new_raw = new_header + ifac + raw[2:]  (insert IFAC after header)",
+        "5. Mask byte-by-byte:",
+        "   - byte 0: XOR with mask[0], then force | 0x80 (keep IFAC flag)",
+        "   - byte 1: XOR with mask[1]",
+        "   - bytes 2..ifac_size+1: NOT masked (IFAC travels in clear)",
+        "   - bytes ifac_size+2..end: XOR with mask[i]"
+      ]
+    },
+    "receive_verify": {
+      "description": "IFAC verification on receive (Transport.inbound)",
+      "algorithm": [
+        "1. Check IFAC flag: raw[0] & 0x80 == 0x80",
+        "2. Extract IFAC: ifac = raw[2:2+ifac_size]",
+        "3. mask = HKDF(length=len(raw), derive_from=ifac, salt=ifac_key, context=None)",
+        "4. Unmask byte-by-byte:",
+        "   - bytes 0..1: XOR with mask[i]",
+        "   - bytes 2..ifac_size+1: NOT unmasked (IFAC in clear)",
+        "   - bytes ifac_size+2..end: XOR with mask[i]",
+        "5. Clear IFAC flag: new_header = [raw[0] & 0x7F, raw[1]]",
+        "6. Reassemble: new_raw = new_header + raw[2+ifac_size:]",
+        "7. Verify: identity.sign(new_raw)[-ifac_size:] == ifac"
+      ],
+      "masking_asymmetry_note": "Transmit masks AFTER setting IFAC flag and forces flag with OR. Receive unmasks FIRST (including header), THEN clears flag with AND. The mask values differ between transmit and receive because the masked packet has different length (includes IFAC bytes)."
+    },
+    "vectors": [
+      {
+        "description": "IFAC apply+verify roundtrip (ifac_size=8)",
+        "ifac_netname": "testnet",
+        "ifac_netkey": "testkey",
+        "ifac_size": 8,
+        "raw_packet": "00019e3f4a7773cbe3946f2d9c8c6b9ff33acb10e1883d117069a12f99bcd911",
+        "ifac_value": "e102f886c086eb02",
+        "mask": "b915d1df44e7dbdabdbbf6f892a9e6f87f13aeb39670ad814fb986bf9ba53cdd4b9b44cfd8743bf0",
+        "masked_packet": "b914e102f886c086eb0268c7d8de95339c87c19e0afcc61ebc834daf7a2d01cc3bf2e5e041c8e2e1",
+        "recovered_packet": "00019e3f4a7773cbe3946f2d9c8c6b9ff33acb10e1883d117069a12f99bcd911",
+        "ifac_flag_set": true,
+        "notes": {
+          "mask_byte_0": "XOR with header byte 0, then force IFAC flag (| 0x80)",
+          "mask_byte_1": "XOR with header byte 1",
+          "mask_bytes_2_to_ifac_size_plus_1": "Not masked (IFAC travels in clear)",
+          "mask_remaining": "XOR with payload bytes"
+        }
+      },
+      {
+        "description": "IFAC apply+verify roundtrip (ifac_size=16)",
+        "ifac_netname": "testnet",
+        "ifac_netkey": "testkey",
+        "ifac_size": 16,
+        "raw_packet": "00019e3f4a7773cbe3946f2d9c8c6b9ff33acb10e1883d117069a12f99bcd911",
+        "ifac_value": "41834161b2621905e102f886c086eb02",
+        "mask": "d7ec3d1eefc5496438bb297e0d9f531cd4a46a8424abad535180324399a111a90a3178c9c26a1aa50bd8040ebb04bad4",
+        "masked_packet": "d7ed41834161b2621905e102f886c086eb02f4bb6edcde98b2145d6e052d7a36f90bb3d923e227b47bb1a52122b863c5",
+        "recovered_packet": "00019e3f4a7773cbe3946f2d9c8c6b9ff33acb10e1883d117069a12f99bcd911",
+        "ifac_flag_set": true,
+        "notes": {
+          "mask_byte_0": "XOR with header byte 0, then force IFAC flag (| 0x80)",
+          "mask_byte_1": "XOR with header byte 1",
+          "mask_bytes_2_to_ifac_size_plus_1": "Not masked (IFAC travels in clear)",
+          "mask_remaining": "XOR with payload bytes"
+        }
+      },
+      {
+        "description": "IFAC rejection on tampered packet (last byte flipped)",
+        "ifac_netname": "testnet",
+        "ifac_netkey": "testkey",
+        "ifac_size": 16,
+        "raw_packet": "00011a69447c3b930be85608f45577f6ca973d51d732c76642ba15d1cd41cba2",
+        "masked_packet": "f7f7de5500777fbe5eaedf58b3e52aba64048554f59a0114df01e601b58497097f40c1a69ee040d0583038c6154839a4",
+        "tampered_packet": "f7f7de5500777fbe5eaedf58b3e52aba64048554f59a0114df01e601b58497097f40c1a69ee040d0583038c61548395b",
+        "verification_result": "rejected"
+      },
+      {
+        "description": "IFAC rejection with wrong IFAC key (different netname)",
+        "sender_netname": "testnet",
+        "sender_netkey": "testkey",
+        "receiver_netname": "wrongnet",
+        "receiver_netkey": null,
+        "ifac_size": 16,
+        "raw_packet": "00010c497d1bd4c023f3f0c453e8bc3cc13cd94f4309ebd8467b64c3cd0b1ee4",
+        "masked_packet": "d5cac2ebb7c621f7d2b71fb4d06156fa7f058d0dae067672a60ed34506687e0525e9ed930232c37aa58f182e659b0899",
+        "verification_result": "rejected"
+      },
+      {
+        "description": "Packet without IFAC flag rejected by IFAC-enabled receiver",
+        "ifac_size": 16,
+        "raw_packet": "0001467d3a9df5328a515093f4dc12677d46d44950e61659832d8fd647300b83",
+        "ifac_flag_set": false,
+        "verification_result": "rejected",
+        "note": "Receiver with IFAC enabled drops packets without IFAC flag (0x80) set"
+      }
+    ]
+  },
+  "full_pipeline": {
+    "description": "Complete transmit/receive pipeline: raw -> IFAC apply -> wire frame -> deframe -> IFAC verify -> recovered",
+    "pipeline_order_transmit": [
+      "1. Raw packet",
+      "2. IFAC apply (if configured): sign, mask, insert IFAC",
+      "3. Wire framing: HDLC or KISS escape + delimit"
+    ],
+    "pipeline_order_receive": [
+      "1. Wire deframing: strip delimiters, unescape",
+      "2. IFAC verify (if configured): extract IFAC, unmask, verify signature",
+      "3. Recovered raw packet"
+    ],
+    "vectors": [
+      {
+        "description": "Small packet through HDLC pipeline",
+        "framing": "hdlc",
+        "ifac_netname": "pipeline_test",
+        "ifac_netkey": "pipeline_key",
+        "ifac_size": 16,
+        "step_0_raw": "00010c7432af709df6e164a7cad79cc20d4642f65fec",
+        "step_1_ifac_applied": "f6a05f431e52d53782df1f925d65d2f59c037f520a45661526ace846c3e7d5b4f65b902461ff",
+        "step_2_framed": "7ef6a05f431e52d53782df1f925d65d2f59c037f520a45661526ace846c3e7d5b4f65b902461ff7e",
+        "step_3_deframed": "f6a05f431e52d53782df1f925d65d2f59c037f520a45661526ace846c3e7d5b4f65b902461ff",
+        "step_4_ifac_verified": "00010c7432af709df6e164a7cad79cc20d4642f65fec"
+      },
+      {
+        "description": "Small packet through KISS pipeline",
+        "framing": "kiss",
+        "ifac_netname": "pipeline_test",
+        "ifac_netkey": "pipeline_key",
+        "ifac_size": 16,
+        "step_0_raw": "0001c241e4d6bbfa8355a5f023ef73115b865a24c719",
+        "step_1_ifac_applied": "93d28bad83c288632f622a1daf82c1bb64083930f44aab59dd231b67b47f4b2223e2185cf651",
+        "step_2_framed": "c00093d28bad83c288632f622a1daf82c1bb64083930f44aab59dd231b67b47f4b2223e2185cf651c0",
+        "step_3_deframed": "93d28bad83c288632f622a1daf82c1bb64083930f44aab59dd231b67b47f4b2223e2185cf651",
+        "step_4_ifac_verified": "0001c241e4d6bbfa8355a5f023ef73115b865a24c719"
+      },
+      {
+        "description": "Packet with special bytes through HDLC pipeline",
+        "framing": "hdlc",
+        "ifac_netname": "pipeline_test",
+        "ifac_netkey": "pipeline_key",
+        "ifac_size": 16,
+        "step_0_raw": "00017d7ed146ae591ddd74b797c544faf0c088e665b0a38fcb674f77d98f1fcc",
+        "step_1_ifac_applied": "d6493cf88cb567c25efab7c0ac0c1b0dbe0a668d24bdb82e0ab4ca8a95234477f71027dd24ea1b1c3587d6cdb694bbea",
+        "step_2_framed": "7ed6493cf88cb567c25efab7c0ac0c1b0dbe0a668d24bdb82e0ab4ca8a95234477f71027dd24ea1b1c3587d6cdb694bbea7e",
+        "step_3_deframed": "d6493cf88cb567c25efab7c0ac0c1b0dbe0a668d24bdb82e0ab4ca8a95234477f71027dd24ea1b1c3587d6cdb694bbea",
+        "step_4_ifac_verified": "00017d7ed146ae591ddd74b797c544faf0c088e665b0a38fcb674f77d98f1fcc"
+      },
+      {
+        "description": "Packet with special bytes through KISS pipeline",
+        "framing": "kiss",
+        "ifac_netname": "pipeline_test",
+        "ifac_netkey": "pipeline_key",
+        "ifac_size": 16,
+        "step_0_raw": "0001c0db228e57cc2985650483d350ec381a6d76fd0ade820288bda3e27213d8",
+        "step_1_ifac_applied": "82042550fc8024373225c9da8851053241015bef2428c57835f6f31ceb5f1d579522d68e1187eff153df42b306eebf9d",
+        "step_2_framed": "c00082042550fc8024373225c9da8851053241015bef2428c57835f6f31ceb5f1d579522d68e1187eff153df42b306eebf9dc0",
+        "step_3_deframed": "82042550fc8024373225c9da8851053241015bef2428c57835f6f31ceb5f1d579522d68e1187eff153df42b306eebf9d",
+        "step_4_ifac_verified": "0001c0db228e57cc2985650483d350ec381a6d76fd0ade820288bda3e27213d8"
+      },
+      {
+        "description": "MTU-size packet through HDLC pipeline",
+        "framing": "hdlc",
+        "ifac_netname": "pipeline_test",
+        "ifac_netkey": "pipeline_key",
+        "ifac_size": 16,
+        "step_0_raw": "0001c6d016f8497d47d7edf722efb7c89833acd37a3fcf70fc3277689861eca13e303d6b9a58f7ced51cf0edf7ae9088f51348697fe2965d75208c573d7f7a155bf233067e1b25b179a90aa1e0121a435fdfc12c9fbd1b5e182490384a438f019c2601940e7dd6a5555f4203f403926b8484e07fcbc77ca2672628042f743e0fabe74835c80f7a066ac0daebc838c84b80033dd20d5e1eb115e762dea15de7f389ad741bceda181c3536c3a5d77f2da3252f1e25a1ccaea8ab4993e114a29d0f87ec8913117330d40ec8da0f73ee219cfca6c1ef9b95d8f712749db2b8506fbe4afab7ab3e6a7f348063fe28df07f475c6b58ef164f5c96aaf744ead4de5d622646f235257cec364121f4a774605a0ac55d965a086edff37c75d51148f5f5e34d033ac7ffbbc9d646771c2adcf3572fa67afad61a44068e2aaf857f4917b87831afca780abb5c0a512e660219cbb0ac27b18f8412cd605776993be1a935524c5b6c0f401dd3292c5c8319cea742bc2035863ff57f6005b679dab2ddd4b548d5421e5ccb14c20d7ac3719bd04950445a59f507088afa593b144f89eb81b5eda57a0c2f92a31d1ea0754540598f6c1e721c1488447cc55284921860f381cee4a98ca8a3a8dd734af56e6bed909a9ed2c1809e4ad036cac0e3e62aa6d0c20e14f27ef1f97faeab21063c413748ffb8720e0de7c4b05",
+        "step_1_ifac_applied": "8f79fab7acb7ccc6edc384b9a5cb85b0f90294c141ac6c80c8fc738048b7f0fa6f092f7c739c2a5ea7885a1e65c31ea3cbe0c7e7cdb9a8c9d49612b599473ff12eb7b863900f65fe403216d7c67430f2019e99c2b8086a843b176bd1b1490a8458e905096d334dfd37ece8af9c52da5590a39edbe2892d3e60f6089341b184bd85c265e24033912a325f037c0e877358960de839ebc706c3571c675a2914857597dacb2ae900e7f9711e6e3b7b801e767c9b734e6ec9f16e5b844639fcebd32bfa1c0892def71186cc0b075eb379dbacd8784cebd876addd2d586ad90958863c50b669538442202ec93b105ea96ce4d409159b77b661dde5c3eba95f9c836eaf38769f582d6a1db86c48e7b8b4b276d5c5bb43d4d4ac504f816f844e99c1a0a0d45e4af5bae8bdbef6a826ff38a0179b6111dcacdeac644e8837a2f169a34d1373cb2cd19cb4a71b1435e21ca472a10e9012f3d04ea3cb358458e7798dec9fee9a64fedfdc7e78c6faab06c062ea881942238ad9f0f42135b2189c21ddde75959768b8eb662ff299a40800858cc4625649765be5d14d4467a48fb1bc04243dded789ca42ae5695f8a5a1fdd65ad6a86b51debe404ebce4e757c4434855924ac150e13a9f66a2d963be3008be1978612c4bff6d2d20cf930a5044c8e01478961d41433ad258a4ea4143fd9199098f304ec1efa49fb406a23894ee64908fba68cab7d4298b",
+        "step_2_framed": "7e8f79fab7acb7ccc6edc384b9a5cb85b0f90294c141ac6c80c8fc738048b7f0fa6f092f7c739c2a5ea7885a1e65c31ea3cbe0c7e7cdb9a8c9d49612b599473ff12eb7b863900f65fe403216d7c67430f2019e99c2b8086a843b176bd1b1490a8458e905096d334dfd37ece8af9c52da5590a39edbe2892d3e60f6089341b184bd85c265e24033912a325f037c0e877358960de839ebc706c3571c675a2914857597dacb2ae900e7f9711e6e3b7b801e767c9b734e6ec9f16e5b844639fcebd32bfa1c0892def71186cc0b075eb379dbacd8784cebd876addd2d586ad90958863c50b669538442202ec93b105ea96ce4d409159b77b661dde5c3eba95f9c836eaf38769f582d6a1db86c48e7b8b4b276d5c5bb43d4d4ac504f816f844e99c1a0a0d45e4af5bae8bdbef6a826ff38a0179b6111dcacdeac644e8837a2f169a34d1373cb2cd19cb4a71b1435e21ca472a10e9012f3d04ea3cb358458e7798dec9fee9a64fedfdc7d5e78c6faab06c062ea881942238ad9f0f42135b2189c21ddde75959768b8eb662ff299a40800858cc4625649765be5d14d4467a48fb1bc04243dded789ca42ae5695f8a5a1fdd65ad6a86b51debe404ebce4e757c4434855924ac150e13a9f66a2d963be3008be1978612c4bff6d2d20cf930a5044c8e01478961d41433ad258a4ea4143fd9199098f304ec1efa49fb406a23894ee64908fba68cab7d4298b7e",
+        "step_3_deframed": "8f79fab7acb7ccc6edc384b9a5cb85b0f90294c141ac6c80c8fc738048b7f0fa6f092f7c739c2a5ea7885a1e65c31ea3cbe0c7e7cdb9a8c9d49612b599473ff12eb7b863900f65fe403216d7c67430f2019e99c2b8086a843b176bd1b1490a8458e905096d334dfd37ece8af9c52da5590a39edbe2892d3e60f6089341b184bd85c265e24033912a325f037c0e877358960de839ebc706c3571c675a2914857597dacb2ae900e7f9711e6e3b7b801e767c9b734e6ec9f16e5b844639fcebd32bfa1c0892def71186cc0b075eb379dbacd8784cebd876addd2d586ad90958863c50b669538442202ec93b105ea96ce4d409159b77b661dde5c3eba95f9c836eaf38769f582d6a1db86c48e7b8b4b276d5c5bb43d4d4ac504f816f844e99c1a0a0d45e4af5bae8bdbef6a826ff38a0179b6111dcacdeac644e8837a2f169a34d1373cb2cd19cb4a71b1435e21ca472a10e9012f3d04ea3cb358458e7798dec9fee9a64fedfdc7e78c6faab06c062ea881942238ad9f0f42135b2189c21ddde75959768b8eb662ff299a40800858cc4625649765be5d14d4467a48fb1bc04243dded789ca42ae5695f8a5a1fdd65ad6a86b51debe404ebce4e757c4434855924ac150e13a9f66a2d963be3008be1978612c4bff6d2d20cf930a5044c8e01478961d41433ad258a4ea4143fd9199098f304ec1efa49fb406a23894ee64908fba68cab7d4298b",
+        "step_4_ifac_verified": "0001c6d016f8497d47d7edf722efb7c89833acd37a3fcf70fc3277689861eca13e303d6b9a58f7ced51cf0edf7ae9088f51348697fe2965d75208c573d7f7a155bf233067e1b25b179a90aa1e0121a435fdfc12c9fbd1b5e182490384a438f019c2601940e7dd6a5555f4203f403926b8484e07fcbc77ca2672628042f743e0fabe74835c80f7a066ac0daebc838c84b80033dd20d5e1eb115e762dea15de7f389ad741bceda181c3536c3a5d77f2da3252f1e25a1ccaea8ab4993e114a29d0f87ec8913117330d40ec8da0f73ee219cfca6c1ef9b95d8f712749db2b8506fbe4afab7ab3e6a7f348063fe28df07f475c6b58ef164f5c96aaf744ead4de5d622646f235257cec364121f4a774605a0ac55d965a086edff37c75d51148f5f5e34d033ac7ffbbc9d646771c2adcf3572fa67afad61a44068e2aaf857f4917b87831afca780abb5c0a512e660219cbb0ac27b18f8412cd605776993be1a935524c5b6c0f401dd3292c5c8319cea742bc2035863ff57f6005b679dab2ddd4b548d5421e5ccb14c20d7ac3719bd04950445a59f507088afa593b144f89eb81b5eda57a0c2f92a31d1ea0754540598f6c1e721c1488447cc55284921860f381cee4a98ca8a3a8dd734af56e6bed909a9ed2c1809e4ad036cac0e3e62aa6d0c20e14f27ef1f97faeab21063c413748ffb8720e0de7c4b05"
+      },
+      {
+        "description": "MTU-size packet through KISS pipeline",
+        "framing": "kiss",
+        "ifac_netname": "pipeline_test",
+        "ifac_netkey": "pipeline_key",
+        "ifac_size": 16,
+        "step_0_raw": "0001d3a837799464d4d78b66099b342943d18b392683a4f9f88ec79870fb505105faba00c69c74038f6fb511e2ad6c644474ade7b6e267f775783bc390defd6cc8828b5cc6ea27b5c15c74affe06aa1644ceccc31f7486ed7930027e5202338e3d0dd113502ba963f2a67af4abbbc62f56e609f40e43f0733d73ab8595c897f8cc29829d6eeb35465dbb7da547837f935e4961f85defef053662f19c2257d0741911fb74dea1e0dc7797cad541d95806cd3ab50b1fd2fdc9f41e32822556dff73cfe7ef2c1a70d8f4d47e5172c767fad615f0d6094a89e67e43386f24d20b6325cebc1824af42b17a6b7b58118d7b2fb446f29292fced34408362e8959b3565c48b08676cb33dd7452ecae9b96d76266ab00e16fbd75db46627cb392a873de82754feed42a6f860c3d3e78b32d22de849b67274bf52b14ff84b4f0924119f651f2bbb02bb820f3167856301935f6d1fed555d81fd8552b8ec774d726ee1b4febeefbfbee20aa18584006564a1a9987b63998b7b0231075d1d0aac34cf7f37c9edab8266575251efc9f4197fd3bc3127cb30e369f0a735473f90b38ac1885516decdfa02c0b6a92c8a55c6ad9a023469b258478161d9689bc66d9a43b8f5a66bf0fd764abda9c4d18c8a6d0cc20ed7cf5ab57a643c512d24b55506f7920cae54d12ce4e561328046f21c54842786e197fc161b39f",
+        "step_1_ifac_applied": "94a8bebc1bb7f30f7c5bc1b7c03a6b622903abfbcf6e790556963cb1fd73ec6a16768ef196b7b5cab187247ce79d1bf043775db1d93dd310e71ad20e5daeb9dd0df29d9cb6d6ebbb5b6013ebdb88d2be031cf944c1a931b27aac48fdea8d6f4c0d7827927b26ee034d1e90d0e5a9ae7082951da295916571b7ee4763d3a986036fb1d1b080e00cc0b4f2ca2a8846e1eddcf4a6ba2691148b63dd1a181f3e4a93979f3e941e95c8919dc47c957a27f03006d991877e11b43c6f9550a34a9d9e37a3b4ae573d56db86aa512fbc5129727ca57e9cac141d46118ea0a4fbb18eca8582f23bdf8d28aab276e42654a5f9b6f13ce7fb9681c3bf75d8a316f73d9496577a807cd69cef452be1ba589ade77c051172fb79c08dad4edf8b5d7ee9b03a5986e8c307f0a6864065495b479f8ded2d9906ae20c5811c57564113e4348d76090a6ddc79c032a097986800bc3a862f20e8802bdd2b12a4a2f033f0d19e0fe5d862298cd1af22deb1fee0e5afe4e7a4248df8d488eea78cd28ecd2d3bb0893389bb3aa3209f039ca05e318be0302e11fd91887ef8834ddc2a52fdbd89ea6ea73376984d3c55a94b03c57cab5b8378d304430592e47c748a3a2c663f49df66f726380abe766efe3dde76ee1052a5d029f8f826a1cf95677261c967979a4a2e6657f909898493e46cb8f08c657768bd5ea8e7910940985bd5ca4b1dfad5851e31c46761ca941",
+        "step_2_framed": "c00094a8bebc1bb7f30f7c5bc1b7dbdc3a6b622903abfbcf6e790556963cb1fd73ec6a16768ef196b7b5cab187247ce79d1bf043775db1d93dd310e71ad20e5daeb9dd0df29d9cb6d6ebbb5b6013ebdbdd88d2be031cf944c1a931b27aac48fdea8d6f4c0d7827927b26ee034d1e90d0e5a9ae7082951da295916571b7ee4763d3a986036fb1d1b080e00cdbdcb4f2ca2a8846e1eddcf4a6ba2691148b63dd1a181f3e4a93979f3e941e95c8919dc47c957a27f03006d991877e11b43c6f9550a34a9d9e37a3b4ae573d56dbdd86aa512fbc5129727ca57e9cac141d46118ea0a4fbb18eca8582f23bdf8d28aab276e42654a5f9b6f13ce7fb9681c3bf75d8a316f73d9496577a807cd69cef452be1ba589ade77dbdc51172fb79c08dad4edf8b5d7ee9b03a5986e8c307f0a6864065495b479f8ded2d9906ae20c5811c57564113e4348d76090a6ddc79c032a097986800bc3a862f20e8802bdd2b12a4a2f033f0d19e0fe5d862298cd1af22deb1fee0e5afe4e7a4248df8d488eea78cd28ecd2d3bb0893389bb3aa3209f039ca05e318be0302e11fd91887ef8834ddc2a52fdbddd89ea6ea73376984d3c55a94b03c57cab5b8378d304430592e47c748a3a2c663f49df66f726380abe766efe3dde76ee1052a5d029f8f826a1cf95677261c967979a4a2e6657f909898493e46cb8f08c657768bd5ea8e7910940985bd5ca4b1dfad5851e31c46761ca941c0",
+        "step_3_deframed": "94a8bebc1bb7f30f7c5bc1b7c03a6b622903abfbcf6e790556963cb1fd73ec6a16768ef196b7b5cab187247ce79d1bf043775db1d93dd310e71ad20e5daeb9dd0df29d9cb6d6ebbb5b6013ebdb88d2be031cf944c1a931b27aac48fdea8d6f4c0d7827927b26ee034d1e90d0e5a9ae7082951da295916571b7ee4763d3a986036fb1d1b080e00cc0b4f2ca2a8846e1eddcf4a6ba2691148b63dd1a181f3e4a93979f3e941e95c8919dc47c957a27f03006d991877e11b43c6f9550a34a9d9e37a3b4ae573d56db86aa512fbc5129727ca57e9cac141d46118ea0a4fbb18eca8582f23bdf8d28aab276e42654a5f9b6f13ce7fb9681c3bf75d8a316f73d9496577a807cd69cef452be1ba589ade77c051172fb79c08dad4edf8b5d7ee9b03a5986e8c307f0a6864065495b479f8ded2d9906ae20c5811c57564113e4348d76090a6ddc79c032a097986800bc3a862f20e8802bdd2b12a4a2f033f0d19e0fe5d862298cd1af22deb1fee0e5afe4e7a4248df8d488eea78cd28ecd2d3bb0893389bb3aa3209f039ca05e318be0302e11fd91887ef8834ddc2a52fdbd89ea6ea73376984d3c55a94b03c57cab5b8378d304430592e47c748a3a2c663f49df66f726380abe766efe3dde76ee1052a5d029f8f826a1cf95677261c967979a4a2e6657f909898493e46cb8f08c657768bd5ea8e7910940985bd5ca4b1dfad5851e31c46761ca941",
+        "step_4_ifac_verified": "0001d3a837799464d4d78b66099b342943d18b392683a4f9f88ec79870fb505105faba00c69c74038f6fb511e2ad6c644474ade7b6e267f775783bc390defd6cc8828b5cc6ea27b5c15c74affe06aa1644ceccc31f7486ed7930027e5202338e3d0dd113502ba963f2a67af4abbbc62f56e609f40e43f0733d73ab8595c897f8cc29829d6eeb35465dbb7da547837f935e4961f85defef053662f19c2257d0741911fb74dea1e0dc7797cad541d95806cd3ab50b1fd2fdc9f41e32822556dff73cfe7ef2c1a70d8f4d47e5172c767fad615f0d6094a89e67e43386f24d20b6325cebc1824af42b17a6b7b58118d7b2fb446f29292fced34408362e8959b3565c48b08676cb33dd7452ecae9b96d76266ab00e16fbd75db46627cb392a873de82754feed42a6f860c3d3e78b32d22de849b67274bf52b14ff84b4f0924119f651f2bbb02bb820f3167856301935f6d1fed555d81fd8552b8ec774d726ee1b4febeefbfbee20aa18584006564a1a9987b63998b7b0231075d1d0aac34cf7f37c9edab8266575251efc9f4197fd3bc3127cb30e369f0a735473f90b38ac1885516decdfa02c0b6a92c8a55c6ad9a023469b258478161d9689bc66d9a43b8f5a66bf0fd764abda9c4d18c8a6d0cc20ed7cf5ab57a643c512d24b55506f7920cae54d12ce4e561328046f21c54842786e197fc161b39f"
+      },
+      {
+        "description": "Pipeline without IFAC through HDLC",
+        "framing": "hdlc",
+        "ifac_netname": null,
+        "ifac_netkey": null,
+        "ifac_size": 0,
+        "step_0_raw": "0001c7461d11e086975fb208b82fb2e069826f722a29115a4d2b37a193246c72",
+        "step_1_ifac_applied": "0001c7461d11e086975fb208b82fb2e069826f722a29115a4d2b37a193246c72",
+        "step_2_framed": "7e0001c7461d11e086975fb208b82fb2e069826f722a29115a4d2b37a193246c727e",
+        "step_3_deframed": "0001c7461d11e086975fb208b82fb2e069826f722a29115a4d2b37a193246c72",
+        "step_4_ifac_verified": "0001c7461d11e086975fb208b82fb2e069826f722a29115a4d2b37a193246c72",
+        "note": "No IFAC configured; packet passes through without modification"
+      },
+      {
+        "description": "Pipeline without IFAC through KISS",
+        "framing": "kiss",
+        "ifac_netname": null,
+        "ifac_netkey": null,
+        "ifac_size": 0,
+        "step_0_raw": "0001c7461d11e086975fb208b82fb2e069826f722a29115a4d2b37a193246c72",
+        "step_1_ifac_applied": "0001c7461d11e086975fb208b82fb2e069826f722a29115a4d2b37a193246c72",
+        "step_2_framed": "c0000001c7461d11e086975fb208b82fb2e069826f722a29115a4d2b37a193246c72c0",
+        "step_3_deframed": "0001c7461d11e086975fb208b82fb2e069826f722a29115a4d2b37a193246c72",
+        "step_4_ifac_verified": "0001c7461d11e086975fb208b82fb2e069826f722a29115a4d2b37a193246c72",
+        "note": "No IFAC configured; packet passes through without modification"
+      }
+    ]
+  }
+}

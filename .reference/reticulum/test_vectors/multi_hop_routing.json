@@ -1,0 +1,739 @@
+{
+  "description": "Reticulum v1.1.3 reference implementation - multi-hop routing test vectors",
+  "source": "RNS/Transport.py, RNS/Packet.py, RNS/Link.py",
+  "topology": {
+    "node_A": {
+      "keypair_index": 0,
+      "role": "source/receiver",
+      "identity_hash": "650b5d76b6bec0390d1f8cfca5bd33f9"
+    },
+    "node_B": {
+      "keypair_index": 1,
+      "role": "transport relay 1",
+      "identity_hash": "1469e89450c361b253aefb0c606b6111"
+    },
+    "node_C": {
+      "keypair_index": 2,
+      "role": "transport relay 2",
+      "identity_hash": "e5fe93ee4acba095b3b9b6541515ed3e"
+    },
+    "node_D": {
+      "keypair_index": 3,
+      "role": "destination/announce origin",
+      "identity_hash": "1333b911fa8ebb16726996adbe3c6262"
+    }
+  },
+  "constants": {
+    "header_1": 0,
+    "header_2": 1,
+    "data": 0,
+    "announce": 1,
+    "linkrequest": 2,
+    "proof": 3,
+    "broadcast": 0,
+    "transport": 1,
+    "single": 0,
+    "plain": 2,
+    "ecpubsize": 64,
+    "link_mtu_size": 3,
+    "establishment_timeout_per_hop": 6,
+    "reverse_timeout_seconds": 480,
+    "pathfinder_m": 128,
+    "pathfinder_e_seconds": 604800,
+    "truncated_hashlength_bytes": 16
+  },
+  "algorithms": {
+    "header_1_to_2_injection": {
+      "new_flags": "(HEADER_2 << 6) | (TRANSPORT << 4) | (original_flags & 0x0F)",
+      "new_raw": "flags(1) + hops(1) + next_hop(16) + original_raw[2:]",
+      "size_change": "+16 bytes (transport_id inserted)"
+    },
+    "header_2_to_1_stripping": {
+      "new_flags": "(HEADER_1 << 6) | (BROADCAST << 4) | (flags & 0x0F)",
+      "new_raw": "flags(1) + hops(1) + original_raw[18:] (skip transport_id)",
+      "size_change": "-16 bytes (transport_id removed)"
+    },
+    "relay_remaining_gt_1": {
+      "action": "Update transport_id to next_hop, update hops byte",
+      "new_raw": "raw[0:1] + hops(1) + next_hop(16) + raw[18:]"
+    },
+    "relay_remaining_eq_0": {
+      "action": "Just update hops byte",
+      "new_raw": "raw[0:1] + hops(1) + raw[2:]"
+    },
+    "packet_hash_invariant": "HEADER_1 and HEADER_2 versions of the same packet have identical packet hashes (hashable_part skips transport_id)",
+    "link_id": "SHA256(hashable_part[:-(data_len - ECPUBSIZE)] if data > ECPUBSIZE else hashable_part)[:16]",
+    "reverse_table_key": "SHA256(hashable_part)[:16] = getTruncatedHash()",
+    "reverse_expiration": "Expired when time.time() > entry[2] + REVERSE_TIMEOUT (strict >)",
+    "announce_received_from": "HEADER_1: destination_hash, HEADER_2: transport_id"
+  },
+  "header_transformation_vectors": [
+    {
+      "description": "DATA packet HEADER_1\u2192HEADER_2 injection, 3-hop path A\u2192B\u2192C\u2192D",
+      "scenario": "Node A sends DATA to Node D, path_table says hops=3, next_hop=B",
+      "source_node": "A (kp0)",
+      "destination_node": "D (kp3)",
+      "next_hop_node": "B (kp1)",
+      "path_hops": 3,
+      "packet_type": "DATA",
+      "destination_hash": "3cd05751c7689440291428c4ef149b39",
+      "next_hop": "1469e89450c361b253aefb0c606b6111",
+      "payload": "48656c6c6f2066726f6d204e6f6465204120746f204e6f64652044",
+      "original_flags": "00",
+      "original_header_type": "HEADER_1",
+      "original_transport_type": "BROADCAST",
+      "original_raw": "00003cd05751c7689440291428c4ef149b390048656c6c6f2066726f6d204e6f6465204120746f204e6f64652044",
+      "original_raw_length": 46,
+      "original_packet_hash": "9470023c8c93391678545af40aea1b0e",
+      "transformed_flags": "50",
+      "transformed_header_type": "HEADER_2",
+      "transformed_transport_type": "TRANSPORT",
+      "transformed_raw": "50001469e89450c361b253aefb0c606b61113cd05751c7689440291428c4ef149b390048656c6c6f2066726f6d204e6f6465204120746f204e6f64652044",
+      "transformed_raw_length": 62,
+      "transformed_packet_hash": "9470023c8c93391678545af40aea1b0e",
+      "size_increase": 16,
+      "transformation": {
+        "new_flags": "(HEADER_2 << 6) | (TRANSPORT << 4) | (original_flags & 0x0F) = 50",
+        "new_raw": "flags(1) + hops(1) + next_hop(16) + original_raw[2:]",
+        "note": "Size increases by 16 bytes (transport_id inserted)"
+      }
+    },
+    {
+      "description": "LINKREQUEST packet HEADER_1\u2192HEADER_2 injection, 2-hop path A\u2192B\u2192D",
+      "scenario": "Node A sends LINKREQUEST to Node D, path_table says hops=2, next_hop=B",
+      "source_node": "A (kp0)",
+      "destination_node": "D (kp3)",
+      "next_hop_node": "B (kp1)",
+      "path_hops": 2,
+      "packet_type": "LINKREQUEST",
+      "destination_hash": "3cd05751c7689440291428c4ef149b39",
+      "next_hop": "1469e89450c361b253aefb0c606b6111",
+      "lr_data": "6d2a4b7b274af5d0dc27716619eee64f9d21df93d550e0406ae395808599393f6d2a4b7b274af5d0dc27716619eee64f9d21df93d550e0406ae395808599393f",
+      "lr_data_length": 64,
+      "original_flags": "02",
+      "original_raw": "02003cd05751c7689440291428c4ef149b39006d2a4b7b274af5d0dc27716619eee64f9d21df93d550e0406ae395808599393f6d2a4b7b274af5d0dc27716619eee64f9d21df93d550e0406ae395808599393f",
+      "original_raw_length": 83,
+      "original_packet_hash": "817804dbc5b5abc48e16d1b6457baf70",
+      "transformed_flags": "52",
+      "transformed_raw": "52001469e89450c361b253aefb0c606b61113cd05751c7689440291428c4ef149b39006d2a4b7b274af5d0dc27716619eee64f9d21df93d550e0406ae395808599393f6d2a4b7b274af5d0dc27716619eee64f9d21df93d550e0406ae395808599393f",
+      "transformed_raw_length": 99,
+      "transformed_packet_hash": "817804dbc5b5abc48e16d1b6457baf70",
+      "size_increase": 16
+    },
+    {
+      "description": "DATA packet HEADER_1\u2192HEADER_2 for shared instance, 1-hop path",
+      "scenario": "Node A behind shared instance sends to Node B, hops=1, next_hop=B",
+      "source_node": "A (kp0)",
+      "destination_node": "B (kp1)",
+      "next_hop_node": "B (kp1)",
+      "path_hops": 1,
+      "is_shared_instance": true,
+      "packet_type": "DATA",
+      "destination_hash": "70c0d820f77ab30ed32d5e48baa90c28",
+      "next_hop": "1469e89450c361b253aefb0c606b6111",
+      "payload": "53686172656420696e7374616e6365207061636b6574",
+      "original_flags": "00",
+      "original_raw": "000070c0d820f77ab30ed32d5e48baa90c280053686172656420696e7374616e6365207061636b6574",
+      "original_raw_length": 41,
+      "original_packet_hash": "e8e90a0f5e27b83fbd962c83328e22c2",
+      "transformed_flags": "50",
+      "transformed_raw": "50001469e89450c361b253aefb0c606b611170c0d820f77ab30ed32d5e48baa90c280053686172656420696e7374616e6365207061636b6574",
+      "transformed_raw_length": 57,
+      "transformed_packet_hash": "e8e90a0f5e27b83fbd962c83328e22c2",
+      "size_increase": 16,
+      "note": "Same transformation as multi-hop, but triggered by is_connected_to_shared_instance && hops==1"
+    }
+  ],
+  "announce_propagation_vectors": [
+    {
+      "description": "4-node announce propagation chain: D\u2192C\u2192B\u2192A",
+      "announce_source": "D (kp3)",
+      "destination_hash": "3cd05751c7689440291428c4ef149b39",
+      "announce_payload": "3874502f43fea80b5f41c79c168cc1b4d6191111b93d49cb2362a24d99680458c08f3d57983dacdbd6db67e12334be91b1f64eb642df740e03813cf288d25e14528b84ff9fa689c05795cafebabe02006553f1003b857589e6f1eafb7312176224c88f5f85a08cd0a70ab77febb21885c5a65a7ab2d8dd3dac1203f8e151cc7671a65c435315523360b75a9c46f1ec8401e05f06",
+      "announce_payload_length": 148,
+      "random_blob": "cafebabe02006553f100",
+      "random_hash": "cafebabe02006553f100",
+      "chain": [
+        {
+          "step": 1,
+          "description": "Node D originates announce (HEADER_1, BROADCAST, hops=0)",
+          "node": "D (kp3)",
+          "action": "originate",
+          "header_type": "HEADER_1",
+          "transport_type": "BROADCAST",
+          "hops_on_wire": 0,
+          "raw_packet": "01003cd05751c7689440291428c4ef149b39003874502f43fea80b5f41c79c168cc1b4d6191111b93d49cb2362a24d99680458c08f3d57983dacdbd6db67e12334be91b1f64eb642df740e03813cf288d25e14528b84ff9fa689c05795cafebabe02006553f1003b857589e6f1eafb7312176224c88f5f85a08cd0a70ab77febb21885c5a65a7ab2d8dd3dac1203f8e151cc7671a65c435315523360b75a9c46f1ec8401e05f06",
+          "raw_packet_length": 167,
+          "packet_hash": "7ba872fc03050e4e1a7f333cb6fc6b19"
+        },
+        {
+          "step": 2,
+          "description": "Node C receives announce from D (hops=1), creates path entry, rebroadcasts",
+          "node": "C (kp2)",
+          "action": "relay",
+          "received_header_type": "HEADER_1",
+          "hops_after_increment": 1,
+          "received_from": "3cd05751c7689440291428c4ef149b39",
+          "received_from_source": "destination_hash (HEADER_1 has no transport_id)",
+          "path_table_entry": {
+            "destination_hash": "3cd05751c7689440291428c4ef149b39",
+            "timestamp": 1700000000,
+            "next_hop": "3cd05751c7689440291428c4ef149b39",
+            "hops": 1,
+            "expires": 1700604800,
+            "random_blobs": [
+              "cafebabe02006553f100"
+            ]
+          },
+          "rebroadcast_header_type": "HEADER_2",
+          "rebroadcast_transport_type": "TRANSPORT",
+          "rebroadcast_transport_id": "e5fe93ee4acba095b3b9b6541515ed3e",
+          "rebroadcast_hops": 1,
+          "rebroadcast_context": "00",
+          "rebroadcast_raw": "5101e5fe93ee4acba095b3b9b6541515ed3e3cd05751c7689440291428c4ef149b39003874502f43fea80b5f41c79c168cc1b4d6191111b93d49cb2362a24d99680458c08f3d57983dacdbd6db67e12334be91b1f64eb642df740e03813cf288d25e14528b84ff9fa689c05795cafebabe02006553f1003b857589e6f1eafb7312176224c88f5f85a08cd0a70ab77febb21885c5a65a7ab2d8dd3dac1203f8e151cc7671a65c435315523360b75a9c46f1ec8401e05f06",
+          "rebroadcast_raw_length": 183,
+          "rebroadcast_packet_hash": "7ba872fc03050e4e1a7f333cb6fc6b19"
+        },
+        {
+          "step": 3,
+          "description": "Node B receives announce from C (hops=2), creates path entry, rebroadcasts",
+          "node": "B (kp1)",
+          "action": "relay",
+          "received_header_type": "HEADER_2",
+          "received_transport_id": "e5fe93ee4acba095b3b9b6541515ed3e",
+          "hops_after_increment": 2,
+          "received_from": "e5fe93ee4acba095b3b9b6541515ed3e",
+          "received_from_source": "transport_id from HEADER_2 packet",
+          "path_table_entry": {
+            "destination_hash": "3cd05751c7689440291428c4ef149b39",
+            "timestamp": 1700000000,
+            "next_hop": "e5fe93ee4acba095b3b9b6541515ed3e",
+            "hops": 2,
+            "expires": 1700604800,
+            "random_blobs": [
+              "cafebabe02006553f100"
+            ]
+          },
+          "rebroadcast_header_type": "HEADER_2",
+          "rebroadcast_transport_type": "TRANSPORT",
+          "rebroadcast_transport_id": "1469e89450c361b253aefb0c606b6111",
+          "rebroadcast_hops": 2,
+          "rebroadcast_context": "00",
+          "rebroadcast_raw": "51021469e89450c361b253aefb0c606b61113cd05751c7689440291428c4ef149b39003874502f43fea80b5f41c79c168cc1b4d6191111b93d49cb2362a24d99680458c08f3d57983dacdbd6db67e12334be91b1f64eb642df740e03813cf288d25e14528b84ff9fa689c05795cafebabe02006553f1003b857589e6f1eafb7312176224c88f5f85a08cd0a70ab77febb21885c5a65a7ab2d8dd3dac1203f8e151cc7671a65c435315523360b75a9c46f1ec8401e05f06",
+          "rebroadcast_raw_length": 183,
+          "rebroadcast_packet_hash": "7ba872fc03050e4e1a7f333cb6fc6b19"
+        },
+        {
+          "step": 4,
+          "description": "Node A receives announce from B (hops=3), creates path entry (endpoint)",
+          "node": "A (kp0)",
+          "action": "receive",
+          "received_header_type": "HEADER_2",
+          "received_transport_id": "1469e89450c361b253aefb0c606b6111",
+          "hops_after_increment": 3,
+          "received_from": "1469e89450c361b253aefb0c606b6111",
+          "received_from_source": "transport_id from HEADER_2 packet",
+          "path_table_entry": {
+            "destination_hash": "3cd05751c7689440291428c4ef149b39",
+            "timestamp": 1700000000,
+            "next_hop": "1469e89450c361b253aefb0c606b6111",
+            "hops": 3,
+            "expires": 1700604800,
+            "random_blobs": [
+              "cafebabe02006553f100"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "description": "2-node announce propagation: D\u2192A (direct)",
+      "announce_source": "D (kp3)",
+      "destination_hash": "3cd05751c7689440291428c4ef149b39",
+      "announce_payload": "3874502f43fea80b5f41c79c168cc1b4d6191111b93d49cb2362a24d99680458c08f3d57983dacdbd6db67e12334be91b1f64eb642df740e03813cf288d25e14528b84ff9fa689c05795aabbccddee006553f100a4047bb4abaf539b76e22c864f9f7d307b75b4d239d75874c68e0c89445d742452c62d3e01ab2339549784d456e7c0eec485426451bceebc1d884034c2e58402",
+      "random_blob": "aabbccddee006553f100",
+      "chain": [
+        {
+          "step": 1,
+          "description": "Node D originates announce (HEADER_1, hops=0)",
+          "node": "D (kp3)",
+          "action": "originate",
+          "header_type": "HEADER_1",
+          "hops_on_wire": 0,
+          "raw_packet": "01003cd05751c7689440291428c4ef149b39003874502f43fea80b5f41c79c168cc1b4d6191111b93d49cb2362a24d99680458c08f3d57983dacdbd6db67e12334be91b1f64eb642df740e03813cf288d25e14528b84ff9fa689c05795aabbccddee006553f100a4047bb4abaf539b76e22c864f9f7d307b75b4d239d75874c68e0c89445d742452c62d3e01ab2339549784d456e7c0eec485426451bceebc1d884034c2e58402",
+          "packet_hash": "726bfef8110709b16639c13423acf400"
+        },
+        {
+          "step": 2,
+          "description": "Node A receives announce directly from D (hops=1)",
+          "node": "A (kp0)",
+          "action": "receive",
+          "received_header_type": "HEADER_1",
+          "hops_after_increment": 1,
+          "received_from": "3cd05751c7689440291428c4ef149b39",
+          "received_from_source": "destination_hash (HEADER_1)",
+          "path_table_entry": {
+            "destination_hash": "3cd05751c7689440291428c4ef149b39",
+            "timestamp": 1700000000,
+            "next_hop": "3cd05751c7689440291428c4ef149b39",
+            "hops": 1,
+            "expires": 1700604800,
+            "random_blobs": [
+              "aabbccddee006553f100"
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "link_request_forwarding_vectors": [
+    {
+      "description": "LINKREQUEST relay at Node B, remaining_hops=2 (>1), update transport_id",
+      "scenario": "Path A\u2192B\u2192C\u2192D. Packet arrives at B, B forwards to C",
+      "relay_node": "B (kp1)",
+      "relay_node_hash": "1469e89450c361b253aefb0c606b6111",
+      "destination_hash": "3cd05751c7689440291428c4ef149b39",
+      "next_hop": "e5fe93ee4acba095b3b9b6541515ed3e",
+      "remaining_hops": 2,
+      "hops_at_relay": 1,
+      "lr_data": "20d25afc9aa2e5f3ffa99453bbcfbcd80f8d305f83eb6293d6a5786ed2b7dd0b950b3568dfc54b189f8a6e914b287b13c7d0271304b434330bc5f3e17869b018",
+      "lr_data_length": 64,
+      "arriving_raw": "52001469e89450c361b253aefb0c606b61113cd05751c7689440291428c4ef149b390020d25afc9aa2e5f3ffa99453bbcfbcd80f8d305f83eb6293d6a5786ed2b7dd0b950b3568dfc54b189f8a6e914b287b13c7d0271304b434330bc5f3e17869b018",
+      "arriving_raw_length": 99,
+      "arriving_packet_hash": "e5083b1f5ffdc36d66669a7fe6c6df7f",
+      "relayed_raw": "5201e5fe93ee4acba095b3b9b6541515ed3e3cd05751c7689440291428c4ef149b390020d25afc9aa2e5f3ffa99453bbcfbcd80f8d305f83eb6293d6a5786ed2b7dd0b950b3568dfc54b189f8a6e914b287b13c7d0271304b434330bc5f3e17869b018",
+      "relayed_raw_length": 99,
+      "relayed_packet_hash": "e5083b1f5ffdc36d66669a7fe6c6df7f",
+      "relayed_header_type": "HEADER_2",
+      "relayed_transport_id": "e5fe93ee4acba095b3b9b6541515ed3e",
+      "link_id": "e5083b1f5ffdc36d66669a7fe6c6df7f",
+      "relay_rule": "remaining_hops > 1: keep HEADER_2, replace transport_id with next_hop, update hops"
+    },
+    {
+      "description": "LINKREQUEST relay at Node C, remaining_hops=1, strip to HEADER_1",
+      "scenario": "Path A\u2192B\u2192C\u2192D. Packet arrives at C from B, C strips transport and broadcasts",
+      "relay_node": "C (kp2)",
+      "relay_node_hash": "e5fe93ee4acba095b3b9b6541515ed3e",
+      "destination_hash": "3cd05751c7689440291428c4ef149b39",
+      "remaining_hops": 1,
+      "hops_at_relay": 2,
+      "lr_data": "20d25afc9aa2e5f3ffa99453bbcfbcd80f8d305f83eb6293d6a5786ed2b7dd0b950b3568dfc54b189f8a6e914b287b13c7d0271304b434330bc5f3e17869b018",
+      "lr_data_length": 64,
+      "arriving_raw": "5201e5fe93ee4acba095b3b9b6541515ed3e3cd05751c7689440291428c4ef149b390020d25afc9aa2e5f3ffa99453bbcfbcd80f8d305f83eb6293d6a5786ed2b7dd0b950b3568dfc54b189f8a6e914b287b13c7d0271304b434330bc5f3e17869b018",
+      "arriving_raw_length": 99,
+      "arriving_header_type": "HEADER_2",
+      "arriving_packet_hash": "e5083b1f5ffdc36d66669a7fe6c6df7f",
+      "relayed_raw": "02023cd05751c7689440291428c4ef149b390020d25afc9aa2e5f3ffa99453bbcfbcd80f8d305f83eb6293d6a5786ed2b7dd0b950b3568dfc54b189f8a6e914b287b13c7d0271304b434330bc5f3e17869b018",
+      "relayed_raw_length": 83,
+      "relayed_header_type": "HEADER_1",
+      "relayed_transport_type": "BROADCAST",
+      "relayed_packet_hash": "e5083b1f5ffdc36d66669a7fe6c6df7f",
+      "size_decrease": 16,
+      "link_id": "e5083b1f5ffdc36d66669a7fe6c6df7f",
+      "relay_rule": "remaining_hops == 1: strip HEADER_2 to HEADER_1, set transport_type=BROADCAST"
+    },
+    {
+      "description": "LINKREQUEST relay with remaining_hops=0, just update hops byte",
+      "scenario": "Destination is local to transport node, remaining_hops=0",
+      "relay_node": "B (kp1)",
+      "relay_node_hash": "1469e89450c361b253aefb0c606b6111",
+      "destination_hash": "3cd05751c7689440291428c4ef149b39",
+      "remaining_hops": 0,
+      "hops_at_relay": 3,
+      "arriving_raw": "52021469e89450c361b253aefb0c606b61113cd05751c7689440291428c4ef149b390020d25afc9aa2e5f3ffa99453bbcfbcd80f8d305f83eb6293d6a5786ed2b7dd0b950b3568dfc54b189f8a6e914b287b13c7d0271304b434330bc5f3e17869b018",
+      "arriving_raw_length": 99,
+      "arriving_packet_hash": "e5083b1f5ffdc36d66669a7fe6c6df7f",
+      "relayed_raw": "52031469e89450c361b253aefb0c606b61113cd05751c7689440291428c4ef149b390020d25afc9aa2e5f3ffa99453bbcfbcd80f8d305f83eb6293d6a5786ed2b7dd0b950b3568dfc54b189f8a6e914b287b13c7d0271304b434330bc5f3e17869b018",
+      "relayed_raw_length": 99,
+      "relayed_packet_hash": "e5083b1f5ffdc36d66669a7fe6c6df7f",
+      "size_change": 0,
+      "relay_rule": "remaining_hops == 0: keep header unchanged, just update hops byte"
+    },
+    {
+      "description": "LINKREQUEST with MTU signalling bytes (ECPUBSIZE + LINK_MTU_SIZE)",
+      "scenario": "LINKREQUEST with 67-byte data (64 key + 3 MTU), link_id trims MTU bytes",
+      "relay_node": "B (kp1)",
+      "destination_hash": "3cd05751c7689440291428c4ef149b39",
+      "lr_data": "20d25afc9aa2e5f3ffa99453bbcfbcd80f8d305f83eb6293d6a5786ed2b7dd0b950b3568dfc54b189f8a6e914b287b13c7d0271304b434330bc5f3e17869b0180001f4",
+      "lr_data_length": 67,
+      "mtu_signalling_bytes": "0001f4",
+      "ecpubsize": 64,
+      "link_mtu_size": 3,
+      "arriving_raw": "52001469e89450c361b253aefb0c606b61113cd05751c7689440291428c4ef149b390020d25afc9aa2e5f3ffa99453bbcfbcd80f8d305f83eb6293d6a5786ed2b7dd0b950b3568dfc54b189f8a6e914b287b13c7d0271304b434330bc5f3e17869b0180001f4",
+      "arriving_raw_length": 102,
+      "arriving_packet_hash": "2c4031bbb738af67c9e6c2c6f24facc2",
+      "relayed_raw": "5201e5fe93ee4acba095b3b9b6541515ed3e3cd05751c7689440291428c4ef149b390020d25afc9aa2e5f3ffa99453bbcfbcd80f8d305f83eb6293d6a5786ed2b7dd0b950b3568dfc54b189f8a6e914b287b13c7d0271304b434330bc5f3e17869b0180001f4",
+      "relayed_raw_length": 102,
+      "relayed_packet_hash": "2c4031bbb738af67c9e6c2c6f24facc2",
+      "link_id": "e5083b1f5ffdc36d66669a7fe6c6df7f",
+      "link_id_note": "link_id computed from hashable_part with MTU bytes trimmed (data > ECPUBSIZE)"
+    }
+  ],
+  "link_table_entry_vectors": [
+    {
+      "description": "Link table entry at Node B, remaining_hops=2",
+      "relay_node": "B (kp1)",
+      "destination_hash": "3cd05751c7689440291428c4ef149b39",
+      "link_id": "e5083b1f5ffdc36d66669a7fe6c6df7f",
+      "link_id_derivation": {
+        "step_1": "hashable_part = get_hashable_part(raw_packet)",
+        "step_2": "if len(data) > ECPUBSIZE: hashable_part = hashable_part[:-diff]",
+        "step_3": "link_id = SHA256(hashable_part)[:16]",
+        "data_length": 64,
+        "ecpubsize": 64,
+        "trimmed": false
+      },
+      "entry_fields": {
+        "IDX_LT_TIMESTAMP": 1700000000,
+        "IDX_LT_NH_TRID": "e5fe93ee4acba095b3b9b6541515ed3e",
+        "IDX_LT_NH_IF": "outbound_interface (object reference)",
+        "IDX_LT_REM_HOPS": 2,
+        "IDX_LT_RCVD_IF": "receiving_interface (object reference)",
+        "IDX_LT_HOPS": 1,
+        "IDX_LT_DSTHASH": "3cd05751c7689440291428c4ef149b39",
+        "IDX_LT_VALIDATED": false,
+        "IDX_LT_PROOF_TMO": 1700000012.0
+      },
+      "proof_timeout_calculation": {
+        "extra_link_proof_timeout": 0.0,
+        "now": 1700000000,
+        "establishment_timeout_per_hop": 6,
+        "remaining_hops": 2,
+        "max_1_remaining": 2,
+        "formula": "extra(0.0) + now(1700000000) + 6 * max(1, 2)",
+        "result": 1700000012.0
+      },
+      "raw_packet": "52001469e89450c361b253aefb0c606b61113cd05751c7689440291428c4ef149b390020d25afc9aa2e5f3ffa99453bbcfbcd80f8d305f83eb6293d6a5786ed2b7dd0b950b3568dfc54b189f8a6e914b287b13c7d0271304b434330bc5f3e17869b018",
+      "lr_data": "20d25afc9aa2e5f3ffa99453bbcfbcd80f8d305f83eb6293d6a5786ed2b7dd0b950b3568dfc54b189f8a6e914b287b13c7d0271304b434330bc5f3e17869b018",
+      "lr_data_length": 64
+    },
+    {
+      "description": "Link table entry at Node C, remaining_hops=1",
+      "relay_node": "C (kp2)",
+      "destination_hash": "3cd05751c7689440291428c4ef149b39",
+      "link_id": "e5083b1f5ffdc36d66669a7fe6c6df7f",
+      "entry_fields": {
+        "IDX_LT_TIMESTAMP": 1700000000,
+        "IDX_LT_NH_TRID": "next_hop (destination is 1 hop away)",
+        "IDX_LT_NH_IF": "outbound_interface (object reference)",
+        "IDX_LT_REM_HOPS": 1,
+        "IDX_LT_RCVD_IF": "receiving_interface (object reference)",
+        "IDX_LT_HOPS": 2,
+        "IDX_LT_DSTHASH": "3cd05751c7689440291428c4ef149b39",
+        "IDX_LT_VALIDATED": false,
+        "IDX_LT_PROOF_TMO": 1700000006.0
+      },
+      "proof_timeout_calculation": {
+        "extra_link_proof_timeout": 0.0,
+        "now": 1700000000,
+        "establishment_timeout_per_hop": 6,
+        "remaining_hops": 1,
+        "max_1_remaining": 1,
+        "formula": "extra(0.0) + now(1700000000) + 6 * max(1, 1)",
+        "result": 1700000006.0
+      },
+      "raw_packet": "5201e5fe93ee4acba095b3b9b6541515ed3e3cd05751c7689440291428c4ef149b390020d25afc9aa2e5f3ffa99453bbcfbcd80f8d305f83eb6293d6a5786ed2b7dd0b950b3568dfc54b189f8a6e914b287b13c7d0271304b434330bc5f3e17869b018"
+    },
+    {
+      "description": "Link table entry with MTU signalling bytes (data > ECPUBSIZE)",
+      "relay_node": "B (kp1)",
+      "destination_hash": "3cd05751c7689440291428c4ef149b39",
+      "lr_data_length": 67,
+      "ecpubsize": 64,
+      "excess_bytes": 3,
+      "link_id": "e5083b1f5ffdc36d66669a7fe6c6df7f",
+      "hashable_part_full_length": 85,
+      "hashable_part_trimmed_length": 82,
+      "hashable_part_trimmed": "023cd05751c7689440291428c4ef149b390020d25afc9aa2e5f3ffa99453bbcfbcd80f8d305f83eb6293d6a5786ed2b7dd0b950b3568dfc54b189f8a6e914b287b13c7d0271304b434330bc5f3e17869b018",
+      "note": "When data > ECPUBSIZE, hashable_part is trimmed by (data_len - ECPUBSIZE) bytes before hashing",
+      "raw_packet": "52001469e89450c361b253aefb0c606b61113cd05751c7689440291428c4ef149b390020d25afc9aa2e5f3ffa99453bbcfbcd80f8d305f83eb6293d6a5786ed2b7dd0b950b3568dfc54b189f8a6e914b287b13c7d0271304b434330bc5f3e17869b0180001f4"
+    }
+  ],
+  "reverse_table_entry_vectors": [
+    {
+      "description": "Reverse table entry creation for forwarded DATA packet",
+      "packet_type": "DATA",
+      "destination_hash": "3cd05751c7689440291428c4ef149b39",
+      "transport_id": "1469e89450c361b253aefb0c606b6111",
+      "raw_packet": "50001469e89450c361b253aefb0c606b61113cd05751c7689440291428c4ef149b390044617461207061636b657420666f722072657665727365207461626c652074657374",
+      "raw_packet_length": 69,
+      "hashable_part": "003cd05751c7689440291428c4ef149b390044617461207061636b657420666f722072657665727365207461626c652074657374",
+      "truncated_hash_key": "298c2c934c1fc748ab8a72eb618949fa",
+      "entry_fields": {
+        "IDX_RT_RCVD_IF": "receiving_interface (object reference)",
+        "IDX_RT_OUTB_IF": "outbound_interface (object reference)",
+        "IDX_RT_TIMESTAMP": 1700000000
+      },
+      "entry_indices": {
+        "IDX_RT_RCVD_IF": 0,
+        "IDX_RT_OUTB_IF": 1,
+        "IDX_RT_TIMESTAMP": 2
+      },
+      "reverse_timeout_seconds": 480
+    },
+    {
+      "description": "Reverse table expiration: entry at 479s is still valid (not expired)",
+      "timestamp": 1700000000,
+      "check_time": 1700000479,
+      "age_seconds": 479,
+      "reverse_timeout": 480,
+      "condition": "time.time() > entry[2] + 480",
+      "condition_evaluation": "1700000479 > 1700000480",
+      "is_expired": false,
+      "note": "479 < 480, so condition is False \u2192 entry is valid"
+    },
+    {
+      "description": "Reverse table expiration: entry at 480s is still valid (not expired, strict >)",
+      "timestamp": 1700000000,
+      "check_time": 1700000480,
+      "age_seconds": 480,
+      "reverse_timeout": 480,
+      "condition": "time.time() > entry[2] + 480",
+      "condition_evaluation": "1700000480 > 1700000480",
+      "is_expired": false,
+      "note": "480 == 480, strict > means equal is NOT expired"
+    },
+    {
+      "description": "Reverse table expiration: entry at 481s IS expired",
+      "timestamp": 1700000000,
+      "check_time": 1700000481,
+      "age_seconds": 481,
+      "reverse_timeout": 480,
+      "condition": "time.time() > entry[2] + 480",
+      "condition_evaluation": "1700000481 > 1700000480",
+      "is_expired": true,
+      "note": "481 > 480, so condition is True \u2192 entry is expired"
+    },
+    {
+      "description": "Reverse table entry for different packet (different transport_id, hops)",
+      "packet_type": "DATA",
+      "destination_hash": "3cd05751c7689440291428c4ef149b39",
+      "transport_id": "e5fe93ee4acba095b3b9b6541515ed3e",
+      "hops_on_wire": 1,
+      "raw_packet": "5001e5fe93ee4acba095b3b9b6541515ed3e3cd05751c7689440291428c4ef149b39005365636f6e642064617461207061636b6574",
+      "hashable_part": "003cd05751c7689440291428c4ef149b39005365636f6e642064617461207061636b6574",
+      "truncated_hash_key": "7075ea4ffef1dae313f20b7e6cb4b7c4",
+      "note": "Different hashable_part produces different reverse table key"
+    }
+  ],
+  "path_table_query_vectors": [
+    {
+      "description": "Path query for 3-hop path: has_path=True, hops_to=3, next_hop=B",
+      "destination_hash": "3cd05751c7689440291428c4ef149b39",
+      "path_table_entry_exists": true,
+      "path_table_next_hop": "1469e89450c361b253aefb0c606b6111",
+      "path_table_hops": 3,
+      "has_path_result": true,
+      "hops_to_result": 3,
+      "next_hop_result": "1469e89450c361b253aefb0c606b6111",
+      "note": "Transport.has_path() returns True, hops_to() returns entry[IDX_PT_HOPS], next_hop() returns entry[IDX_PT_NEXT_HOP]"
+    },
+    {
+      "description": "Path query for 1-hop direct path: has_path=True, hops_to=1, next_hop=D",
+      "destination_hash": "3cd05751c7689440291428c4ef149b39",
+      "path_table_entry_exists": true,
+      "path_table_next_hop": "1333b911fa8ebb16726996adbe3c6262",
+      "path_table_hops": 1,
+      "has_path_result": true,
+      "hops_to_result": 1,
+      "next_hop_result": "1333b911fa8ebb16726996adbe3c6262",
+      "note": "Direct path: next_hop is the destination's identity_hash (received_from = dest_hash for HEADER_1)"
+    },
+    {
+      "description": "Path query for unknown destination: has_path=False, hops_to=PATHFINDER_M(128)",
+      "destination_hash": "ce333c54d2a2582da828a400b5cb4064",
+      "path_table_entry_exists": false,
+      "has_path_result": false,
+      "hops_to_result": 128,
+      "next_hop_result": null,
+      "pathfinder_m": 128,
+      "note": "When destination not in path_table: has_path()=False, hops_to()=PATHFINDER_M(128), next_hop()=None"
+    },
+    {
+      "description": "Path query for 0-hop local destination",
+      "destination_hash": "fb48da0e82e6e01ba0c014513f74540d",
+      "path_table_entry_exists": true,
+      "path_table_next_hop": "650b5d76b6bec0390d1f8cfca5bd33f9",
+      "path_table_hops": 0,
+      "has_path_result": true,
+      "hops_to_result": 0,
+      "next_hop_result": "650b5d76b6bec0390d1f8cfca5bd33f9"
+    }
+  ],
+  "header_stripping_vectors": [
+    {
+      "description": "DATA packet HEADER_2\u2192HEADER_1 stripping at final hop",
+      "packet_type": "DATA",
+      "destination_hash": "3cd05751c7689440291428c4ef149b39",
+      "transport_id": "e5fe93ee4acba095b3b9b6541515ed3e",
+      "remaining_hops": 1,
+      "hops_after_increment": 2,
+      "payload": "4461746120746f206265207374726970706564206f66207472616e73706f72742068656164657273",
+      "original_flags": "50",
+      "original_header_type": "HEADER_2",
+      "original_transport_type": "TRANSPORT",
+      "original_raw": "5001e5fe93ee4acba095b3b9b6541515ed3e3cd05751c7689440291428c4ef149b39004461746120746f206265207374726970706564206f66207472616e73706f72742068656164657273",
+      "original_raw_length": 75,
+      "original_packet_hash": "89cc42174794b3509f7b2610d0c90d55",
+      "stripped_flags": "00",
+      "expected_flags": "00",
+      "stripped_header_type": "HEADER_1",
+      "stripped_transport_type": "BROADCAST",
+      "stripped_raw": "00023cd05751c7689440291428c4ef149b39004461746120746f206265207374726970706564206f66207472616e73706f72742068656164657273",
+      "stripped_raw_length": 59,
+      "stripped_packet_hash": "89cc42174794b3509f7b2610d0c90d55",
+      "size_decrease": 16,
+      "transformation": {
+        "new_flags": "(HEADER_1 << 6) | (BROADCAST << 4) | (flags & 0x0F) = 00",
+        "new_raw": "flags(1) + hops(1) + original_raw[18:] (skip 16-byte transport_id)",
+        "note": "Size decreases by 16 bytes (transport_id removed)"
+      }
+    },
+    {
+      "description": "LINKREQUEST packet HEADER_2\u2192HEADER_1 stripping at final hop",
+      "packet_type": "LINKREQUEST",
+      "destination_hash": "3cd05751c7689440291428c4ef149b39",
+      "transport_id": "e5fe93ee4acba095b3b9b6541515ed3e",
+      "remaining_hops": 1,
+      "hops_after_increment": 3,
+      "lr_data": "311014417df9cdafb488f79a3b3c857cde31b7adc3fd11802de87355e9e6e1f2314fb0910a7ebdafaff2d8fadbb1b72f37fe9461d380772ce1ca645fac99b549",
+      "lr_data_length": 64,
+      "original_flags": "52",
+      "original_raw": "5202e5fe93ee4acba095b3b9b6541515ed3e3cd05751c7689440291428c4ef149b3900311014417df9cdafb488f79a3b3c857cde31b7adc3fd11802de87355e9e6e1f2314fb0910a7ebdafaff2d8fadbb1b72f37fe9461d380772ce1ca645fac99b549",
+      "original_raw_length": 99,
+      "original_packet_hash": "e257b93b4e6658855c2e7424018e3d9a",
+      "stripped_flags": "02",
+      "expected_flags": "02",
+      "stripped_raw": "02033cd05751c7689440291428c4ef149b3900311014417df9cdafb488f79a3b3c857cde31b7adc3fd11802de87355e9e6e1f2314fb0910a7ebdafaff2d8fadbb1b72f37fe9461d380772ce1ca645fac99b549",
+      "stripped_raw_length": 83,
+      "stripped_packet_hash": "e257b93b4e6658855c2e7424018e3d9a",
+      "size_decrease": 16
+    },
+    {
+      "description": "PROOF packet HEADER_2\u2192HEADER_1 stripping at final hop",
+      "packet_type": "PROOF",
+      "destination_hash": "3cd05751c7689440291428c4ef149b39",
+      "remaining_hops": 1,
+      "hops_after_increment": 1,
+      "proof_payload": "259bc8dba9cc1c9f5f61942ce52aec70a8e019779eb7c91d7ba2c0677446bd05",
+      "original_flags": "53",
+      "original_raw": "5300e5fe93ee4acba095b3b9b6541515ed3e3cd05751c7689440291428c4ef149b3900259bc8dba9cc1c9f5f61942ce52aec70a8e019779eb7c91d7ba2c0677446bd05",
+      "original_raw_length": 67,
+      "original_packet_hash": "111ca5a703563a14341e4d49dce53f41",
+      "stripped_flags": "03",
+      "expected_flags": "03",
+      "stripped_raw": "03013cd05751c7689440291428c4ef149b3900259bc8dba9cc1c9f5f61942ce52aec70a8e019779eb7c91d7ba2c0677446bd05",
+      "stripped_raw_length": 51,
+      "stripped_packet_hash": "111ca5a703563a14341e4d49dce53f41",
+      "size_decrease": 16
+    }
+  ],
+  "link_table_routing_vectors": [
+    {
+      "description": "Link table routing: same interface, hops matches remaining_hops",
+      "link_id": "74ba1f334f3a32ad2ce872792aecd60c",
+      "link_entry": {
+        "IDX_LT_REM_HOPS": 2,
+        "IDX_LT_HOPS": 1,
+        "interfaces_same": true
+      },
+      "packet_hops": 2,
+      "matches": "remaining_hops",
+      "should_forward": true,
+      "raw_packet": "000274ba1f334f3a32ad2ce872792aecd60c0053616d6520696e746572666163652064617461",
+      "forwarded_raw": "000274ba1f334f3a32ad2ce872792aecd60c0053616d6520696e746572666163652064617461",
+      "packet_hash": "0a1dc329aee4a98af6b878ee55644ebb",
+      "rule": "Same interface: forward if packet.hops == link_entry[IDX_LT_REM_HOPS] OR packet.hops == link_entry[IDX_LT_HOPS]"
+    },
+    {
+      "description": "Link table routing: same interface, hops matches taken_hops",
+      "link_id": "74ba1f334f3a32ad2ce872792aecd60c",
+      "link_entry": {
+        "IDX_LT_REM_HOPS": 2,
+        "IDX_LT_HOPS": 1,
+        "interfaces_same": true
+      },
+      "packet_hops": 1,
+      "matches": "taken_hops",
+      "should_forward": true,
+      "raw_packet": "000174ba1f334f3a32ad2ce872792aecd60c0053616d6520696e746572666163652064617461",
+      "forwarded_raw": "000174ba1f334f3a32ad2ce872792aecd60c0053616d6520696e746572666163652064617461",
+      "packet_hash": "0a1dc329aee4a98af6b878ee55644ebb"
+    },
+    {
+      "description": "Link table routing: different interfaces, received on nh_if, forward to rcvd_if",
+      "link_id": "74ba1f334f3a32ad2ce872792aecd60c",
+      "link_entry": {
+        "IDX_LT_REM_HOPS": 2,
+        "IDX_LT_HOPS": 1,
+        "interfaces_same": false
+      },
+      "received_on": "nh_if",
+      "packet_hops": 2,
+      "expected_hops_check": "packet.hops == link_entry[IDX_LT_REM_HOPS]",
+      "outbound_to": "rcvd_if",
+      "should_forward": true,
+      "raw_packet": "000274ba1f334f3a32ad2ce872792aecd60c0043726f737320696e7465726661636520666f7277617264",
+      "forwarded_raw": "000274ba1f334f3a32ad2ce872792aecd60c0043726f737320696e7465726661636520666f7277617264",
+      "packet_hash": "925da0b46f86fe49f5d1d8eda8c243da",
+      "rule": "Received on nh_if: check hops == remaining_hops, transmit on rcvd_if"
+    },
+    {
+      "description": "Link table routing: different interfaces, received on rcvd_if, forward to nh_if",
+      "link_id": "74ba1f334f3a32ad2ce872792aecd60c",
+      "link_entry": {
+        "IDX_LT_REM_HOPS": 2,
+        "IDX_LT_HOPS": 1,
+        "interfaces_same": false
+      },
+      "received_on": "rcvd_if",
+      "packet_hops": 1,
+      "expected_hops_check": "packet.hops == link_entry[IDX_LT_HOPS]",
+      "outbound_to": "nh_if",
+      "should_forward": true,
+      "raw_packet": "000174ba1f334f3a32ad2ce872792aecd60c0043726f737320696e746572666163652072657665727365",
+      "forwarded_raw": "000174ba1f334f3a32ad2ce872792aecd60c0043726f737320696e746572666163652072657665727365",
+      "packet_hash": "4a562c1f1a1e138f9d270ad6bb1069ee",
+      "rule": "Received on rcvd_if: check hops == taken_hops, transmit on nh_if"
+    },
+    {
+      "description": "Link table routing: hop count mismatch, packet NOT forwarded",
+      "link_id": "74ba1f334f3a32ad2ce872792aecd60c",
+      "link_entry": {
+        "IDX_LT_REM_HOPS": 2,
+        "IDX_LT_HOPS": 1,
+        "interfaces_same": true
+      },
+      "packet_hops": 5,
+      "should_forward": false,
+      "raw_packet": "000574ba1f334f3a32ad2ce872792aecd60c0057726f6e6720686f7020636f756e74",
+      "packet_hash": "1ae06904a33254a2721d4e896e78fd70",
+      "rule": "Hop count 5 matches neither remaining_hops(2) nor taken_hops(1) \u2192 not forwarded"
+    },
+    {
+      "description": "Link table routing: different interfaces, hop count mismatch on nh_if side",
+      "link_id": "74ba1f334f3a32ad2ce872792aecd60c",
+      "link_entry": {
+        "IDX_LT_REM_HOPS": 2,
+        "IDX_LT_HOPS": 1,
+        "interfaces_same": false
+      },
+      "received_on": "nh_if",
+      "packet_hops": 3,
+      "expected_hops": 2,
+      "should_forward": false,
+      "raw_packet": "000374ba1f334f3a32ad2ce872792aecd60c0057726f6e6720686f70732063726f7373",
+      "packet_hash": "f08a25f174a9656ce05e7c8fef0e540d",
+      "rule": "Received on nh_if: hops(3) != remaining_hops(2) \u2192 not forwarded"
+    },
+    {
+      "description": "Link table routing: wire format of forwarded packet",
+      "link_id": "74ba1f334f3a32ad2ce872792aecd60c",
+      "original_raw": "000174ba1f334f3a32ad2ce872792aecd60c0052656c61796564206c696e6b207061636b6574",
+      "forwarded_raw": "000174ba1f334f3a32ad2ce872792aecd60c0052656c61796564206c696e6b207061636b6574",
+      "packets_identical": true,
+      "transformation": "new_raw = raw[0:1] + pack('!B', packet.hops) + raw[2:]",
+      "note": "Forwarded packet preserves all bytes; hops byte re-packed from packet.hops field"
+    }
+  ]
+}

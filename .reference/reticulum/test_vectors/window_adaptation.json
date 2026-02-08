@@ -1,0 +1,2582 @@
+{
+  "description": "Reticulum v1.1.3 reference implementation - Window adaptation test vectors",
+  "sources": [
+    "RNS/Resource.py (resource window adaptation)",
+    "RNS/Channel.py (channel window adaptation, for comparison)"
+  ],
+  "resource_window": {
+    "description": "Resource window adaptation is rate-based (bytes/sec throughput), not RTT-based",
+    "constants": {
+      "WINDOW": 4,
+      "WINDOW_MIN": 2,
+      "WINDOW_MAX_SLOW": 10,
+      "WINDOW_MAX_VERY_SLOW": 4,
+      "WINDOW_MAX_FAST": 75,
+      "WINDOW_FLEXIBILITY": 4,
+      "RATE_FAST": 6250.0,
+      "RATE_VERY_SLOW": 250.0,
+      "FAST_RATE_THRESHOLD": 4,
+      "VERY_SLOW_RATE_THRESHOLD": 2
+    },
+    "initial_state": {
+      "window": 4,
+      "window_max": 10,
+      "window_min": 2,
+      "window_flexibility": 4,
+      "fast_rate_rounds": 0,
+      "very_slow_rate_rounds": 0
+    },
+    "growth_algorithm": [
+      "On successful window completion (all outstanding_parts received):",
+      "1. if window < window_max: window += 1",
+      "2. if (window - window_min) > (flexibility - 1): window_min += 1",
+      "3. Rate tracking from req_data_rtt_rate (bytes transferred / RTT):",
+      "   a. if rate > RATE_FAST and fast_rate_rounds < FAST_RATE_THRESHOLD: fast_rate_rounds += 1",
+      "   b. if fast_rate_rounds == FAST_RATE_THRESHOLD: window_max = WINDOW_MAX_FAST",
+      "   c. if fast_rate_rounds == 0 and rate < RATE_VERY_SLOW and very_slow_rate_rounds < VERY_SLOW_RATE_THRESHOLD: very_slow_rate_rounds += 1",
+      "   d. if very_slow_rate_rounds == VERY_SLOW_RATE_THRESHOLD: window_max = WINDOW_MAX_VERY_SLOW"
+    ],
+    "shrink_algorithm": [
+      "On part request timeout:",
+      "1. if window > window_min: window -= 1",
+      "2. if window_max > window_min: window_max -= 1",
+      "3. if (window_max - window) > (flexibility - 1): window_max -= 1  (double decrement)"
+    ],
+    "growth_vectors": [
+      {
+        "description": "Fast rate (10 Kbps) \u2014 triggers WINDOW_MAX_FAST after threshold rounds",
+        "rate_bytes_per_sec": 10000,
+        "rate_is_above_fast": true,
+        "rate_is_below_very_slow": false,
+        "steps": [
+          {
+            "step": 0,
+            "event": "initial",
+            "rate": null,
+            "state": {
+              "window": 4,
+              "window_max": 10,
+              "window_min": 2,
+              "fast_rate_rounds": 0,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 1,
+            "event": "window_complete",
+            "rate": 10000,
+            "state": {
+              "window": 5,
+              "window_max": 10,
+              "window_min": 2,
+              "fast_rate_rounds": 1,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 2,
+            "event": "window_complete",
+            "rate": 10000,
+            "state": {
+              "window": 6,
+              "window_max": 10,
+              "window_min": 3,
+              "fast_rate_rounds": 2,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 3,
+            "event": "window_complete",
+            "rate": 10000,
+            "state": {
+              "window": 7,
+              "window_max": 10,
+              "window_min": 4,
+              "fast_rate_rounds": 3,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 4,
+            "event": "window_complete",
+            "rate": 10000,
+            "state": {
+              "window": 8,
+              "window_max": 75,
+              "window_min": 5,
+              "fast_rate_rounds": 4,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 5,
+            "event": "window_complete",
+            "rate": 10000,
+            "state": {
+              "window": 9,
+              "window_max": 75,
+              "window_min": 6,
+              "fast_rate_rounds": 4,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 6,
+            "event": "window_complete",
+            "rate": 10000,
+            "state": {
+              "window": 10,
+              "window_max": 75,
+              "window_min": 7,
+              "fast_rate_rounds": 4,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 7,
+            "event": "window_complete",
+            "rate": 10000,
+            "state": {
+              "window": 11,
+              "window_max": 75,
+              "window_min": 8,
+              "fast_rate_rounds": 4,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 8,
+            "event": "window_complete",
+            "rate": 10000,
+            "state": {
+              "window": 12,
+              "window_max": 75,
+              "window_min": 9,
+              "fast_rate_rounds": 4,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 9,
+            "event": "window_complete",
+            "rate": 10000,
+            "state": {
+              "window": 13,
+              "window_max": 75,
+              "window_min": 10,
+              "fast_rate_rounds": 4,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 10,
+            "event": "window_complete",
+            "rate": 10000,
+            "state": {
+              "window": 14,
+              "window_max": 75,
+              "window_min": 11,
+              "fast_rate_rounds": 4,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 11,
+            "event": "window_complete",
+            "rate": 10000,
+            "state": {
+              "window": 15,
+              "window_max": 75,
+              "window_min": 12,
+              "fast_rate_rounds": 4,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 12,
+            "event": "window_complete",
+            "rate": 10000,
+            "state": {
+              "window": 16,
+              "window_max": 75,
+              "window_min": 13,
+              "fast_rate_rounds": 4,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 13,
+            "event": "window_complete",
+            "rate": 10000,
+            "state": {
+              "window": 17,
+              "window_max": 75,
+              "window_min": 14,
+              "fast_rate_rounds": 4,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 14,
+            "event": "window_complete",
+            "rate": 10000,
+            "state": {
+              "window": 18,
+              "window_max": 75,
+              "window_min": 15,
+              "fast_rate_rounds": 4,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 15,
+            "event": "window_complete",
+            "rate": 10000,
+            "state": {
+              "window": 19,
+              "window_max": 75,
+              "window_min": 16,
+              "fast_rate_rounds": 4,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 16,
+            "event": "window_complete",
+            "rate": 10000,
+            "state": {
+              "window": 20,
+              "window_max": 75,
+              "window_min": 17,
+              "fast_rate_rounds": 4,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 17,
+            "event": "window_complete",
+            "rate": 10000,
+            "state": {
+              "window": 21,
+              "window_max": 75,
+              "window_min": 18,
+              "fast_rate_rounds": 4,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 18,
+            "event": "window_complete",
+            "rate": 10000,
+            "state": {
+              "window": 22,
+              "window_max": 75,
+              "window_min": 19,
+              "fast_rate_rounds": 4,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 19,
+            "event": "window_complete",
+            "rate": 10000,
+            "state": {
+              "window": 23,
+              "window_max": 75,
+              "window_min": 20,
+              "fast_rate_rounds": 4,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 20,
+            "event": "window_complete",
+            "rate": 10000,
+            "state": {
+              "window": 24,
+              "window_max": 75,
+              "window_min": 21,
+              "fast_rate_rounds": 4,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 21,
+            "event": "window_complete",
+            "rate": 10000,
+            "state": {
+              "window": 25,
+              "window_max": 75,
+              "window_min": 22,
+              "fast_rate_rounds": 4,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 22,
+            "event": "window_complete",
+            "rate": 10000,
+            "state": {
+              "window": 26,
+              "window_max": 75,
+              "window_min": 23,
+              "fast_rate_rounds": 4,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 23,
+            "event": "window_complete",
+            "rate": 10000,
+            "state": {
+              "window": 27,
+              "window_max": 75,
+              "window_min": 24,
+              "fast_rate_rounds": 4,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 24,
+            "event": "window_complete",
+            "rate": 10000,
+            "state": {
+              "window": 28,
+              "window_max": 75,
+              "window_min": 25,
+              "fast_rate_rounds": 4,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 25,
+            "event": "window_complete",
+            "rate": 10000,
+            "state": {
+              "window": 29,
+              "window_max": 75,
+              "window_min": 26,
+              "fast_rate_rounds": 4,
+              "very_slow_rate_rounds": 0
+            }
+          }
+        ]
+      },
+      {
+        "description": "Medium rate (2 Kbps) \u2014 stays at WINDOW_MAX_SLOW",
+        "rate_bytes_per_sec": 2000,
+        "rate_is_above_fast": false,
+        "rate_is_below_very_slow": false,
+        "steps": [
+          {
+            "step": 0,
+            "event": "initial",
+            "rate": null,
+            "state": {
+              "window": 4,
+              "window_max": 10,
+              "window_min": 2,
+              "fast_rate_rounds": 0,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 1,
+            "event": "window_complete",
+            "rate": 2000,
+            "state": {
+              "window": 5,
+              "window_max": 10,
+              "window_min": 2,
+              "fast_rate_rounds": 0,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 2,
+            "event": "window_complete",
+            "rate": 2000,
+            "state": {
+              "window": 6,
+              "window_max": 10,
+              "window_min": 3,
+              "fast_rate_rounds": 0,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 3,
+            "event": "window_complete",
+            "rate": 2000,
+            "state": {
+              "window": 7,
+              "window_max": 10,
+              "window_min": 4,
+              "fast_rate_rounds": 0,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 4,
+            "event": "window_complete",
+            "rate": 2000,
+            "state": {
+              "window": 8,
+              "window_max": 10,
+              "window_min": 5,
+              "fast_rate_rounds": 0,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 5,
+            "event": "window_complete",
+            "rate": 2000,
+            "state": {
+              "window": 9,
+              "window_max": 10,
+              "window_min": 6,
+              "fast_rate_rounds": 0,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 6,
+            "event": "window_complete",
+            "rate": 2000,
+            "state": {
+              "window": 10,
+              "window_max": 10,
+              "window_min": 7,
+              "fast_rate_rounds": 0,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 7,
+            "event": "window_complete",
+            "rate": 2000,
+            "state": {
+              "window": 10,
+              "window_max": 10,
+              "window_min": 7,
+              "fast_rate_rounds": 0,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 8,
+            "event": "window_complete",
+            "rate": 2000,
+            "state": {
+              "window": 10,
+              "window_max": 10,
+              "window_min": 7,
+              "fast_rate_rounds": 0,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 9,
+            "event": "window_complete",
+            "rate": 2000,
+            "state": {
+              "window": 10,
+              "window_max": 10,
+              "window_min": 7,
+              "fast_rate_rounds": 0,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 10,
+            "event": "window_complete",
+            "rate": 2000,
+            "state": {
+              "window": 10,
+              "window_max": 10,
+              "window_min": 7,
+              "fast_rate_rounds": 0,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 11,
+            "event": "window_complete",
+            "rate": 2000,
+            "state": {
+              "window": 10,
+              "window_max": 10,
+              "window_min": 7,
+              "fast_rate_rounds": 0,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 12,
+            "event": "window_complete",
+            "rate": 2000,
+            "state": {
+              "window": 10,
+              "window_max": 10,
+              "window_min": 7,
+              "fast_rate_rounds": 0,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 13,
+            "event": "window_complete",
+            "rate": 2000,
+            "state": {
+              "window": 10,
+              "window_max": 10,
+              "window_min": 7,
+              "fast_rate_rounds": 0,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 14,
+            "event": "window_complete",
+            "rate": 2000,
+            "state": {
+              "window": 10,
+              "window_max": 10,
+              "window_min": 7,
+              "fast_rate_rounds": 0,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 15,
+            "event": "window_complete",
+            "rate": 2000,
+            "state": {
+              "window": 10,
+              "window_max": 10,
+              "window_min": 7,
+              "fast_rate_rounds": 0,
+              "very_slow_rate_rounds": 0
+            }
+          }
+        ]
+      },
+      {
+        "description": "Very slow rate (100 bps) \u2014 triggers WINDOW_MAX_VERY_SLOW cap",
+        "rate_bytes_per_sec": 100,
+        "rate_is_above_fast": false,
+        "rate_is_below_very_slow": true,
+        "steps": [
+          {
+            "step": 0,
+            "event": "initial",
+            "rate": null,
+            "state": {
+              "window": 4,
+              "window_max": 10,
+              "window_min": 2,
+              "fast_rate_rounds": 0,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 1,
+            "event": "window_complete",
+            "rate": 100,
+            "state": {
+              "window": 5,
+              "window_max": 10,
+              "window_min": 2,
+              "fast_rate_rounds": 0,
+              "very_slow_rate_rounds": 1
+            }
+          },
+          {
+            "step": 2,
+            "event": "window_complete",
+            "rate": 100,
+            "state": {
+              "window": 6,
+              "window_max": 4,
+              "window_min": 3,
+              "fast_rate_rounds": 0,
+              "very_slow_rate_rounds": 2
+            }
+          },
+          {
+            "step": 3,
+            "event": "window_complete",
+            "rate": 100,
+            "state": {
+              "window": 6,
+              "window_max": 4,
+              "window_min": 3,
+              "fast_rate_rounds": 0,
+              "very_slow_rate_rounds": 2
+            }
+          },
+          {
+            "step": 4,
+            "event": "window_complete",
+            "rate": 100,
+            "state": {
+              "window": 6,
+              "window_max": 4,
+              "window_min": 3,
+              "fast_rate_rounds": 0,
+              "very_slow_rate_rounds": 2
+            }
+          },
+          {
+            "step": 5,
+            "event": "window_complete",
+            "rate": 100,
+            "state": {
+              "window": 6,
+              "window_max": 4,
+              "window_min": 3,
+              "fast_rate_rounds": 0,
+              "very_slow_rate_rounds": 2
+            }
+          },
+          {
+            "step": 6,
+            "event": "window_complete",
+            "rate": 100,
+            "state": {
+              "window": 6,
+              "window_max": 4,
+              "window_min": 3,
+              "fast_rate_rounds": 0,
+              "very_slow_rate_rounds": 2
+            }
+          },
+          {
+            "step": 7,
+            "event": "window_complete",
+            "rate": 100,
+            "state": {
+              "window": 6,
+              "window_max": 4,
+              "window_min": 3,
+              "fast_rate_rounds": 0,
+              "very_slow_rate_rounds": 2
+            }
+          },
+          {
+            "step": 8,
+            "event": "window_complete",
+            "rate": 100,
+            "state": {
+              "window": 6,
+              "window_max": 4,
+              "window_min": 3,
+              "fast_rate_rounds": 0,
+              "very_slow_rate_rounds": 2
+            }
+          },
+          {
+            "step": 9,
+            "event": "window_complete",
+            "rate": 100,
+            "state": {
+              "window": 6,
+              "window_max": 4,
+              "window_min": 3,
+              "fast_rate_rounds": 0,
+              "very_slow_rate_rounds": 2
+            }
+          },
+          {
+            "step": 10,
+            "event": "window_complete",
+            "rate": 100,
+            "state": {
+              "window": 6,
+              "window_max": 4,
+              "window_min": 3,
+              "fast_rate_rounds": 0,
+              "very_slow_rate_rounds": 2
+            }
+          }
+        ]
+      },
+      {
+        "description": "Borderline fast rate (exactly 6250 bps = RATE_FAST threshold)",
+        "rate_bytes_per_sec": 6250,
+        "rate_is_above_fast": false,
+        "rate_is_below_very_slow": false,
+        "steps": [
+          {
+            "step": 0,
+            "event": "initial",
+            "rate": null,
+            "state": {
+              "window": 4,
+              "window_max": 10,
+              "window_min": 2,
+              "fast_rate_rounds": 0,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 1,
+            "event": "window_complete",
+            "rate": 6250,
+            "state": {
+              "window": 5,
+              "window_max": 10,
+              "window_min": 2,
+              "fast_rate_rounds": 0,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 2,
+            "event": "window_complete",
+            "rate": 6250,
+            "state": {
+              "window": 6,
+              "window_max": 10,
+              "window_min": 3,
+              "fast_rate_rounds": 0,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 3,
+            "event": "window_complete",
+            "rate": 6250,
+            "state": {
+              "window": 7,
+              "window_max": 10,
+              "window_min": 4,
+              "fast_rate_rounds": 0,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 4,
+            "event": "window_complete",
+            "rate": 6250,
+            "state": {
+              "window": 8,
+              "window_max": 10,
+              "window_min": 5,
+              "fast_rate_rounds": 0,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 5,
+            "event": "window_complete",
+            "rate": 6250,
+            "state": {
+              "window": 9,
+              "window_max": 10,
+              "window_min": 6,
+              "fast_rate_rounds": 0,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 6,
+            "event": "window_complete",
+            "rate": 6250,
+            "state": {
+              "window": 10,
+              "window_max": 10,
+              "window_min": 7,
+              "fast_rate_rounds": 0,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 7,
+            "event": "window_complete",
+            "rate": 6250,
+            "state": {
+              "window": 10,
+              "window_max": 10,
+              "window_min": 7,
+              "fast_rate_rounds": 0,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 8,
+            "event": "window_complete",
+            "rate": 6250,
+            "state": {
+              "window": 10,
+              "window_max": 10,
+              "window_min": 7,
+              "fast_rate_rounds": 0,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 9,
+            "event": "window_complete",
+            "rate": 6250,
+            "state": {
+              "window": 10,
+              "window_max": 10,
+              "window_min": 7,
+              "fast_rate_rounds": 0,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 10,
+            "event": "window_complete",
+            "rate": 6250,
+            "state": {
+              "window": 10,
+              "window_max": 10,
+              "window_min": 7,
+              "fast_rate_rounds": 0,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 11,
+            "event": "window_complete",
+            "rate": 6250,
+            "state": {
+              "window": 10,
+              "window_max": 10,
+              "window_min": 7,
+              "fast_rate_rounds": 0,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 12,
+            "event": "window_complete",
+            "rate": 6250,
+            "state": {
+              "window": 10,
+              "window_max": 10,
+              "window_min": 7,
+              "fast_rate_rounds": 0,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 13,
+            "event": "window_complete",
+            "rate": 6250,
+            "state": {
+              "window": 10,
+              "window_max": 10,
+              "window_min": 7,
+              "fast_rate_rounds": 0,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 14,
+            "event": "window_complete",
+            "rate": 6250,
+            "state": {
+              "window": 10,
+              "window_max": 10,
+              "window_min": 7,
+              "fast_rate_rounds": 0,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 15,
+            "event": "window_complete",
+            "rate": 6250,
+            "state": {
+              "window": 10,
+              "window_max": 10,
+              "window_min": 7,
+              "fast_rate_rounds": 0,
+              "very_slow_rate_rounds": 0
+            }
+          }
+        ]
+      },
+      {
+        "description": "Just above fast rate (6251 bps)",
+        "rate_bytes_per_sec": 6251,
+        "rate_is_above_fast": true,
+        "rate_is_below_very_slow": false,
+        "steps": [
+          {
+            "step": 0,
+            "event": "initial",
+            "rate": null,
+            "state": {
+              "window": 4,
+              "window_max": 10,
+              "window_min": 2,
+              "fast_rate_rounds": 0,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 1,
+            "event": "window_complete",
+            "rate": 6251,
+            "state": {
+              "window": 5,
+              "window_max": 10,
+              "window_min": 2,
+              "fast_rate_rounds": 1,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 2,
+            "event": "window_complete",
+            "rate": 6251,
+            "state": {
+              "window": 6,
+              "window_max": 10,
+              "window_min": 3,
+              "fast_rate_rounds": 2,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 3,
+            "event": "window_complete",
+            "rate": 6251,
+            "state": {
+              "window": 7,
+              "window_max": 10,
+              "window_min": 4,
+              "fast_rate_rounds": 3,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 4,
+            "event": "window_complete",
+            "rate": 6251,
+            "state": {
+              "window": 8,
+              "window_max": 75,
+              "window_min": 5,
+              "fast_rate_rounds": 4,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 5,
+            "event": "window_complete",
+            "rate": 6251,
+            "state": {
+              "window": 9,
+              "window_max": 75,
+              "window_min": 6,
+              "fast_rate_rounds": 4,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 6,
+            "event": "window_complete",
+            "rate": 6251,
+            "state": {
+              "window": 10,
+              "window_max": 75,
+              "window_min": 7,
+              "fast_rate_rounds": 4,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 7,
+            "event": "window_complete",
+            "rate": 6251,
+            "state": {
+              "window": 11,
+              "window_max": 75,
+              "window_min": 8,
+              "fast_rate_rounds": 4,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 8,
+            "event": "window_complete",
+            "rate": 6251,
+            "state": {
+              "window": 12,
+              "window_max": 75,
+              "window_min": 9,
+              "fast_rate_rounds": 4,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 9,
+            "event": "window_complete",
+            "rate": 6251,
+            "state": {
+              "window": 13,
+              "window_max": 75,
+              "window_min": 10,
+              "fast_rate_rounds": 4,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 10,
+            "event": "window_complete",
+            "rate": 6251,
+            "state": {
+              "window": 14,
+              "window_max": 75,
+              "window_min": 11,
+              "fast_rate_rounds": 4,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 11,
+            "event": "window_complete",
+            "rate": 6251,
+            "state": {
+              "window": 15,
+              "window_max": 75,
+              "window_min": 12,
+              "fast_rate_rounds": 4,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 12,
+            "event": "window_complete",
+            "rate": 6251,
+            "state": {
+              "window": 16,
+              "window_max": 75,
+              "window_min": 13,
+              "fast_rate_rounds": 4,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 13,
+            "event": "window_complete",
+            "rate": 6251,
+            "state": {
+              "window": 17,
+              "window_max": 75,
+              "window_min": 14,
+              "fast_rate_rounds": 4,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 14,
+            "event": "window_complete",
+            "rate": 6251,
+            "state": {
+              "window": 18,
+              "window_max": 75,
+              "window_min": 15,
+              "fast_rate_rounds": 4,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 15,
+            "event": "window_complete",
+            "rate": 6251,
+            "state": {
+              "window": 19,
+              "window_max": 75,
+              "window_min": 16,
+              "fast_rate_rounds": 4,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 16,
+            "event": "window_complete",
+            "rate": 6251,
+            "state": {
+              "window": 20,
+              "window_max": 75,
+              "window_min": 17,
+              "fast_rate_rounds": 4,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 17,
+            "event": "window_complete",
+            "rate": 6251,
+            "state": {
+              "window": 21,
+              "window_max": 75,
+              "window_min": 18,
+              "fast_rate_rounds": 4,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 18,
+            "event": "window_complete",
+            "rate": 6251,
+            "state": {
+              "window": 22,
+              "window_max": 75,
+              "window_min": 19,
+              "fast_rate_rounds": 4,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 19,
+            "event": "window_complete",
+            "rate": 6251,
+            "state": {
+              "window": 23,
+              "window_max": 75,
+              "window_min": 20,
+              "fast_rate_rounds": 4,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 20,
+            "event": "window_complete",
+            "rate": 6251,
+            "state": {
+              "window": 24,
+              "window_max": 75,
+              "window_min": 21,
+              "fast_rate_rounds": 4,
+              "very_slow_rate_rounds": 0
+            }
+          }
+        ]
+      }
+    ],
+    "shrink_vectors": [
+      {
+        "description": "Timeout shrink from initial state (window=4, window_max=10)",
+        "steps": [
+          {
+            "step": 0,
+            "event": "initial",
+            "state": {
+              "window": 4,
+              "window_max": 10,
+              "window_min": 2,
+              "fast_rate_rounds": 0,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 1,
+            "event": "timeout",
+            "state": {
+              "window": 3,
+              "window_max": 8,
+              "window_min": 2,
+              "fast_rate_rounds": 0,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 2,
+            "event": "timeout",
+            "state": {
+              "window": 2,
+              "window_max": 6,
+              "window_min": 2,
+              "fast_rate_rounds": 0,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 3,
+            "event": "timeout",
+            "state": {
+              "window": 2,
+              "window_max": 6,
+              "window_min": 2,
+              "fast_rate_rounds": 0,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 4,
+            "event": "timeout",
+            "state": {
+              "window": 2,
+              "window_max": 6,
+              "window_min": 2,
+              "fast_rate_rounds": 0,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 5,
+            "event": "timeout",
+            "state": {
+              "window": 2,
+              "window_max": 6,
+              "window_min": 2,
+              "fast_rate_rounds": 0,
+              "very_slow_rate_rounds": 0
+            }
+          }
+        ]
+      },
+      {
+        "description": "Grow at fast rate for 8 rounds, then 6 timeouts",
+        "steps": [
+          {
+            "step": 0,
+            "event": "initial",
+            "state": {
+              "window": 4,
+              "window_max": 10,
+              "window_min": 2,
+              "fast_rate_rounds": 0,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 1,
+            "event": "window_complete",
+            "rate": 10000,
+            "state": {
+              "window": 5,
+              "window_max": 10,
+              "window_min": 2,
+              "fast_rate_rounds": 1,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 2,
+            "event": "window_complete",
+            "rate": 10000,
+            "state": {
+              "window": 6,
+              "window_max": 10,
+              "window_min": 3,
+              "fast_rate_rounds": 2,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 3,
+            "event": "window_complete",
+            "rate": 10000,
+            "state": {
+              "window": 7,
+              "window_max": 10,
+              "window_min": 4,
+              "fast_rate_rounds": 3,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 4,
+            "event": "window_complete",
+            "rate": 10000,
+            "state": {
+              "window": 8,
+              "window_max": 75,
+              "window_min": 5,
+              "fast_rate_rounds": 4,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 5,
+            "event": "window_complete",
+            "rate": 10000,
+            "state": {
+              "window": 9,
+              "window_max": 75,
+              "window_min": 6,
+              "fast_rate_rounds": 4,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 6,
+            "event": "window_complete",
+            "rate": 10000,
+            "state": {
+              "window": 10,
+              "window_max": 75,
+              "window_min": 7,
+              "fast_rate_rounds": 4,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 7,
+            "event": "window_complete",
+            "rate": 10000,
+            "state": {
+              "window": 11,
+              "window_max": 75,
+              "window_min": 8,
+              "fast_rate_rounds": 4,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 8,
+            "event": "window_complete",
+            "rate": 10000,
+            "state": {
+              "window": 12,
+              "window_max": 75,
+              "window_min": 9,
+              "fast_rate_rounds": 4,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 9,
+            "event": "timeout",
+            "state": {
+              "window": 11,
+              "window_max": 73,
+              "window_min": 9,
+              "fast_rate_rounds": 4,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 10,
+            "event": "timeout",
+            "state": {
+              "window": 10,
+              "window_max": 71,
+              "window_min": 9,
+              "fast_rate_rounds": 4,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 11,
+            "event": "timeout",
+            "state": {
+              "window": 9,
+              "window_max": 69,
+              "window_min": 9,
+              "fast_rate_rounds": 4,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 12,
+            "event": "timeout",
+            "state": {
+              "window": 9,
+              "window_max": 69,
+              "window_min": 9,
+              "fast_rate_rounds": 4,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 13,
+            "event": "timeout",
+            "state": {
+              "window": 9,
+              "window_max": 69,
+              "window_min": 9,
+              "fast_rate_rounds": 4,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 14,
+            "event": "timeout",
+            "state": {
+              "window": 9,
+              "window_max": 69,
+              "window_min": 9,
+              "fast_rate_rounds": 4,
+              "very_slow_rate_rounds": 0
+            }
+          }
+        ]
+      },
+      {
+        "description": "Alternating success and timeout (unstable medium-rate link)",
+        "steps": [
+          {
+            "step": 0,
+            "event": "initial",
+            "state": {
+              "window": 4,
+              "window_max": 10,
+              "window_min": 2,
+              "fast_rate_rounds": 0,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 1,
+            "event": "window_complete",
+            "rate": 3000,
+            "state": {
+              "window": 5,
+              "window_max": 10,
+              "window_min": 2,
+              "fast_rate_rounds": 0,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 2,
+            "event": "timeout",
+            "state": {
+              "window": 4,
+              "window_max": 8,
+              "window_min": 2,
+              "fast_rate_rounds": 0,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 3,
+            "event": "window_complete",
+            "rate": 3000,
+            "state": {
+              "window": 5,
+              "window_max": 8,
+              "window_min": 2,
+              "fast_rate_rounds": 0,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 4,
+            "event": "timeout",
+            "state": {
+              "window": 4,
+              "window_max": 7,
+              "window_min": 2,
+              "fast_rate_rounds": 0,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 5,
+            "event": "window_complete",
+            "rate": 3000,
+            "state": {
+              "window": 5,
+              "window_max": 7,
+              "window_min": 2,
+              "fast_rate_rounds": 0,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 6,
+            "event": "timeout",
+            "state": {
+              "window": 4,
+              "window_max": 6,
+              "window_min": 2,
+              "fast_rate_rounds": 0,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 7,
+            "event": "window_complete",
+            "rate": 3000,
+            "state": {
+              "window": 5,
+              "window_max": 6,
+              "window_min": 2,
+              "fast_rate_rounds": 0,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 8,
+            "event": "timeout",
+            "state": {
+              "window": 4,
+              "window_max": 5,
+              "window_min": 2,
+              "fast_rate_rounds": 0,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 9,
+            "event": "window_complete",
+            "rate": 3000,
+            "state": {
+              "window": 5,
+              "window_max": 5,
+              "window_min": 2,
+              "fast_rate_rounds": 0,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 10,
+            "event": "timeout",
+            "state": {
+              "window": 4,
+              "window_max": 4,
+              "window_min": 2,
+              "fast_rate_rounds": 0,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 11,
+            "event": "window_complete",
+            "rate": 3000,
+            "state": {
+              "window": 4,
+              "window_max": 4,
+              "window_min": 2,
+              "fast_rate_rounds": 0,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 12,
+            "event": "timeout",
+            "state": {
+              "window": 3,
+              "window_max": 3,
+              "window_min": 2,
+              "fast_rate_rounds": 0,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 13,
+            "event": "window_complete",
+            "rate": 3000,
+            "state": {
+              "window": 3,
+              "window_max": 3,
+              "window_min": 2,
+              "fast_rate_rounds": 0,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 14,
+            "event": "timeout",
+            "state": {
+              "window": 2,
+              "window_max": 2,
+              "window_min": 2,
+              "fast_rate_rounds": 0,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 15,
+            "event": "window_complete",
+            "rate": 3000,
+            "state": {
+              "window": 2,
+              "window_max": 2,
+              "window_min": 2,
+              "fast_rate_rounds": 0,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 16,
+            "event": "timeout",
+            "state": {
+              "window": 2,
+              "window_max": 2,
+              "window_min": 2,
+              "fast_rate_rounds": 0,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 17,
+            "event": "window_complete",
+            "rate": 3000,
+            "state": {
+              "window": 2,
+              "window_max": 2,
+              "window_min": 2,
+              "fast_rate_rounds": 0,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 18,
+            "event": "timeout",
+            "state": {
+              "window": 2,
+              "window_max": 2,
+              "window_min": 2,
+              "fast_rate_rounds": 0,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 19,
+            "event": "window_complete",
+            "rate": 3000,
+            "state": {
+              "window": 2,
+              "window_max": 2,
+              "window_min": 2,
+              "fast_rate_rounds": 0,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 20,
+            "event": "timeout",
+            "state": {
+              "window": 2,
+              "window_max": 2,
+              "window_min": 2,
+              "fast_rate_rounds": 0,
+              "very_slow_rate_rounds": 0
+            }
+          }
+        ]
+      },
+      {
+        "description": "Timeout with double-decrement analysis (window_max decrements extra when gap exceeds flexibility-1)",
+        "note": "When (window_max - window) > (flexibility - 1), window_max gets an additional decrement",
+        "steps": [
+          {
+            "step": 0,
+            "event": "initial (gap=6, flexibility=4)",
+            "state": {
+              "window": 4,
+              "window_max": 10,
+              "window_min": 2,
+              "fast_rate_rounds": 0,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 1,
+            "event": "timeout",
+            "gap_after": 5,
+            "double_decrement_possible": true,
+            "state": {
+              "window": 3,
+              "window_max": 8,
+              "window_min": 2,
+              "fast_rate_rounds": 0,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 2,
+            "event": "timeout",
+            "gap_after": 4,
+            "double_decrement_possible": true,
+            "state": {
+              "window": 2,
+              "window_max": 6,
+              "window_min": 2,
+              "fast_rate_rounds": 0,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 3,
+            "event": "timeout",
+            "gap_after": 4,
+            "double_decrement_possible": true,
+            "state": {
+              "window": 2,
+              "window_max": 6,
+              "window_min": 2,
+              "fast_rate_rounds": 0,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 4,
+            "event": "timeout",
+            "gap_after": 4,
+            "double_decrement_possible": true,
+            "state": {
+              "window": 2,
+              "window_max": 6,
+              "window_min": 2,
+              "fast_rate_rounds": 0,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 5,
+            "event": "timeout",
+            "gap_after": 4,
+            "double_decrement_possible": true,
+            "state": {
+              "window": 2,
+              "window_max": 6,
+              "window_min": 2,
+              "fast_rate_rounds": 0,
+              "very_slow_rate_rounds": 0
+            }
+          }
+        ]
+      }
+    ],
+    "rate_transition_vectors": [
+      {
+        "description": "Slow-to-fast transition: fast_rate_rounds reaches FAST_RATE_THRESHOLD (4) and window_max jumps to 75",
+        "fast_rate_threshold": 4,
+        "steps": [
+          {
+            "step": 0,
+            "event": "initial",
+            "state": {
+              "window": 4,
+              "window_max": 10,
+              "window_min": 2,
+              "fast_rate_rounds": 0,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 1,
+            "event": "window_complete",
+            "rate": 3000,
+            "state": {
+              "window": 5,
+              "window_max": 10,
+              "window_min": 2,
+              "fast_rate_rounds": 0,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 2,
+            "event": "window_complete",
+            "rate": 3000,
+            "state": {
+              "window": 6,
+              "window_max": 10,
+              "window_min": 3,
+              "fast_rate_rounds": 0,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 3,
+            "event": "window_complete",
+            "rate": 3000,
+            "state": {
+              "window": 7,
+              "window_max": 10,
+              "window_min": 4,
+              "fast_rate_rounds": 0,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 4,
+            "event": "window_complete",
+            "rate": 10000,
+            "state": {
+              "window": 8,
+              "window_max": 10,
+              "window_min": 5,
+              "fast_rate_rounds": 1,
+              "very_slow_rate_rounds": 0
+            },
+            "note": "fast_rate_rounds=1"
+          },
+          {
+            "step": 5,
+            "event": "window_complete",
+            "rate": 10000,
+            "state": {
+              "window": 9,
+              "window_max": 10,
+              "window_min": 6,
+              "fast_rate_rounds": 2,
+              "very_slow_rate_rounds": 0
+            },
+            "note": "fast_rate_rounds=2"
+          },
+          {
+            "step": 6,
+            "event": "window_complete",
+            "rate": 10000,
+            "state": {
+              "window": 10,
+              "window_max": 10,
+              "window_min": 7,
+              "fast_rate_rounds": 3,
+              "very_slow_rate_rounds": 0
+            },
+            "note": "fast_rate_rounds=3"
+          },
+          {
+            "step": 7,
+            "event": "window_complete",
+            "rate": 10000,
+            "state": {
+              "window": 10,
+              "window_max": 75,
+              "window_min": 7,
+              "fast_rate_rounds": 4,
+              "very_slow_rate_rounds": 0
+            },
+            "note": "fast_rate_rounds=4 \u2014 WINDOW_MAX_FAST activated!"
+          },
+          {
+            "step": 8,
+            "event": "window_complete",
+            "rate": 10000,
+            "state": {
+              "window": 11,
+              "window_max": 75,
+              "window_min": 8,
+              "fast_rate_rounds": 4,
+              "very_slow_rate_rounds": 0
+            },
+            "note": "fast_rate_rounds=4 \u2014 WINDOW_MAX_FAST activated!"
+          },
+          {
+            "step": 9,
+            "event": "window_complete",
+            "rate": 10000,
+            "state": {
+              "window": 12,
+              "window_max": 75,
+              "window_min": 9,
+              "fast_rate_rounds": 4,
+              "very_slow_rate_rounds": 0
+            },
+            "note": "fast_rate_rounds=4"
+          }
+        ]
+      },
+      {
+        "description": "Very slow rate cap: very_slow_rate_rounds reaches VERY_SLOW_RATE_THRESHOLD (2) and window_max drops to 4",
+        "very_slow_rate_threshold": 2,
+        "steps": [
+          {
+            "step": 0,
+            "event": "initial",
+            "state": {
+              "window": 4,
+              "window_max": 10,
+              "window_min": 2,
+              "fast_rate_rounds": 0,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 1,
+            "event": "window_complete",
+            "rate": 100,
+            "state": {
+              "window": 5,
+              "window_max": 10,
+              "window_min": 2,
+              "fast_rate_rounds": 0,
+              "very_slow_rate_rounds": 1
+            },
+            "note": "very_slow_rate_rounds=1"
+          },
+          {
+            "step": 2,
+            "event": "window_complete",
+            "rate": 100,
+            "state": {
+              "window": 6,
+              "window_max": 4,
+              "window_min": 3,
+              "fast_rate_rounds": 0,
+              "very_slow_rate_rounds": 2
+            },
+            "note": "very_slow_rate_rounds=2 \u2014 WINDOW_MAX_VERY_SLOW activated!"
+          },
+          {
+            "step": 3,
+            "event": "window_complete",
+            "rate": 100,
+            "state": {
+              "window": 6,
+              "window_max": 4,
+              "window_min": 3,
+              "fast_rate_rounds": 0,
+              "very_slow_rate_rounds": 2
+            },
+            "note": "very_slow_rate_rounds=2 \u2014 WINDOW_MAX_VERY_SLOW activated!"
+          },
+          {
+            "step": 4,
+            "event": "window_complete",
+            "rate": 100,
+            "state": {
+              "window": 6,
+              "window_max": 4,
+              "window_min": 3,
+              "fast_rate_rounds": 0,
+              "very_slow_rate_rounds": 2
+            },
+            "note": "very_slow_rate_rounds=2"
+          }
+        ]
+      },
+      {
+        "description": "Very slow cap blocked when fast_rate_rounds > 0 (one fast round prevents very-slow detection)",
+        "steps": [
+          {
+            "step": 0,
+            "event": "initial",
+            "state": {
+              "window": 4,
+              "window_max": 10,
+              "window_min": 2,
+              "fast_rate_rounds": 0,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 1,
+            "event": "window_complete",
+            "rate": 10000,
+            "state": {
+              "window": 5,
+              "window_max": 10,
+              "window_min": 2,
+              "fast_rate_rounds": 1,
+              "very_slow_rate_rounds": 0
+            }
+          },
+          {
+            "step": 2,
+            "event": "window_complete",
+            "rate": 100,
+            "state": {
+              "window": 6,
+              "window_max": 10,
+              "window_min": 3,
+              "fast_rate_rounds": 1,
+              "very_slow_rate_rounds": 0
+            },
+            "note": "fast_rate_rounds=1, very_slow blocked because fast_rate_rounds != 0"
+          },
+          {
+            "step": 3,
+            "event": "window_complete",
+            "rate": 100,
+            "state": {
+              "window": 7,
+              "window_max": 10,
+              "window_min": 4,
+              "fast_rate_rounds": 1,
+              "very_slow_rate_rounds": 0
+            },
+            "note": "fast_rate_rounds=1, very_slow blocked because fast_rate_rounds != 0"
+          },
+          {
+            "step": 4,
+            "event": "window_complete",
+            "rate": 100,
+            "state": {
+              "window": 8,
+              "window_max": 10,
+              "window_min": 5,
+              "fast_rate_rounds": 1,
+              "very_slow_rate_rounds": 0
+            },
+            "note": "fast_rate_rounds=1, very_slow blocked because fast_rate_rounds != 0"
+          },
+          {
+            "step": 5,
+            "event": "window_complete",
+            "rate": 100,
+            "state": {
+              "window": 9,
+              "window_max": 10,
+              "window_min": 6,
+              "fast_rate_rounds": 1,
+              "very_slow_rate_rounds": 0
+            },
+            "note": "fast_rate_rounds=1, very_slow blocked because fast_rate_rounds != 0"
+          }
+        ]
+      }
+    ]
+  },
+  "channel_window": {
+    "description": "Channel window adaptation is RTT-based (for comparison with resource window)",
+    "constants": {
+      "WINDOW": 2,
+      "WINDOW_MIN": 2,
+      "WINDOW_MIN_LIMIT_SLOW": 2,
+      "WINDOW_MIN_LIMIT_MEDIUM": 5,
+      "WINDOW_MIN_LIMIT_FAST": 16,
+      "WINDOW_MAX_SLOW": 5,
+      "WINDOW_MAX_MEDIUM": 12,
+      "WINDOW_MAX_FAST": 48,
+      "WINDOW_FLEXIBILITY": 4,
+      "FAST_RATE_THRESHOLD": 10,
+      "RTT_FAST": 0.18,
+      "RTT_MEDIUM": 0.75,
+      "RTT_SLOW": 1.45
+    },
+    "initialization_note": "Channel window is initialized based on RTT at link establishment, not grown from a minimum",
+    "key_differences": [
+      "Resource: starts at WINDOW=4, grows by 1 per successful window",
+      "Channel: starts at window_max for RTT class (e.g., 48 for fast links)",
+      "Resource: rate-based transitions (bytes/sec thresholds)",
+      "Channel: RTT-based initialization (RTT class determines starting window)",
+      "Resource: timeout shrinks by 1 (with possible double-decrement)",
+      "Channel: timeout shrinks by max(flexibility, 4) and resets window_min to WINDOW_MIN"
+    ]
+  },
+  "comparison_vectors": [
+    {
+      "description": "20 consecutive successes: resource (rate-based, 5000 B/s) vs channel (RTT-based, 0.5s)",
+      "resource_rate": 5000,
+      "channel_rtt": 0.5,
+      "steps": [
+        {
+          "step": 0,
+          "event": "initial",
+          "resource": {
+            "window": 4,
+            "window_max": 10,
+            "window_min": 2,
+            "fast_rate_rounds": 0,
+            "very_slow_rate_rounds": 0
+          },
+          "channel": {
+            "window": 12,
+            "window_max": 12,
+            "window_min": 5,
+            "fast_rate_rounds": 0
+          }
+        },
+        {
+          "step": 1,
+          "event": "success",
+          "resource": {
+            "window": 5,
+            "window_max": 10,
+            "window_min": 2,
+            "fast_rate_rounds": 0,
+            "very_slow_rate_rounds": 0
+          },
+          "channel": {
+            "window": 12,
+            "window_max": 12,
+            "window_min": 5,
+            "fast_rate_rounds": 1
+          }
+        },
+        {
+          "step": 2,
+          "event": "success",
+          "resource": {
+            "window": 6,
+            "window_max": 10,
+            "window_min": 3,
+            "fast_rate_rounds": 0,
+            "very_slow_rate_rounds": 0
+          },
+          "channel": {
+            "window": 12,
+            "window_max": 12,
+            "window_min": 5,
+            "fast_rate_rounds": 2
+          }
+        },
+        {
+          "step": 3,
+          "event": "success",
+          "resource": {
+            "window": 7,
+            "window_max": 10,
+            "window_min": 4,
+            "fast_rate_rounds": 0,
+            "very_slow_rate_rounds": 0
+          },
+          "channel": {
+            "window": 12,
+            "window_max": 12,
+            "window_min": 5,
+            "fast_rate_rounds": 3
+          }
+        },
+        {
+          "step": 4,
+          "event": "success",
+          "resource": {
+            "window": 8,
+            "window_max": 10,
+            "window_min": 5,
+            "fast_rate_rounds": 0,
+            "very_slow_rate_rounds": 0
+          },
+          "channel": {
+            "window": 12,
+            "window_max": 12,
+            "window_min": 5,
+            "fast_rate_rounds": 4
+          }
+        },
+        {
+          "step": 5,
+          "event": "success",
+          "resource": {
+            "window": 9,
+            "window_max": 10,
+            "window_min": 6,
+            "fast_rate_rounds": 0,
+            "very_slow_rate_rounds": 0
+          },
+          "channel": {
+            "window": 12,
+            "window_max": 12,
+            "window_min": 5,
+            "fast_rate_rounds": 5
+          }
+        },
+        {
+          "step": 6,
+          "event": "success",
+          "resource": {
+            "window": 10,
+            "window_max": 10,
+            "window_min": 7,
+            "fast_rate_rounds": 0,
+            "very_slow_rate_rounds": 0
+          },
+          "channel": {
+            "window": 12,
+            "window_max": 12,
+            "window_min": 5,
+            "fast_rate_rounds": 6
+          }
+        },
+        {
+          "step": 7,
+          "event": "success",
+          "resource": {
+            "window": 10,
+            "window_max": 10,
+            "window_min": 7,
+            "fast_rate_rounds": 0,
+            "very_slow_rate_rounds": 0
+          },
+          "channel": {
+            "window": 12,
+            "window_max": 12,
+            "window_min": 5,
+            "fast_rate_rounds": 7
+          }
+        },
+        {
+          "step": 8,
+          "event": "success",
+          "resource": {
+            "window": 10,
+            "window_max": 10,
+            "window_min": 7,
+            "fast_rate_rounds": 0,
+            "very_slow_rate_rounds": 0
+          },
+          "channel": {
+            "window": 12,
+            "window_max": 12,
+            "window_min": 5,
+            "fast_rate_rounds": 8
+          }
+        },
+        {
+          "step": 9,
+          "event": "success",
+          "resource": {
+            "window": 10,
+            "window_max": 10,
+            "window_min": 7,
+            "fast_rate_rounds": 0,
+            "very_slow_rate_rounds": 0
+          },
+          "channel": {
+            "window": 12,
+            "window_max": 12,
+            "window_min": 5,
+            "fast_rate_rounds": 9
+          }
+        },
+        {
+          "step": 10,
+          "event": "success",
+          "resource": {
+            "window": 10,
+            "window_max": 10,
+            "window_min": 7,
+            "fast_rate_rounds": 0,
+            "very_slow_rate_rounds": 0
+          },
+          "channel": {
+            "window": 12,
+            "window_max": 12,
+            "window_min": 5,
+            "fast_rate_rounds": 10
+          }
+        },
+        {
+          "step": 11,
+          "event": "success",
+          "resource": {
+            "window": 10,
+            "window_max": 10,
+            "window_min": 7,
+            "fast_rate_rounds": 0,
+            "very_slow_rate_rounds": 0
+          },
+          "channel": {
+            "window": 12,
+            "window_max": 12,
+            "window_min": 5,
+            "fast_rate_rounds": 10
+          }
+        },
+        {
+          "step": 12,
+          "event": "success",
+          "resource": {
+            "window": 10,
+            "window_max": 10,
+            "window_min": 7,
+            "fast_rate_rounds": 0,
+            "very_slow_rate_rounds": 0
+          },
+          "channel": {
+            "window": 12,
+            "window_max": 12,
+            "window_min": 5,
+            "fast_rate_rounds": 10
+          }
+        },
+        {
+          "step": 13,
+          "event": "success",
+          "resource": {
+            "window": 10,
+            "window_max": 10,
+            "window_min": 7,
+            "fast_rate_rounds": 0,
+            "very_slow_rate_rounds": 0
+          },
+          "channel": {
+            "window": 12,
+            "window_max": 12,
+            "window_min": 5,
+            "fast_rate_rounds": 10
+          }
+        },
+        {
+          "step": 14,
+          "event": "success",
+          "resource": {
+            "window": 10,
+            "window_max": 10,
+            "window_min": 7,
+            "fast_rate_rounds": 0,
+            "very_slow_rate_rounds": 0
+          },
+          "channel": {
+            "window": 12,
+            "window_max": 12,
+            "window_min": 5,
+            "fast_rate_rounds": 10
+          }
+        },
+        {
+          "step": 15,
+          "event": "success",
+          "resource": {
+            "window": 10,
+            "window_max": 10,
+            "window_min": 7,
+            "fast_rate_rounds": 0,
+            "very_slow_rate_rounds": 0
+          },
+          "channel": {
+            "window": 12,
+            "window_max": 12,
+            "window_min": 5,
+            "fast_rate_rounds": 10
+          }
+        },
+        {
+          "step": 16,
+          "event": "success",
+          "resource": {
+            "window": 10,
+            "window_max": 10,
+            "window_min": 7,
+            "fast_rate_rounds": 0,
+            "very_slow_rate_rounds": 0
+          },
+          "channel": {
+            "window": 12,
+            "window_max": 12,
+            "window_min": 5,
+            "fast_rate_rounds": 10
+          }
+        },
+        {
+          "step": 17,
+          "event": "success",
+          "resource": {
+            "window": 10,
+            "window_max": 10,
+            "window_min": 7,
+            "fast_rate_rounds": 0,
+            "very_slow_rate_rounds": 0
+          },
+          "channel": {
+            "window": 12,
+            "window_max": 12,
+            "window_min": 5,
+            "fast_rate_rounds": 10
+          }
+        },
+        {
+          "step": 18,
+          "event": "success",
+          "resource": {
+            "window": 10,
+            "window_max": 10,
+            "window_min": 7,
+            "fast_rate_rounds": 0,
+            "very_slow_rate_rounds": 0
+          },
+          "channel": {
+            "window": 12,
+            "window_max": 12,
+            "window_min": 5,
+            "fast_rate_rounds": 10
+          }
+        },
+        {
+          "step": 19,
+          "event": "success",
+          "resource": {
+            "window": 10,
+            "window_max": 10,
+            "window_min": 7,
+            "fast_rate_rounds": 0,
+            "very_slow_rate_rounds": 0
+          },
+          "channel": {
+            "window": 12,
+            "window_max": 12,
+            "window_min": 5,
+            "fast_rate_rounds": 10
+          }
+        },
+        {
+          "step": 20,
+          "event": "success",
+          "resource": {
+            "window": 10,
+            "window_max": 10,
+            "window_min": 7,
+            "fast_rate_rounds": 0,
+            "very_slow_rate_rounds": 0
+          },
+          "channel": {
+            "window": 12,
+            "window_max": 12,
+            "window_min": 5,
+            "fast_rate_rounds": 10
+          }
+        }
+      ]
+    },
+    {
+      "description": "5 successes then 3 timeouts: resource vs channel window behavior",
+      "resource_rate": 5000,
+      "channel_rtt": 0.5,
+      "steps": [
+        {
+          "step": 0,
+          "event": "initial",
+          "resource": {
+            "window": 4,
+            "window_max": 10,
+            "window_min": 2,
+            "fast_rate_rounds": 0,
+            "very_slow_rate_rounds": 0
+          },
+          "channel": {
+            "window": 12,
+            "window_max": 12,
+            "window_min": 5,
+            "fast_rate_rounds": 0
+          }
+        },
+        {
+          "step": 1,
+          "event": "success",
+          "resource": {
+            "window": 5,
+            "window_max": 10,
+            "window_min": 2,
+            "fast_rate_rounds": 0,
+            "very_slow_rate_rounds": 0
+          },
+          "channel": {
+            "window": 12,
+            "window_max": 12,
+            "window_min": 5,
+            "fast_rate_rounds": 1
+          }
+        },
+        {
+          "step": 2,
+          "event": "success",
+          "resource": {
+            "window": 6,
+            "window_max": 10,
+            "window_min": 3,
+            "fast_rate_rounds": 0,
+            "very_slow_rate_rounds": 0
+          },
+          "channel": {
+            "window": 12,
+            "window_max": 12,
+            "window_min": 5,
+            "fast_rate_rounds": 2
+          }
+        },
+        {
+          "step": 3,
+          "event": "success",
+          "resource": {
+            "window": 7,
+            "window_max": 10,
+            "window_min": 4,
+            "fast_rate_rounds": 0,
+            "very_slow_rate_rounds": 0
+          },
+          "channel": {
+            "window": 12,
+            "window_max": 12,
+            "window_min": 5,
+            "fast_rate_rounds": 3
+          }
+        },
+        {
+          "step": 4,
+          "event": "success",
+          "resource": {
+            "window": 8,
+            "window_max": 10,
+            "window_min": 5,
+            "fast_rate_rounds": 0,
+            "very_slow_rate_rounds": 0
+          },
+          "channel": {
+            "window": 12,
+            "window_max": 12,
+            "window_min": 5,
+            "fast_rate_rounds": 4
+          }
+        },
+        {
+          "step": 5,
+          "event": "success",
+          "resource": {
+            "window": 9,
+            "window_max": 10,
+            "window_min": 6,
+            "fast_rate_rounds": 0,
+            "very_slow_rate_rounds": 0
+          },
+          "channel": {
+            "window": 12,
+            "window_max": 12,
+            "window_min": 5,
+            "fast_rate_rounds": 5
+          }
+        },
+        {
+          "step": 6,
+          "event": "timeout",
+          "resource": {
+            "window": 8,
+            "window_max": 9,
+            "window_min": 6,
+            "fast_rate_rounds": 0,
+            "very_slow_rate_rounds": 0
+          },
+          "channel": {
+            "window": 8,
+            "window_max": 12,
+            "window_min": 2,
+            "fast_rate_rounds": 0
+          }
+        },
+        {
+          "step": 7,
+          "event": "timeout",
+          "resource": {
+            "window": 7,
+            "window_max": 8,
+            "window_min": 6,
+            "fast_rate_rounds": 0,
+            "very_slow_rate_rounds": 0
+          },
+          "channel": {
+            "window": 4,
+            "window_max": 12,
+            "window_min": 2,
+            "fast_rate_rounds": 0
+          }
+        },
+        {
+          "step": 8,
+          "event": "timeout",
+          "resource": {
+            "window": 6,
+            "window_max": 7,
+            "window_min": 6,
+            "fast_rate_rounds": 0,
+            "very_slow_rate_rounds": 0
+          },
+          "channel": {
+            "window": 4,
+            "window_max": 12,
+            "window_min": 2,
+            "fast_rate_rounds": 0
+          }
+        }
+      ]
+    }
+  ]
+}
