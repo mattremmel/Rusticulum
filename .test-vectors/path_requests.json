@@ -1,0 +1,549 @@
+{
+  "description": "Reticulum v1.1.3 reference implementation - path request/response test vectors",
+  "source": "RNS/Transport.py, RNS/Destination.py, RNS/Packet.py",
+  "constants": {
+    "mtu_bytes": 500,
+    "header_minsize_bytes": 19,
+    "header_maxsize_bytes": 35,
+    "truncated_hash_length_bytes": 16,
+    "keysize_bytes": 64,
+    "name_hash_length_bytes": 10,
+    "signature_length_bytes": 64,
+    "ratchetsize_bytes": 32,
+    "path_request_timeout_seconds": 15,
+    "path_request_grace_seconds": 0.4,
+    "path_request_rg_seconds": 1.5,
+    "path_request_mi_seconds": 20,
+    "pathfinder_e_seconds": 604800,
+    "ap_path_time_seconds": 86400,
+    "roaming_path_time_seconds": 21600,
+    "pathfinder_r_retries": 1,
+    "mode_access_point": 3,
+    "mode_roaming": 4,
+    "mode_gateway": 6
+  },
+  "algorithm": {
+    "plain_destination_hash": "SHA256(SHA256(full_name.encode('utf-8'))[:10])[:16]  \u2014 no identity for PLAIN type",
+    "path_request_data_no_transport": "target_dest_hash(16) + request_tag(16) = 32 bytes",
+    "path_request_data_with_transport": "target_dest_hash(16) + transport_identity_hash(16) + request_tag(16) = 48 bytes",
+    "path_request_packet": "HEADER_1 | DATA | BROADCAST | PLAIN | context=NONE, dest=path_request_dest_hash",
+    "path_response_packet": "HEADER_2 | ANNOUNCE | TRANSPORT | SINGLE | context=PATH_RESPONSE(0x0B), transport_id=relay_node_hash",
+    "unique_tag": "destination_hash(16) + tag_bytes(1-16) \u2014 used for deduplication",
+    "path_table_entry": "[timestamp, next_hop, hops, expires, random_blobs[], receiving_interface, packet_hash]",
+    "expiration": {
+      "default": "timestamp + PATHFINDER_E (604800s = 1 week)",
+      "access_point": "timestamp + AP_PATH_TIME (86400s = 1 day)",
+      "roaming": "timestamp + ROAMING_PATH_TIME (21600s = 6 hours)"
+    },
+    "retransmit_delay": {
+      "from_local_client": "0 (immediate)",
+      "normal_interface": "PATH_REQUEST_GRACE (0.4s)",
+      "roaming_interface": "PATH_REQUEST_GRACE + PATH_REQUEST_RG (1.9s)",
+      "next_hop_local_client": "0 (immediate)"
+    }
+  },
+  "path_request_destination_vectors": [
+    {
+      "description": "PLAIN destination hash for 'rnstransport.path.request'",
+      "full_name": "rnstransport.path.request",
+      "app_name": "rnstransport",
+      "aspects": [
+        "path",
+        "request"
+      ],
+      "destination_type": "PLAIN",
+      "name_hash": "7926bbe7dd7f9aba88b0",
+      "destination_hash": "6b9f66014d9853faab220fba47d02761",
+      "derivation": {
+        "step_1": "name_hash = SHA256('rnstransport.path.request'.encode('utf-8'))[:10]",
+        "step_2": "destination_hash = SHA256(name_hash)[:16]",
+        "note": "PLAIN destinations have no identity, so addr_hash_material = name_hash only"
+      }
+    }
+  ],
+  "path_request_packet_vectors": [
+    {
+      "description": "Path request, transport-disabled, 32-byte payload (dest + tag)",
+      "transport_enabled": false,
+      "target_destination_hash": "fb48da0e82e6e01ba0c014513f74540d",
+      "request_tag": "7fb7f79c159b0f64581fb4a2a758f3f1",
+      "transport_id": null,
+      "path_request_data": "fb48da0e82e6e01ba0c014513f74540d7fb7f79c159b0f64581fb4a2a758f3f1",
+      "path_request_data_length": 32,
+      "flags_byte": "08",
+      "hops": 0,
+      "context": "00",
+      "path_request_dest_hash": "6b9f66014d9853faab220fba47d02761",
+      "header": "08006b9f66014d9853faab220fba47d0276100",
+      "raw_packet": "08006b9f66014d9853faab220fba47d0276100fb48da0e82e6e01ba0c014513f74540d7fb7f79c159b0f64581fb4a2a758f3f1",
+      "raw_packet_length": 51,
+      "packet_hash": "abccc3e4edf93ea068d1c997ac1f2140",
+      "payload_layout": "target_dest_hash(16) + request_tag(16) = 32 bytes"
+    },
+    {
+      "description": "Path request, transport-enabled, 48-byte payload (dest + transport_id + tag)",
+      "transport_enabled": true,
+      "target_destination_hash": "fb48da0e82e6e01ba0c014513f74540d",
+      "request_tag": "be354a8dfb243d97430d0157543742f2",
+      "transport_id": "1469e89450c361b253aefb0c606b6111",
+      "path_request_data": "fb48da0e82e6e01ba0c014513f74540d1469e89450c361b253aefb0c606b6111be354a8dfb243d97430d0157543742f2",
+      "path_request_data_length": 48,
+      "flags_byte": "08",
+      "hops": 0,
+      "context": "00",
+      "path_request_dest_hash": "6b9f66014d9853faab220fba47d02761",
+      "header": "08006b9f66014d9853faab220fba47d0276100",
+      "raw_packet": "08006b9f66014d9853faab220fba47d0276100fb48da0e82e6e01ba0c014513f74540d1469e89450c361b253aefb0c606b6111be354a8dfb243d97430d0157543742f2",
+      "raw_packet_length": 67,
+      "packet_hash": "9d76fbba276fc59f04c847d7d46385d7",
+      "payload_layout": "target_dest_hash(16) + transport_identity_hash(16) + request_tag(16) = 48 bytes"
+    },
+    {
+      "description": "Path request, transport-disabled, different tag (tag index 2)",
+      "transport_enabled": false,
+      "target_destination_hash": "fb48da0e82e6e01ba0c014513f74540d",
+      "request_tag": "410809430f5509c4c8fd05281b2a636b",
+      "transport_id": null,
+      "path_request_data": "fb48da0e82e6e01ba0c014513f74540d410809430f5509c4c8fd05281b2a636b",
+      "path_request_data_length": 32,
+      "flags_byte": "08",
+      "hops": 0,
+      "context": "00",
+      "path_request_dest_hash": "6b9f66014d9853faab220fba47d02761",
+      "header": "08006b9f66014d9853faab220fba47d0276100",
+      "raw_packet": "08006b9f66014d9853faab220fba47d0276100fb48da0e82e6e01ba0c014513f74540d410809430f5509c4c8fd05281b2a636b",
+      "raw_packet_length": 51,
+      "packet_hash": "a513ea41b770423a681171430177e535"
+    },
+    {
+      "description": "Path request, transport-enabled, keypair 2 as transport, keypair 3's dest as target",
+      "transport_enabled": true,
+      "target_destination_hash": "3cd05751c7689440291428c4ef149b39",
+      "request_tag": "b756bc31ec662b2bd70f8e7d400aadaf",
+      "transport_id": "e5fe93ee4acba095b3b9b6541515ed3e",
+      "path_request_data": "3cd05751c7689440291428c4ef149b39e5fe93ee4acba095b3b9b6541515ed3eb756bc31ec662b2bd70f8e7d400aadaf",
+      "path_request_data_length": 48,
+      "flags_byte": "08",
+      "hops": 0,
+      "context": "00",
+      "path_request_dest_hash": "6b9f66014d9853faab220fba47d02761",
+      "header": "08006b9f66014d9853faab220fba47d0276100",
+      "raw_packet": "08006b9f66014d9853faab220fba47d02761003cd05751c7689440291428c4ef149b39e5fe93ee4acba095b3b9b6541515ed3eb756bc31ec662b2bd70f8e7d400aadaf",
+      "raw_packet_length": 67,
+      "packet_hash": "dc6282abc80813993d2c60c1f7179cfb"
+    },
+    {
+      "description": "Path request, all-zeros target destination (edge case)",
+      "transport_enabled": false,
+      "target_destination_hash": "00000000000000000000000000000000",
+      "request_tag": "73c5e2796351249660403204cbc0f468",
+      "transport_id": null,
+      "path_request_data": "0000000000000000000000000000000073c5e2796351249660403204cbc0f468",
+      "path_request_data_length": 32,
+      "flags_byte": "08",
+      "hops": 0,
+      "context": "00",
+      "path_request_dest_hash": "6b9f66014d9853faab220fba47d02761",
+      "header": "08006b9f66014d9853faab220fba47d0276100",
+      "raw_packet": "08006b9f66014d9853faab220fba47d02761000000000000000000000000000000000073c5e2796351249660403204cbc0f468",
+      "raw_packet_length": 51,
+      "packet_hash": "99fd85cecbae8dc4674e92971ee0d16a"
+    }
+  ],
+  "path_request_parsing_vectors": [
+    {
+      "description": "48-byte data: transport-enabled path request with full 16-byte tag",
+      "input_data": "91ffb775be9b75a0340f19be30e5e14fecf0560dcaa735ad7b61b6644ac5d7b0f028cd8c323563c82a288e2f2925256a",
+      "input_data_length": 48,
+      "expected_destination_hash": "91ffb775be9b75a0340f19be30e5e14f",
+      "expected_requesting_transport_instance": "ecf0560dcaa735ad7b61b6644ac5d7b0",
+      "expected_tag_bytes": "f028cd8c323563c82a288e2f2925256a",
+      "expected_tag_length": 16,
+      "expected_unique_tag": "91ffb775be9b75a0340f19be30e5e14ff028cd8c323563c82a288e2f2925256a",
+      "expected_result": "processed"
+    },
+    {
+      "description": "32-byte data: transport-disabled path request with 16-byte tag",
+      "input_data": "91ffb775be9b75a0340f19be30e5e14ff028cd8c323563c82a288e2f2925256a",
+      "input_data_length": 32,
+      "expected_destination_hash": "91ffb775be9b75a0340f19be30e5e14f",
+      "expected_requesting_transport_instance": null,
+      "expected_tag_bytes": "f028cd8c323563c82a288e2f2925256a",
+      "expected_tag_length": 16,
+      "expected_unique_tag": "91ffb775be9b75a0340f19be30e5e14ff028cd8c323563c82a288e2f2925256a",
+      "expected_result": "processed"
+    },
+    {
+      "description": "40-byte data: transport-enabled path request with 8-byte tag",
+      "input_data": "91ffb775be9b75a0340f19be30e5e14fecf0560dcaa735ad7b61b6644ac5d7b0eb3de926a2d416ee",
+      "input_data_length": 40,
+      "expected_destination_hash": "91ffb775be9b75a0340f19be30e5e14f",
+      "expected_requesting_transport_instance": "ecf0560dcaa735ad7b61b6644ac5d7b0",
+      "expected_tag_bytes": "eb3de926a2d416ee",
+      "expected_tag_length": 8,
+      "expected_unique_tag": "91ffb775be9b75a0340f19be30e5e14feb3de926a2d416ee",
+      "expected_result": "processed"
+    },
+    {
+      "description": "20-byte data: transport-disabled path request with 4-byte tag",
+      "input_data": "91ffb775be9b75a0340f19be30e5e14f193eb9b8",
+      "input_data_length": 20,
+      "expected_destination_hash": "91ffb775be9b75a0340f19be30e5e14f",
+      "expected_requesting_transport_instance": null,
+      "expected_tag_bytes": "193eb9b8",
+      "expected_tag_length": 4,
+      "expected_unique_tag": "91ffb775be9b75a0340f19be30e5e14f193eb9b8",
+      "expected_result": "processed"
+    },
+    {
+      "description": "16-byte data: destination hash only, no tag \u2014 ignored as tagless",
+      "input_data": "91ffb775be9b75a0340f19be30e5e14f",
+      "input_data_length": 16,
+      "expected_destination_hash": "91ffb775be9b75a0340f19be30e5e14f",
+      "expected_requesting_transport_instance": null,
+      "expected_tag_bytes": null,
+      "expected_unique_tag": null,
+      "expected_result": "ignored",
+      "ignore_reason": "tagless"
+    },
+    {
+      "description": "64-byte data: oversized 32-byte tag truncated to 16 bytes",
+      "input_data": "91ffb775be9b75a0340f19be30e5e14fecf0560dcaa735ad7b61b6644ac5d7b0f8be196b6e4ece9dbd72c10adda1cee475516fc28e8ea9b5eeb214f945ddaf16",
+      "input_data_length": 64,
+      "expected_destination_hash": "91ffb775be9b75a0340f19be30e5e14f",
+      "expected_requesting_transport_instance": "ecf0560dcaa735ad7b61b6644ac5d7b0",
+      "expected_tag_bytes": "f8be196b6e4ece9dbd72c10adda1cee4",
+      "expected_tag_length": 16,
+      "expected_unique_tag": "91ffb775be9b75a0340f19be30e5e14ff8be196b6e4ece9dbd72c10adda1cee4",
+      "expected_result": "processed",
+      "note": "Tag was 32 bytes but truncated to TRUNCATED_HASHLENGTH//8 = 16"
+    },
+    {
+      "description": "15-byte data: too short for destination hash \u2014 ignored",
+      "input_data": "91ffb775be9b75a0340f19be30e5e1",
+      "input_data_length": 15,
+      "expected_destination_hash": null,
+      "expected_requesting_transport_instance": null,
+      "expected_tag_bytes": null,
+      "expected_unique_tag": null,
+      "expected_result": "ignored",
+      "ignore_reason": "too_short"
+    }
+  ],
+  "path_response_packet_vectors": [
+    {
+      "description": "Basic path response: keypair 0 announced, keypair 1 as transport relay, no ratchet",
+      "source_keypair_index": 0,
+      "transport_keypair_index": 1,
+      "app_name": "rns_unit_tests",
+      "aspects": [
+        "link",
+        "establish"
+      ],
+      "destination_hash": "fb48da0e82e6e01ba0c014513f74540d",
+      "transport_id": "1469e89450c361b253aefb0c606b6111",
+      "random_hash": "aabbccddee006553f100",
+      "flags_byte": "51",
+      "context_flag": 0,
+      "hops": 0,
+      "context": "0b",
+      "signed_data": "fb48da0e82e6e01ba0c014513f74540d4219d9ce29da42bc823b66b24a051c65b482f062a436bdeb3793bbfa629249301cd07b674027511e73469c4edec93634c2965fdeeae8e1c50db4b912c616501b528b84ff9fa689c05795aabbccddee006553f100",
+      "signature": "f69a68959ccdfdd9306d4de75e4d7b5a0ea2c07ef618ebcd49b84035cbb3283d8609dc9654831a6a4611640e91f2ba2ab174e7d9af1db3fe33d0a691ca227d0a",
+      "announce_payload": "4219d9ce29da42bc823b66b24a051c65b482f062a436bdeb3793bbfa629249301cd07b674027511e73469c4edec93634c2965fdeeae8e1c50db4b912c616501b528b84ff9fa689c05795aabbccddee006553f100f69a68959ccdfdd9306d4de75e4d7b5a0ea2c07ef618ebcd49b84035cbb3283d8609dc9654831a6a4611640e91f2ba2ab174e7d9af1db3fe33d0a691ca227d0a",
+      "announce_payload_length": 148,
+      "header": "51001469e89450c361b253aefb0c606b6111fb48da0e82e6e01ba0c014513f74540d0b",
+      "header_length": 35,
+      "raw_packet": "51001469e89450c361b253aefb0c606b6111fb48da0e82e6e01ba0c014513f74540d0b4219d9ce29da42bc823b66b24a051c65b482f062a436bdeb3793bbfa629249301cd07b674027511e73469c4edec93634c2965fdeeae8e1c50db4b912c616501b528b84ff9fa689c05795aabbccddee006553f100f69a68959ccdfdd9306d4de75e4d7b5a0ea2c07ef618ebcd49b84035cbb3283d8609dc9654831a6a4611640e91f2ba2ab174e7d9af1db3fe33d0a691ca227d0a",
+      "raw_packet_length": 183,
+      "packet_hash": "45d3653064c9cc136981ccf4944d1058",
+      "header_type": "HEADER_2",
+      "transport_type": "TRANSPORT"
+    },
+    {
+      "description": "Path response with ratchet: keypair 0, transport keypair 1, context_flag=FLAG_SET",
+      "source_keypair_index": 0,
+      "transport_keypair_index": 1,
+      "destination_hash": "fb48da0e82e6e01ba0c014513f74540d",
+      "transport_id": "1469e89450c361b253aefb0c606b6111",
+      "ratchet_public_key": "d65fdd499a0f2028d4be5d361296f28ea560e8e68049d14b1d045a93722aec36",
+      "flags_byte": "71",
+      "context_flag": 1,
+      "hops": 0,
+      "context": "0b",
+      "signed_data": "fb48da0e82e6e01ba0c014513f74540d4219d9ce29da42bc823b66b24a051c65b482f062a436bdeb3793bbfa629249301cd07b674027511e73469c4edec93634c2965fdeeae8e1c50db4b912c616501b528b84ff9fa689c05795aabbccddee006553f100d65fdd499a0f2028d4be5d361296f28ea560e8e68049d14b1d045a93722aec36",
+      "signature": "a5a39cd6290b009f075c9359f56ea7a479e97a16ae9e67930f89cbdd433a446712bcbf3014d098158a7c327049c7871c1052506af4c0b915d9decfbe28898f00",
+      "announce_payload": "4219d9ce29da42bc823b66b24a051c65b482f062a436bdeb3793bbfa629249301cd07b674027511e73469c4edec93634c2965fdeeae8e1c50db4b912c616501b528b84ff9fa689c05795aabbccddee006553f100d65fdd499a0f2028d4be5d361296f28ea560e8e68049d14b1d045a93722aec36a5a39cd6290b009f075c9359f56ea7a479e97a16ae9e67930f89cbdd433a446712bcbf3014d098158a7c327049c7871c1052506af4c0b915d9decfbe28898f00",
+      "announce_payload_length": 180,
+      "header": "71001469e89450c361b253aefb0c606b6111fb48da0e82e6e01ba0c014513f74540d0b",
+      "raw_packet": "71001469e89450c361b253aefb0c606b6111fb48da0e82e6e01ba0c014513f74540d0b4219d9ce29da42bc823b66b24a051c65b482f062a436bdeb3793bbfa629249301cd07b674027511e73469c4edec93634c2965fdeeae8e1c50db4b912c616501b528b84ff9fa689c05795aabbccddee006553f100d65fdd499a0f2028d4be5d361296f28ea560e8e68049d14b1d045a93722aec36a5a39cd6290b009f075c9359f56ea7a479e97a16ae9e67930f89cbdd433a446712bcbf3014d098158a7c327049c7871c1052506af4c0b915d9decfbe28898f00",
+      "raw_packet_length": 215,
+      "packet_hash": "ac6efdeaa76614f776c1e70ea2f83def"
+    },
+    {
+      "description": "Path response with 5 hops: keypair 2 announced, keypair 3 as transport",
+      "source_keypair_index": 2,
+      "transport_keypair_index": 3,
+      "destination_hash": "84a963f1b12557d2282434e5a13f56ba",
+      "transport_id": "1333b911fa8ebb16726996adbe3c6262",
+      "random_hash": "deadbeef01006553f100",
+      "flags_byte": "51",
+      "context_flag": 0,
+      "hops": 5,
+      "context": "0b",
+      "signed_data": "84a963f1b12557d2282434e5a13f56bad095214af0bc8267aa9e658375e1bb775029f2f798254a07fd6ce620bb7a135b10e7d32e2d67aeb316515de2ee77e7097777b80edfe3b9173db0f5de320b88a2528b84ff9fa689c05795deadbeef01006553f100",
+      "signature": "006d00f0526776ad7ea44e2fb50e5f95852522d0bf33f996854074ac0bf642aa21e51e4a815709884836c26c6404e3a0cc2c2f946629eb93552a26de8a75ba04",
+      "announce_payload": "d095214af0bc8267aa9e658375e1bb775029f2f798254a07fd6ce620bb7a135b10e7d32e2d67aeb316515de2ee77e7097777b80edfe3b9173db0f5de320b88a2528b84ff9fa689c05795deadbeef01006553f100006d00f0526776ad7ea44e2fb50e5f95852522d0bf33f996854074ac0bf642aa21e51e4a815709884836c26c6404e3a0cc2c2f946629eb93552a26de8a75ba04",
+      "announce_payload_length": 148,
+      "header": "51051333b911fa8ebb16726996adbe3c626284a963f1b12557d2282434e5a13f56ba0b",
+      "raw_packet": "51051333b911fa8ebb16726996adbe3c626284a963f1b12557d2282434e5a13f56ba0bd095214af0bc8267aa9e658375e1bb775029f2f798254a07fd6ce620bb7a135b10e7d32e2d67aeb316515de2ee77e7097777b80edfe3b9173db0f5de320b88a2528b84ff9fa689c05795deadbeef01006553f100006d00f0526776ad7ea44e2fb50e5f95852522d0bf33f996854074ac0bf642aa21e51e4a815709884836c26c6404e3a0cc2c2f946629eb93552a26de8a75ba04",
+      "raw_packet_length": 183,
+      "packet_hash": "e383d628768bafd5e69038dddcf4ad77"
+    },
+    {
+      "description": "Path response with app_data 'Test Node v1.0', 2 hops",
+      "source_keypair_index": 0,
+      "transport_keypair_index": 1,
+      "destination_hash": "fb48da0e82e6e01ba0c014513f74540d",
+      "transport_id": "1469e89450c361b253aefb0c606b6111",
+      "random_hash": "aabbccddee006553f100",
+      "app_data": "54657374204e6f64652076312e30",
+      "app_data_utf8": "Test Node v1.0",
+      "flags_byte": "51",
+      "context_flag": 0,
+      "hops": 2,
+      "context": "0b",
+      "signed_data": "fb48da0e82e6e01ba0c014513f74540d4219d9ce29da42bc823b66b24a051c65b482f062a436bdeb3793bbfa629249301cd07b674027511e73469c4edec93634c2965fdeeae8e1c50db4b912c616501b528b84ff9fa689c05795aabbccddee006553f10054657374204e6f64652076312e30",
+      "signature": "6862e52a43cdf848bb4dc72b7c20204df0bd9ee4331adf0d1fbb29072a1c14430d73ec7d0f1c8dedfa4d11b6d762a66748e3ed27c1119411c4e17a8181b95e03",
+      "announce_payload": "4219d9ce29da42bc823b66b24a051c65b482f062a436bdeb3793bbfa629249301cd07b674027511e73469c4edec93634c2965fdeeae8e1c50db4b912c616501b528b84ff9fa689c05795aabbccddee006553f1006862e52a43cdf848bb4dc72b7c20204df0bd9ee4331adf0d1fbb29072a1c14430d73ec7d0f1c8dedfa4d11b6d762a66748e3ed27c1119411c4e17a8181b95e0354657374204e6f64652076312e30",
+      "announce_payload_length": 162,
+      "header": "51021469e89450c361b253aefb0c606b6111fb48da0e82e6e01ba0c014513f74540d0b",
+      "raw_packet": "51021469e89450c361b253aefb0c606b6111fb48da0e82e6e01ba0c014513f74540d0b4219d9ce29da42bc823b66b24a051c65b482f062a436bdeb3793bbfa629249301cd07b674027511e73469c4edec93634c2965fdeeae8e1c50db4b912c616501b528b84ff9fa689c05795aabbccddee006553f1006862e52a43cdf848bb4dc72b7c20204df0bd9ee4331adf0d1fbb29072a1c14430d73ec7d0f1c8dedfa4d11b6d762a66748e3ed27c1119411c4e17a8181b95e0354657374204e6f64652076312e30",
+      "raw_packet_length": 197,
+      "packet_hash": "c22cec9c9c8836f6ca485c69a53fa856"
+    }
+  ],
+  "path_table_entry_vectors": [
+    {
+      "description": "Default mode path table entry: expires in one week (604800s)",
+      "destination_hash": "fb48da0e82e6e01ba0c014513f74540d",
+      "interface_mode": "default",
+      "interface_mode_value": null,
+      "timestamp": 1700000000,
+      "next_hop": "fb48da0e82e6e01ba0c014513f74540d",
+      "hops": 0,
+      "expires": 1700604800,
+      "expires_in_seconds": 604800,
+      "random_blobs": [
+        "aabbccddee006553f100"
+      ],
+      "packet_hash": "584a89166c5bc6b33752ec759af99084",
+      "entry_indices": {
+        "IDX_PT_TIMESTAMP": 0,
+        "IDX_PT_NEXT_HOP": 1,
+        "IDX_PT_HOPS": 2,
+        "IDX_PT_EXPIRES": 3,
+        "IDX_PT_RANDBLOBS": 4,
+        "IDX_PT_RVCD_IF": 5,
+        "IDX_PT_PACKET": 6
+      }
+    },
+    {
+      "description": "Access Point mode path table entry: expires in one day (86400s)",
+      "destination_hash": "fb48da0e82e6e01ba0c014513f74540d",
+      "interface_mode": "MODE_ACCESS_POINT",
+      "interface_mode_value": 3,
+      "timestamp": 1700000000,
+      "next_hop": "fb48da0e82e6e01ba0c014513f74540d",
+      "hops": 0,
+      "expires": 1700086400,
+      "expires_in_seconds": 86400,
+      "random_blobs": [
+        "aabbccddee006553f100"
+      ],
+      "packet_hash": "584a89166c5bc6b33752ec759af99084"
+    },
+    {
+      "description": "Roaming mode path table entry: expires in six hours (21600s)",
+      "destination_hash": "fb48da0e82e6e01ba0c014513f74540d",
+      "interface_mode": "MODE_ROAMING",
+      "interface_mode_value": 4,
+      "timestamp": 1700000000,
+      "next_hop": "fb48da0e82e6e01ba0c014513f74540d",
+      "hops": 0,
+      "expires": 1700021600,
+      "expires_in_seconds": 21600,
+      "random_blobs": [
+        "aabbccddee006553f100"
+      ],
+      "packet_hash": "584a89166c5bc6b33752ec759af99084"
+    },
+    {
+      "description": "Path table entry with 4 random_blobs from successive announces",
+      "destination_hash": "fb48da0e82e6e01ba0c014513f74540d",
+      "interface_mode": "default",
+      "interface_mode_value": null,
+      "timestamp": 1700000000,
+      "next_hop": "fb48da0e82e6e01ba0c014513f74540d",
+      "hops": 0,
+      "expires": 1700604800,
+      "expires_in_seconds": 604800,
+      "random_blobs": [
+        "aabbccddee006553f100",
+        "1122334455006553f164",
+        "deadbeef01006553f1c8",
+        "cafebabe02006553f22c"
+      ],
+      "random_blobs_count": 4,
+      "max_random_blobs_memory": 64,
+      "max_random_blobs_persist": 32,
+      "packet_hash": "584a89166c5bc6b33752ec759af99084",
+      "note": "random_blobs are kept up to MAX_RANDOM_BLOBS (64) in memory, PERSIST_RANDOM_BLOBS (32) on disk"
+    },
+    {
+      "description": "Path table entry with 3 hops, next_hop is transport relay",
+      "destination_hash": "fb48da0e82e6e01ba0c014513f74540d",
+      "interface_mode": "default",
+      "interface_mode_value": null,
+      "timestamp": 1700000000,
+      "next_hop": "1469e89450c361b253aefb0c606b6111",
+      "hops": 3,
+      "expires": 1700604800,
+      "expires_in_seconds": 604800,
+      "random_blobs": [
+        "aabbccddee006553f100"
+      ],
+      "packet_hash": "584a89166c5bc6b33752ec759af99084",
+      "note": "When received via HEADER_2 (transport), next_hop = transport_id from packet"
+    }
+  ],
+  "duplicate_detection_vectors": [
+    {
+      "description": "First path request with dest_a + tag_1: new unique_tag, processed",
+      "destination_hash": "814274561f5dc529c131caba27edfb5f",
+      "tag_bytes": "aac41a041e0d7e81d5f89290ad7a6efb",
+      "unique_tag": "814274561f5dc529c131caba27edfb5faac41a041e0d7e81d5f89290ad7a6efb",
+      "unique_tag_length": 32,
+      "expected_result": "processed",
+      "tags_state_before": [],
+      "tags_state_after": [
+        "814274561f5dc529c131caba27edfb5faac41a041e0d7e81d5f89290ad7a6efb"
+      ]
+    },
+    {
+      "description": "Duplicate path request with dest_a + tag_1: unique_tag already seen, ignored",
+      "destination_hash": "814274561f5dc529c131caba27edfb5f",
+      "tag_bytes": "aac41a041e0d7e81d5f89290ad7a6efb",
+      "unique_tag": "814274561f5dc529c131caba27edfb5faac41a041e0d7e81d5f89290ad7a6efb",
+      "unique_tag_length": 32,
+      "expected_result": "duplicate",
+      "tags_state_before": [
+        "814274561f5dc529c131caba27edfb5faac41a041e0d7e81d5f89290ad7a6efb"
+      ],
+      "tags_state_after": [
+        "814274561f5dc529c131caba27edfb5faac41a041e0d7e81d5f89290ad7a6efb"
+      ]
+    },
+    {
+      "description": "Same tag_1 but different dest_b: new unique_tag, processed",
+      "destination_hash": "faa96c8f19b1a9a4504851713171e500",
+      "tag_bytes": "aac41a041e0d7e81d5f89290ad7a6efb",
+      "unique_tag": "faa96c8f19b1a9a4504851713171e500aac41a041e0d7e81d5f89290ad7a6efb",
+      "unique_tag_length": 32,
+      "expected_result": "processed",
+      "tags_state_before": [
+        "814274561f5dc529c131caba27edfb5faac41a041e0d7e81d5f89290ad7a6efb"
+      ],
+      "tags_state_after": [
+        "814274561f5dc529c131caba27edfb5faac41a041e0d7e81d5f89290ad7a6efb",
+        "faa96c8f19b1a9a4504851713171e500aac41a041e0d7e81d5f89290ad7a6efb"
+      ]
+    },
+    {
+      "description": "Different tag_2 with same dest_a: new unique_tag, processed",
+      "destination_hash": "814274561f5dc529c131caba27edfb5f",
+      "tag_bytes": "df7f2f70e07ba8f0f7b9cb3ae959c460",
+      "unique_tag": "814274561f5dc529c131caba27edfb5fdf7f2f70e07ba8f0f7b9cb3ae959c460",
+      "unique_tag_length": 32,
+      "expected_result": "processed",
+      "tags_state_before": [
+        "814274561f5dc529c131caba27edfb5faac41a041e0d7e81d5f89290ad7a6efb",
+        "faa96c8f19b1a9a4504851713171e500aac41a041e0d7e81d5f89290ad7a6efb"
+      ],
+      "tags_state_after": [
+        "814274561f5dc529c131caba27edfb5faac41a041e0d7e81d5f89290ad7a6efb",
+        "faa96c8f19b1a9a4504851713171e500aac41a041e0d7e81d5f89290ad7a6efb",
+        "814274561f5dc529c131caba27edfb5fdf7f2f70e07ba8f0f7b9cb3ae959c460"
+      ]
+    },
+    {
+      "description": "Short 4-byte tag with dest_a: 20-byte unique_tag, processed",
+      "destination_hash": "814274561f5dc529c131caba27edfb5f",
+      "tag_bytes": "6b480cb9",
+      "unique_tag": "814274561f5dc529c131caba27edfb5f6b480cb9",
+      "unique_tag_length": 20,
+      "expected_result": "processed",
+      "tags_state_before": [
+        "814274561f5dc529c131caba27edfb5faac41a041e0d7e81d5f89290ad7a6efb",
+        "faa96c8f19b1a9a4504851713171e500aac41a041e0d7e81d5f89290ad7a6efb",
+        "814274561f5dc529c131caba27edfb5fdf7f2f70e07ba8f0f7b9cb3ae959c460"
+      ],
+      "tags_state_after": [
+        "814274561f5dc529c131caba27edfb5faac41a041e0d7e81d5f89290ad7a6efb",
+        "faa96c8f19b1a9a4504851713171e500aac41a041e0d7e81d5f89290ad7a6efb",
+        "814274561f5dc529c131caba27edfb5fdf7f2f70e07ba8f0f7b9cb3ae959c460",
+        "814274561f5dc529c131caba27edfb5f6b480cb9"
+      ]
+    }
+  ],
+  "grace_period_vectors": [
+    {
+      "description": "Path request from local client: immediate retransmit (delay = 0)",
+      "is_from_local_client": true,
+      "interface_mode": null,
+      "next_hop_is_local_client": false,
+      "retransmit_delay_seconds": 0.0,
+      "retransmit_timeout": 1700000000.0,
+      "base_timestamp": 1700000000.0,
+      "retries": 1,
+      "block_rebroadcasts": true,
+      "algorithm": "retransmit_timeout = now (immediate)"
+    },
+    {
+      "description": "Path request on normal interface: delay = PATH_REQUEST_GRACE (0.4s)",
+      "is_from_local_client": false,
+      "interface_mode": "default",
+      "next_hop_is_local_client": false,
+      "retransmit_delay_seconds": 0.4,
+      "retransmit_timeout": 1700000000.4,
+      "base_timestamp": 1700000000.0,
+      "retries": 1,
+      "block_rebroadcasts": true,
+      "algorithm": "retransmit_timeout = now + PATH_REQUEST_GRACE"
+    },
+    {
+      "description": "Path request on roaming interface: delay = GRACE + RG (0.4 + 1.5 = 1.9s)",
+      "is_from_local_client": false,
+      "interface_mode": "MODE_ROAMING",
+      "interface_mode_value": 4,
+      "next_hop_is_local_client": false,
+      "retransmit_delay_seconds": 1.9,
+      "retransmit_timeout": 1700000001.9,
+      "base_timestamp": 1700000000.0,
+      "retries": 1,
+      "block_rebroadcasts": true,
+      "algorithm": "retransmit_timeout = now + PATH_REQUEST_GRACE + PATH_REQUEST_RG"
+    },
+    {
+      "description": "Path request where next hop is on local client interface: immediate retransmit",
+      "is_from_local_client": false,
+      "interface_mode": "default",
+      "next_hop_is_local_client": true,
+      "retransmit_delay_seconds": 0.0,
+      "retransmit_timeout": 1700000000.0,
+      "base_timestamp": 1700000000.0,
+      "retries": 1,
+      "block_rebroadcasts": true,
+      "algorithm": "retransmit_timeout = now (next hop is local client)"
+    }
+  ]
+}

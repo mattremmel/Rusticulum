@@ -1,0 +1,1122 @@
+{
+  "description": "Reticulum v1.1.3 - path expiration and TTL enforcement test vectors",
+  "source": "RNS/Transport.py",
+  "constants": {
+    "pathfinder_e_seconds": 604800,
+    "ap_path_time_seconds": 86400,
+    "roaming_path_time_seconds": 21600,
+    "destination_timeout_seconds": 604800,
+    "path_request_timeout_seconds": 15,
+    "path_request_mi_seconds": 20,
+    "state_unknown": 0,
+    "state_unresponsive": 1,
+    "state_responsive": 2,
+    "mode_access_point": 3,
+    "mode_roaming": 4,
+    "mode_gateway": 6,
+    "mode_boundary": 5,
+    "max_random_blobs": 64,
+    "persist_random_blobs": 32
+  },
+  "algorithm": {
+    "culling_expiry_check": "time.time() > entry[IDX_PT_TIMESTAMP] + mode_ttl  (strict greater-than)",
+    "culling_ttl_by_mode": {
+      "MODE_ACCESS_POINT": "entry[TIMESTAMP] + AP_PATH_TIME (86400s)",
+      "MODE_ROAMING": "entry[TIMESTAMP] + ROAMING_PATH_TIME (21600s)",
+      "default": "entry[TIMESTAMP] + DESTINATION_TIMEOUT (604800s)"
+    },
+    "expire_path_effect": "entry[IDX_PT_TIMESTAMP] = 0, tables_last_culled = 0; forces next culling cycle to remove the path",
+    "timestamp_refresh": "entry[IDX_PT_TIMESTAMP] = time.time() on packet forward (Transport.py:990, 1010, 1504)",
+    "announce_refresh_equal_better_hops": {
+      "condition": "packet.hops <= existing_hops",
+      "accept": "random_blob NOT in random_blobs AND announce_emitted > path_timebase",
+      "reject": "blob already seen OR emission not newer than timebase"
+    },
+    "announce_higher_hops_expired_path": {
+      "condition": "packet.hops > existing_hops AND now >= path_expires",
+      "accept": "random_blob NOT in random_blobs",
+      "reject": "blob already seen"
+    },
+    "announce_higher_hops_emission_override": {
+      "condition": "packet.hops > existing_hops AND now < path_expires AND announce_emitted > path_announce_emitted",
+      "accept": "random_blob NOT in random_blobs",
+      "reject": "blob already seen"
+    },
+    "announce_higher_hops_unresponsive": {
+      "condition": "packet.hops > existing_hops AND now < path_expires AND announce_emitted == path_announce_emitted",
+      "accept": "path_is_unresponsive() returns True (STATE_UNRESPONSIVE)",
+      "reject": "path state is RESPONSIVE or UNKNOWN"
+    },
+    "path_request_throttle": "time.time() - last_path_request < PATH_REQUEST_MI (strict less-than, 20s)",
+    "discovery_timeout": "time.time() > entry['timeout'] (strict greater-than, timeout = creation + 15s)"
+  },
+  "ttl_enforcement_vectors": [
+    {
+      "description": "Default mode: before_expiry (TTL=604800s, check at T+604799)",
+      "interface_mode": "default",
+      "interface_mode_value": null,
+      "ttl_constant": "DESTINATION_TIMEOUT",
+      "ttl_seconds": 604800,
+      "path_entry": {
+        "timestamp": 1700000000,
+        "next_hop": "07142cc9b5faa92305d5c18a35855c61",
+        "hops": 2,
+        "expires": 1700604800,
+        "random_blobs": [
+          "aabbccddee006553f100"
+        ],
+        "packet_hash": "b119a341cc934e45454c4dd8909298a1"
+      },
+      "check_time": 1700604799,
+      "destination_expiry": 1700604800,
+      "expected_valid": true,
+      "comparison": "time.time() > destination_expiry  \u2192  1700604799 > 1700604800  \u2192  False",
+      "reason": "check_time (1700604799) is not > destination_expiry (1700604800)"
+    },
+    {
+      "description": "Default mode: at_expiry (TTL=604800s, check at T+604800)",
+      "interface_mode": "default",
+      "interface_mode_value": null,
+      "ttl_constant": "DESTINATION_TIMEOUT",
+      "ttl_seconds": 604800,
+      "path_entry": {
+        "timestamp": 1700000000,
+        "next_hop": "07142cc9b5faa92305d5c18a35855c61",
+        "hops": 2,
+        "expires": 1700604800,
+        "random_blobs": [
+          "aabbccddee006553f100"
+        ],
+        "packet_hash": "b119a341cc934e45454c4dd8909298a1"
+      },
+      "check_time": 1700604800,
+      "destination_expiry": 1700604800,
+      "expected_valid": true,
+      "comparison": "time.time() > destination_expiry  \u2192  1700604800 > 1700604800  \u2192  False",
+      "reason": "check_time (1700604800) is not > destination_expiry (1700604800); uses strict greater-than"
+    },
+    {
+      "description": "Default mode: after_expiry (TTL=604800s, check at T+604801)",
+      "interface_mode": "default",
+      "interface_mode_value": null,
+      "ttl_constant": "DESTINATION_TIMEOUT",
+      "ttl_seconds": 604800,
+      "path_entry": {
+        "timestamp": 1700000000,
+        "next_hop": "07142cc9b5faa92305d5c18a35855c61",
+        "hops": 2,
+        "expires": 1700604800,
+        "random_blobs": [
+          "aabbccddee006553f100"
+        ],
+        "packet_hash": "b119a341cc934e45454c4dd8909298a1"
+      },
+      "check_time": 1700604801,
+      "destination_expiry": 1700604800,
+      "expected_valid": false,
+      "comparison": "time.time() > destination_expiry  \u2192  1700604801 > 1700604800  \u2192  True",
+      "reason": "check_time (1700604801) > destination_expiry (1700604800); path is expired"
+    },
+    {
+      "description": "Access Point mode: before_expiry (TTL=86400s, check at T+86399)",
+      "interface_mode": "MODE_ACCESS_POINT",
+      "interface_mode_value": 3,
+      "ttl_constant": "AP_PATH_TIME",
+      "ttl_seconds": 86400,
+      "path_entry": {
+        "timestamp": 1700000000,
+        "next_hop": "07142cc9b5faa92305d5c18a35855c61",
+        "hops": 2,
+        "expires": 1700086400,
+        "random_blobs": [
+          "aabbccddee006553f100"
+        ],
+        "packet_hash": "b119a341cc934e45454c4dd8909298a1"
+      },
+      "check_time": 1700086399,
+      "destination_expiry": 1700086400,
+      "expected_valid": true,
+      "comparison": "time.time() > destination_expiry  \u2192  1700086399 > 1700086400  \u2192  False",
+      "reason": "check_time (1700086399) is not > destination_expiry (1700086400)"
+    },
+    {
+      "description": "Access Point mode: at_expiry (TTL=86400s, check at T+86400)",
+      "interface_mode": "MODE_ACCESS_POINT",
+      "interface_mode_value": 3,
+      "ttl_constant": "AP_PATH_TIME",
+      "ttl_seconds": 86400,
+      "path_entry": {
+        "timestamp": 1700000000,
+        "next_hop": "07142cc9b5faa92305d5c18a35855c61",
+        "hops": 2,
+        "expires": 1700086400,
+        "random_blobs": [
+          "aabbccddee006553f100"
+        ],
+        "packet_hash": "b119a341cc934e45454c4dd8909298a1"
+      },
+      "check_time": 1700086400,
+      "destination_expiry": 1700086400,
+      "expected_valid": true,
+      "comparison": "time.time() > destination_expiry  \u2192  1700086400 > 1700086400  \u2192  False",
+      "reason": "check_time (1700086400) is not > destination_expiry (1700086400); uses strict greater-than"
+    },
+    {
+      "description": "Access Point mode: after_expiry (TTL=86400s, check at T+86401)",
+      "interface_mode": "MODE_ACCESS_POINT",
+      "interface_mode_value": 3,
+      "ttl_constant": "AP_PATH_TIME",
+      "ttl_seconds": 86400,
+      "path_entry": {
+        "timestamp": 1700000000,
+        "next_hop": "07142cc9b5faa92305d5c18a35855c61",
+        "hops": 2,
+        "expires": 1700086400,
+        "random_blobs": [
+          "aabbccddee006553f100"
+        ],
+        "packet_hash": "b119a341cc934e45454c4dd8909298a1"
+      },
+      "check_time": 1700086401,
+      "destination_expiry": 1700086400,
+      "expected_valid": false,
+      "comparison": "time.time() > destination_expiry  \u2192  1700086401 > 1700086400  \u2192  True",
+      "reason": "check_time (1700086401) > destination_expiry (1700086400); path is expired"
+    },
+    {
+      "description": "Roaming mode: before_expiry (TTL=21600s, check at T+21599)",
+      "interface_mode": "MODE_ROAMING",
+      "interface_mode_value": 4,
+      "ttl_constant": "ROAMING_PATH_TIME",
+      "ttl_seconds": 21600,
+      "path_entry": {
+        "timestamp": 1700000000,
+        "next_hop": "07142cc9b5faa92305d5c18a35855c61",
+        "hops": 2,
+        "expires": 1700021600,
+        "random_blobs": [
+          "aabbccddee006553f100"
+        ],
+        "packet_hash": "b119a341cc934e45454c4dd8909298a1"
+      },
+      "check_time": 1700021599,
+      "destination_expiry": 1700021600,
+      "expected_valid": true,
+      "comparison": "time.time() > destination_expiry  \u2192  1700021599 > 1700021600  \u2192  False",
+      "reason": "check_time (1700021599) is not > destination_expiry (1700021600)"
+    },
+    {
+      "description": "Roaming mode: at_expiry (TTL=21600s, check at T+21600)",
+      "interface_mode": "MODE_ROAMING",
+      "interface_mode_value": 4,
+      "ttl_constant": "ROAMING_PATH_TIME",
+      "ttl_seconds": 21600,
+      "path_entry": {
+        "timestamp": 1700000000,
+        "next_hop": "07142cc9b5faa92305d5c18a35855c61",
+        "hops": 2,
+        "expires": 1700021600,
+        "random_blobs": [
+          "aabbccddee006553f100"
+        ],
+        "packet_hash": "b119a341cc934e45454c4dd8909298a1"
+      },
+      "check_time": 1700021600,
+      "destination_expiry": 1700021600,
+      "expected_valid": true,
+      "comparison": "time.time() > destination_expiry  \u2192  1700021600 > 1700021600  \u2192  False",
+      "reason": "check_time (1700021600) is not > destination_expiry (1700021600); uses strict greater-than"
+    },
+    {
+      "description": "Roaming mode: after_expiry (TTL=21600s, check at T+21601)",
+      "interface_mode": "MODE_ROAMING",
+      "interface_mode_value": 4,
+      "ttl_constant": "ROAMING_PATH_TIME",
+      "ttl_seconds": 21600,
+      "path_entry": {
+        "timestamp": 1700000000,
+        "next_hop": "07142cc9b5faa92305d5c18a35855c61",
+        "hops": 2,
+        "expires": 1700021600,
+        "random_blobs": [
+          "aabbccddee006553f100"
+        ],
+        "packet_hash": "b119a341cc934e45454c4dd8909298a1"
+      },
+      "check_time": 1700021601,
+      "destination_expiry": 1700021600,
+      "expected_valid": false,
+      "comparison": "time.time() > destination_expiry  \u2192  1700021601 > 1700021600  \u2192  True",
+      "reason": "check_time (1700021601) > destination_expiry (1700021600); path is expired"
+    }
+  ],
+  "expire_path_vectors": [
+    {
+      "description": "expire_path() on existing path (default): timestamp\u21920, effective expiry=604800",
+      "destination_hash": "147d522918b116fb874dc3022802643d",
+      "path_exists": true,
+      "expected_return": true,
+      "interface_mode": "default",
+      "interface_mode_value": null,
+      "before": {
+        "timestamp": 1700000000,
+        "next_hop": "73e64fbb47f8e32e75293451eb7dc9ce",
+        "hops": 3,
+        "expires": 1700604800,
+        "random_blobs": [
+          "1122334455006553f100"
+        ],
+        "packet_hash": "c4d135e3dfd492843bcfef250d8ba8dd"
+      },
+      "after": {
+        "timestamp": 0,
+        "note": "Only IDX_PT_TIMESTAMP is modified; tables_last_culled also set to 0"
+      },
+      "effective_expiry_after_expire": 604800,
+      "effective_expiry_formula": "0 + DESTINATION_TIMEOUT = 604800",
+      "now_at_check": 1700000000,
+      "would_be_culled": true,
+      "culling_check": "1700000000 > 604800 \u2192 True"
+    },
+    {
+      "description": "expire_path() on existing path (MODE_ACCESS_POINT): timestamp\u21920, effective expiry=86400",
+      "destination_hash": "147d522918b116fb874dc3022802643d",
+      "path_exists": true,
+      "expected_return": true,
+      "interface_mode": "MODE_ACCESS_POINT",
+      "interface_mode_value": 3,
+      "before": {
+        "timestamp": 1700000000,
+        "next_hop": "73e64fbb47f8e32e75293451eb7dc9ce",
+        "hops": 3,
+        "expires": 1700086400,
+        "random_blobs": [
+          "1122334455006553f100"
+        ],
+        "packet_hash": "c4d135e3dfd492843bcfef250d8ba8dd"
+      },
+      "after": {
+        "timestamp": 0,
+        "note": "Only IDX_PT_TIMESTAMP is modified; tables_last_culled also set to 0"
+      },
+      "effective_expiry_after_expire": 86400,
+      "effective_expiry_formula": "0 + AP_PATH_TIME = 86400",
+      "now_at_check": 1700000000,
+      "would_be_culled": true,
+      "culling_check": "1700000000 > 86400 \u2192 True"
+    },
+    {
+      "description": "expire_path() on existing path (MODE_ROAMING): timestamp\u21920, effective expiry=21600",
+      "destination_hash": "147d522918b116fb874dc3022802643d",
+      "path_exists": true,
+      "expected_return": true,
+      "interface_mode": "MODE_ROAMING",
+      "interface_mode_value": 4,
+      "before": {
+        "timestamp": 1700000000,
+        "next_hop": "73e64fbb47f8e32e75293451eb7dc9ce",
+        "hops": 3,
+        "expires": 1700021600,
+        "random_blobs": [
+          "1122334455006553f100"
+        ],
+        "packet_hash": "c4d135e3dfd492843bcfef250d8ba8dd"
+      },
+      "after": {
+        "timestamp": 0,
+        "note": "Only IDX_PT_TIMESTAMP is modified; tables_last_culled also set to 0"
+      },
+      "effective_expiry_after_expire": 21600,
+      "effective_expiry_formula": "0 + ROAMING_PATH_TIME = 21600",
+      "now_at_check": 1700000000,
+      "would_be_culled": true,
+      "culling_check": "1700000000 > 21600 \u2192 True"
+    },
+    {
+      "description": "expire_path() on non-existent path: returns False",
+      "destination_hash": "852da3aa2a64585bfbed07b66457feea",
+      "path_exists": false,
+      "expected_return": false,
+      "note": "No modification to path_table or tables_last_culled"
+    }
+  ],
+  "timestamp_refresh_vectors": [
+    {
+      "description": "Timestamp refresh on packet forward (default): extends expiry by TTL from T2",
+      "interface_mode": "default",
+      "interface_mode_value": null,
+      "ttl_seconds": 604800,
+      "ttl_constant": "DESTINATION_TIMEOUT",
+      "path_entry_initial": {
+        "timestamp": 1700000000,
+        "next_hop": "e90aa90c36fa4356ba87afe3e7eb74e8",
+        "hops": 3,
+        "expires": 1700604800,
+        "random_blobs": [
+          "deadbeef01006553f100"
+        ],
+        "packet_hash": "995866fab4f4115852d68e05724191f4"
+      },
+      "original_expiry": 1700604800,
+      "packet_forward_time": 1700302400,
+      "path_entry_after_forward": {
+        "timestamp": 1700302400,
+        "note": "Only IDX_PT_TIMESTAMP is updated; expires field in entry is NOT changed by forwarding"
+      },
+      "new_effective_expiry": 1700907200,
+      "effective_expiry_formula": "T2 + DESTINATION_TIMEOUT = 1700302400 + 604800 = 1700907200",
+      "check_time": 1700604801,
+      "without_refresh_valid": false,
+      "with_refresh_valid": true,
+      "note": "Culling recomputes expiry from entry[TIMESTAMP] + mode_ttl, so refreshed timestamp extends the path lifetime"
+    },
+    {
+      "description": "Timestamp refresh on packet forward (MODE_ACCESS_POINT): extends expiry by TTL from T2",
+      "interface_mode": "MODE_ACCESS_POINT",
+      "interface_mode_value": 3,
+      "ttl_seconds": 86400,
+      "ttl_constant": "AP_PATH_TIME",
+      "path_entry_initial": {
+        "timestamp": 1700000000,
+        "next_hop": "e90aa90c36fa4356ba87afe3e7eb74e8",
+        "hops": 3,
+        "expires": 1700086400,
+        "random_blobs": [
+          "deadbeef01006553f100"
+        ],
+        "packet_hash": "995866fab4f4115852d68e05724191f4"
+      },
+      "original_expiry": 1700086400,
+      "packet_forward_time": 1700043200,
+      "path_entry_after_forward": {
+        "timestamp": 1700043200,
+        "note": "Only IDX_PT_TIMESTAMP is updated; expires field in entry is NOT changed by forwarding"
+      },
+      "new_effective_expiry": 1700129600,
+      "effective_expiry_formula": "T2 + AP_PATH_TIME = 1700043200 + 86400 = 1700129600",
+      "check_time": 1700086401,
+      "without_refresh_valid": false,
+      "with_refresh_valid": true,
+      "note": "Culling recomputes expiry from entry[TIMESTAMP] + mode_ttl, so refreshed timestamp extends the path lifetime"
+    },
+    {
+      "description": "Timestamp refresh on packet forward (MODE_ROAMING): extends expiry by TTL from T2",
+      "interface_mode": "MODE_ROAMING",
+      "interface_mode_value": 4,
+      "ttl_seconds": 21600,
+      "ttl_constant": "ROAMING_PATH_TIME",
+      "path_entry_initial": {
+        "timestamp": 1700000000,
+        "next_hop": "e90aa90c36fa4356ba87afe3e7eb74e8",
+        "hops": 3,
+        "expires": 1700021600,
+        "random_blobs": [
+          "deadbeef01006553f100"
+        ],
+        "packet_hash": "995866fab4f4115852d68e05724191f4"
+      },
+      "original_expiry": 1700021600,
+      "packet_forward_time": 1700010800,
+      "path_entry_after_forward": {
+        "timestamp": 1700010800,
+        "note": "Only IDX_PT_TIMESTAMP is updated; expires field in entry is NOT changed by forwarding"
+      },
+      "new_effective_expiry": 1700032400,
+      "effective_expiry_formula": "T2 + ROAMING_PATH_TIME = 1700010800 + 21600 = 1700032400",
+      "check_time": 1700021601,
+      "without_refresh_valid": false,
+      "with_refresh_valid": true,
+      "note": "Culling recomputes expiry from entry[TIMESTAMP] + mode_ttl, so refreshed timestamp extends the path lifetime"
+    }
+  ],
+  "announce_refresh_vectors": [
+    {
+      "description": "Better hop count (2 < 3), new blob, newer emission \u2192 should_add",
+      "existing_entry": {
+        "timestamp": 1700000000,
+        "next_hop": "35eeef1f1f7d4ebd8af0daa3cbe4f3da",
+        "hops": 3,
+        "expires": 1700604800,
+        "random_blobs": [
+          "aabbccddee006553f100"
+        ],
+        "packet_hash": "e873a70061dfc5e72872b2a8e24e2a03"
+      },
+      "existing_path_timebase": 1700000000,
+      "new_announce": {
+        "hops": 2,
+        "random_blob": "1122334455006553f164",
+        "announce_emitted": 1700000100
+      },
+      "conditions": {
+        "hops_comparison": "new (2) <= existing (3) \u2192 equal/better path branch",
+        "blob_seen": false,
+        "emission_newer_than_timebase": true
+      },
+      "should_add": true
+    },
+    {
+      "description": "Equal hop count (3 == 3), new blob, newer emission \u2192 should_add",
+      "existing_entry": {
+        "timestamp": 1700000000,
+        "next_hop": "35eeef1f1f7d4ebd8af0daa3cbe4f3da",
+        "hops": 3,
+        "expires": 1700604800,
+        "random_blobs": [
+          "aabbccddee006553f100"
+        ],
+        "packet_hash": "e873a70061dfc5e72872b2a8e24e2a03"
+      },
+      "existing_path_timebase": 1700000000,
+      "new_announce": {
+        "hops": 3,
+        "random_blob": "deadbeef01006553f1c8",
+        "announce_emitted": 1700000200
+      },
+      "conditions": {
+        "hops_comparison": "new (3) <= existing (3) \u2192 equal/better path branch",
+        "blob_seen": false,
+        "emission_newer_than_timebase": true
+      },
+      "should_add": true
+    },
+    {
+      "description": "Equal hop count (3 == 3), blob already seen (replay) \u2192 should_add=False",
+      "existing_entry": {
+        "timestamp": 1700000000,
+        "next_hop": "35eeef1f1f7d4ebd8af0daa3cbe4f3da",
+        "hops": 3,
+        "expires": 1700604800,
+        "random_blobs": [
+          "aabbccddee006553f100"
+        ],
+        "packet_hash": "e873a70061dfc5e72872b2a8e24e2a03"
+      },
+      "existing_path_timebase": 1700000000,
+      "new_announce": {
+        "hops": 3,
+        "random_blob": "aabbccddee006553f100",
+        "announce_emitted": 1700000000
+      },
+      "conditions": {
+        "hops_comparison": "new (3) <= existing (3) \u2192 equal/better path branch",
+        "blob_seen": true,
+        "emission_newer_than_timebase": "N/A (short-circuit: blob seen)"
+      },
+      "should_add": false,
+      "reason": "random_blob already in random_blobs \u2192 announce replay blocked"
+    },
+    {
+      "description": "Equal hop count (3 == 3), new blob, stale emission (older than timebase) \u2192 should_add=False",
+      "existing_entry": {
+        "timestamp": 1700000000,
+        "next_hop": "35eeef1f1f7d4ebd8af0daa3cbe4f3da",
+        "hops": 3,
+        "expires": 1700604800,
+        "random_blobs": [
+          "aabbccddee006553f100"
+        ],
+        "packet_hash": "e873a70061dfc5e72872b2a8e24e2a03"
+      },
+      "existing_path_timebase": 1700000000,
+      "new_announce": {
+        "hops": 3,
+        "random_blob": "cafebabe02006553f09c",
+        "announce_emitted": 1699999900
+      },
+      "conditions": {
+        "hops_comparison": "new (3) <= existing (3) \u2192 equal/better path branch",
+        "blob_seen": false,
+        "emission_newer_than_timebase": false
+      },
+      "should_add": false,
+      "reason": "announce_emitted (1699999900) not > path_timebase (1700000000)"
+    },
+    {
+      "description": "Equal hop count (3 == 3), new blob, emission equal to timebase \u2192 should_add=False",
+      "existing_entry": {
+        "timestamp": 1700000000,
+        "next_hop": "35eeef1f1f7d4ebd8af0daa3cbe4f3da",
+        "hops": 3,
+        "expires": 1700604800,
+        "random_blobs": [
+          "aabbccddee006553f100"
+        ],
+        "packet_hash": "e873a70061dfc5e72872b2a8e24e2a03"
+      },
+      "existing_path_timebase": 1700000000,
+      "new_announce": {
+        "hops": 3,
+        "random_blob": "f00dbad003006553f100",
+        "announce_emitted": 1700000000
+      },
+      "conditions": {
+        "hops_comparison": "new (3) <= existing (3) \u2192 equal/better path branch",
+        "blob_seen": false,
+        "emission_newer_than_timebase": false
+      },
+      "should_add": false,
+      "reason": "announce_emitted (1700000000) not > path_timebase (1700000000); requires strict greater-than"
+    }
+  ],
+  "expired_path_replacement_vectors": [
+    {
+      "description": "Expired path, higher hop announce (5 > 2), new blob \u2192 should_add",
+      "existing_entry": {
+        "timestamp": 1700000000,
+        "next_hop": "f6158a689cea974d3526946f5954ba60",
+        "hops": 2,
+        "expires": 1700604800,
+        "random_blobs": [
+          "aabbccddee006553f100"
+        ],
+        "packet_hash": "36f68d3ff1d27d9a70016b9a264038a5"
+      },
+      "now": 1700604900,
+      "path_expired": true,
+      "new_announce": {
+        "hops": 5,
+        "random_blob": "1122334455006553f2f4"
+      },
+      "conditions": {
+        "hops_comparison": "new (5) > existing (2) \u2192 higher-hop branch",
+        "path_expired": true,
+        "blob_seen": false
+      },
+      "should_add": true
+    },
+    {
+      "description": "Expired path, higher hop announce (5 > 2), blob already seen \u2192 should_add=False",
+      "existing_entry": {
+        "timestamp": 1700000000,
+        "next_hop": "f6158a689cea974d3526946f5954ba60",
+        "hops": 2,
+        "expires": 1700604800,
+        "random_blobs": [
+          "aabbccddee006553f100"
+        ],
+        "packet_hash": "36f68d3ff1d27d9a70016b9a264038a5"
+      },
+      "now": 1700604900,
+      "path_expired": true,
+      "new_announce": {
+        "hops": 5,
+        "random_blob": "aabbccddee006553f100"
+      },
+      "conditions": {
+        "hops_comparison": "new (5) > existing (2) \u2192 higher-hop branch",
+        "path_expired": true,
+        "blob_seen": true
+      },
+      "should_add": false,
+      "reason": "Blob already seen \u2014 avoids loops even for expired paths"
+    },
+    {
+      "description": "Expired path at exact boundary (now == expires), higher hops, new blob \u2192 should_add",
+      "existing_entry": {
+        "timestamp": 1700000000,
+        "next_hop": "f6158a689cea974d3526946f5954ba60",
+        "hops": 2,
+        "expires": 1700604800,
+        "random_blobs": [
+          "aabbccddee006553f100"
+        ],
+        "packet_hash": "36f68d3ff1d27d9a70016b9a264038a5"
+      },
+      "now": 1700604800,
+      "path_expired": true,
+      "new_announce": {
+        "hops": 4,
+        "random_blob": "deadbeef01006553f358"
+      },
+      "conditions": {
+        "hops_comparison": "new (4) > existing (2) \u2192 higher-hop branch",
+        "path_expired": true,
+        "path_expired_note": "Uses >= comparison: now >= path_expires",
+        "blob_seen": false
+      },
+      "should_add": true
+    }
+  ],
+  "emission_override_vectors": [
+    {
+      "description": "Non-expired path, higher hops (4 > 2), more recent emission, new blob \u2192 should_add",
+      "existing_entry": {
+        "timestamp": 1700000000,
+        "next_hop": "7cf8f6d7b5c88fc8531cdcdd4ebd0d37",
+        "hops": 2,
+        "expires": 1700604800,
+        "random_blobs": [
+          "aabbccddee006553f100"
+        ],
+        "packet_hash": "5da4cd69c0810dc15c3ffe595ad243be"
+      },
+      "path_announce_emitted": 1700000000,
+      "now": 1700001000,
+      "path_expired": false,
+      "new_announce": {
+        "hops": 4,
+        "random_blob": "1122334455006553f2f4",
+        "announce_emitted": 1700000500
+      },
+      "conditions": {
+        "hops_comparison": "new (4) > existing (2) \u2192 higher-hop branch",
+        "path_expired": false,
+        "emission_more_recent": true,
+        "blob_seen": false
+      },
+      "should_add": true
+    },
+    {
+      "description": "Non-expired path, higher hops (4 > 2), more recent emission, blob seen \u2192 should_add=False",
+      "existing_entry": {
+        "timestamp": 1700000000,
+        "next_hop": "7cf8f6d7b5c88fc8531cdcdd4ebd0d37",
+        "hops": 2,
+        "expires": 1700604800,
+        "random_blobs": [
+          "aabbccddee006553f100"
+        ],
+        "packet_hash": "5da4cd69c0810dc15c3ffe595ad243be"
+      },
+      "path_announce_emitted": 1700000000,
+      "now": 1700001000,
+      "path_expired": false,
+      "new_announce": {
+        "hops": 4,
+        "random_blob": "aabbccddee006553f100",
+        "announce_emitted": 1700000500
+      },
+      "conditions": {
+        "hops_comparison": "new (4) > existing (2) \u2192 higher-hop branch",
+        "path_expired": false,
+        "emission_more_recent": true,
+        "blob_seen": true
+      },
+      "should_add": false,
+      "reason": "Blob already seen despite more recent emission"
+    },
+    {
+      "description": "Non-expired path, higher hops (4 > 2), older emission \u2192 should_add=False",
+      "existing_entry": {
+        "timestamp": 1700000000,
+        "next_hop": "7cf8f6d7b5c88fc8531cdcdd4ebd0d37",
+        "hops": 2,
+        "expires": 1700604800,
+        "random_blobs": [
+          "aabbccddee006553f100"
+        ],
+        "packet_hash": "5da4cd69c0810dc15c3ffe595ad243be"
+      },
+      "path_announce_emitted": 1700000000,
+      "now": 1700001000,
+      "path_expired": false,
+      "new_announce": {
+        "hops": 4,
+        "random_blob": "deadbeef01006553ef0c",
+        "announce_emitted": 1699999500
+      },
+      "conditions": {
+        "hops_comparison": "new (4) > existing (2) \u2192 higher-hop branch",
+        "path_expired": false,
+        "emission_more_recent": false,
+        "blob_seen": false
+      },
+      "should_add": false,
+      "reason": "announce_emitted (1699999500) not > path_announce_emitted (1700000000)"
+    },
+    {
+      "description": "Non-expired path, higher hops (4 > 2), equal emission, not unresponsive \u2192 should_add=False",
+      "existing_entry": {
+        "timestamp": 1700000000,
+        "next_hop": "7cf8f6d7b5c88fc8531cdcdd4ebd0d37",
+        "hops": 2,
+        "expires": 1700604800,
+        "random_blobs": [
+          "aabbccddee006553f100"
+        ],
+        "packet_hash": "5da4cd69c0810dc15c3ffe595ad243be"
+      },
+      "path_announce_emitted": 1700000000,
+      "now": 1700001000,
+      "path_expired": false,
+      "new_announce": {
+        "hops": 4,
+        "random_blob": "cafebabe02006553f100",
+        "announce_emitted": 1700000000
+      },
+      "conditions": {
+        "hops_comparison": "new (4) > existing (2) \u2192 higher-hop branch",
+        "path_expired": false,
+        "emission_more_recent": false,
+        "emission_equal": true,
+        "path_state": "STATE_RESPONSIVE",
+        "path_is_unresponsive": false
+      },
+      "should_add": false,
+      "reason": "Equal emission, path is not unresponsive \u2192 no replacement"
+    }
+  ],
+  "unresponsive_replacement_vectors": [
+    {
+      "description": "Higher hops (5 > 2), equal emission, path is UNRESPONSIVE \u2192 should_add",
+      "existing_entry": {
+        "timestamp": 1700000000,
+        "next_hop": "bb89931a2635abf0ae7152df3170066b",
+        "hops": 2,
+        "expires": 1700604800,
+        "random_blobs": [
+          "aabbccddee006553f100"
+        ],
+        "packet_hash": "af58ffe7f8b16e712e95cd6bf493fbf0"
+      },
+      "path_announce_emitted": 1700000000,
+      "now": 1700001000,
+      "path_expired": false,
+      "new_announce": {
+        "hops": 5,
+        "random_blob": "1122334455006553f100",
+        "announce_emitted": 1700000000
+      },
+      "conditions": {
+        "hops_comparison": "new (5) > existing (2) \u2192 higher-hop branch",
+        "path_expired": false,
+        "emission_equal": true,
+        "path_state": "STATE_UNRESPONSIVE",
+        "path_state_value": 1,
+        "path_is_unresponsive": true
+      },
+      "should_add": true
+    },
+    {
+      "description": "Higher hops (5 > 2), equal emission, path is RESPONSIVE \u2192 should_add=False",
+      "existing_entry": {
+        "timestamp": 1700000000,
+        "next_hop": "bb89931a2635abf0ae7152df3170066b",
+        "hops": 2,
+        "expires": 1700604800,
+        "random_blobs": [
+          "aabbccddee006553f100"
+        ],
+        "packet_hash": "af58ffe7f8b16e712e95cd6bf493fbf0"
+      },
+      "path_announce_emitted": 1700000000,
+      "now": 1700001000,
+      "path_expired": false,
+      "new_announce": {
+        "hops": 5,
+        "random_blob": "1122334455006553f100",
+        "announce_emitted": 1700000000
+      },
+      "conditions": {
+        "hops_comparison": "new (5) > existing (2) \u2192 higher-hop branch",
+        "path_expired": false,
+        "emission_equal": true,
+        "path_state": "STATE_RESPONSIVE",
+        "path_state_value": 2,
+        "path_is_unresponsive": false
+      },
+      "should_add": false
+    },
+    {
+      "description": "Higher hops (5 > 2), equal emission, path is UNKNOWN \u2192 should_add=False",
+      "existing_entry": {
+        "timestamp": 1700000000,
+        "next_hop": "bb89931a2635abf0ae7152df3170066b",
+        "hops": 2,
+        "expires": 1700604800,
+        "random_blobs": [
+          "aabbccddee006553f100"
+        ],
+        "packet_hash": "af58ffe7f8b16e712e95cd6bf493fbf0"
+      },
+      "path_announce_emitted": 1700000000,
+      "now": 1700001000,
+      "path_expired": false,
+      "new_announce": {
+        "hops": 5,
+        "random_blob": "1122334455006553f100",
+        "announce_emitted": 1700000000
+      },
+      "conditions": {
+        "hops_comparison": "new (5) > existing (2) \u2192 higher-hop branch",
+        "path_expired": false,
+        "emission_equal": true,
+        "path_state": "STATE_UNKNOWN",
+        "path_state_value": 0,
+        "path_is_unresponsive": false
+      },
+      "should_add": false,
+      "note": "path_is_unresponsive() only returns True for STATE_UNRESPONSIVE, not STATE_UNKNOWN"
+    }
+  ],
+  "rediscovery_trigger_vectors": [
+    {
+      "description": "Pending link CLOSED (non-transport instance), PATH_REQUEST_MI not throttled \u2192 expire_path + request_path",
+      "trigger": "pending_link_closed",
+      "transport_enabled": false,
+      "is_connected_to_shared_instance": false,
+      "destination_hash": "516554b1cd463aa6af929a54e5d687a2",
+      "last_path_request_time": 1699999979,
+      "now": 1700000000,
+      "time_since_last_request": 21,
+      "path_request_mi_seconds": 20,
+      "throttle_check": "1700000000 - 1699999979 = 21 > 20 \u2192 not throttled",
+      "expected_actions": [
+        "expire_path(destination_hash)",
+        "request_path(destination_hash)"
+      ],
+      "source_lines": "Transport.py:472-493"
+    },
+    {
+      "description": "Pending link CLOSED (non-transport instance), PATH_REQUEST_MI throttled \u2192 expire_path only",
+      "trigger": "pending_link_closed",
+      "transport_enabled": false,
+      "is_connected_to_shared_instance": false,
+      "destination_hash": "516554b1cd463aa6af929a54e5d687a2",
+      "last_path_request_time": 1699999985,
+      "now": 1700000000,
+      "time_since_last_request": 15,
+      "path_request_mi_seconds": 20,
+      "throttle_check": "1700000000 - 1699999985 = 15 < 20 \u2192 throttled",
+      "expected_actions": [
+        "expire_path(destination_hash)"
+      ],
+      "note": "Path is expired but no new request due to throttle",
+      "source_lines": "Transport.py:472-493"
+    },
+    {
+      "description": "Pending link CLOSED (non-transport, shared instance) \u2192 expire_path, shared instance handles request",
+      "trigger": "pending_link_closed",
+      "transport_enabled": false,
+      "is_connected_to_shared_instance": true,
+      "destination_hash": "516554b1cd463aa6af929a54e5d687a2",
+      "last_path_request_time": 0,
+      "now": 1700000000,
+      "expected_actions": [
+        "expire_path(destination_hash)"
+      ],
+      "note": "Connected to shared instance; the shared instance handles path requests",
+      "source_lines": "Transport.py:472-493"
+    },
+    {
+      "description": "Pending link CLOSED (transport instance) \u2192 link removed only, no expire_path",
+      "trigger": "pending_link_closed",
+      "transport_enabled": true,
+      "destination_hash": "516554b1cd463aa6af929a54e5d687a2",
+      "now": 1700000000,
+      "expected_actions": [
+        "remove from pending_links"
+      ],
+      "note": "Transport instances do not expire paths on pending link closure",
+      "source_lines": "Transport.py:477"
+    },
+    {
+      "description": "Link table proof timeout, path no longer exists \u2192 request_path (no throttle check)",
+      "trigger": "link_proof_timeout",
+      "destination_hash": "d2bb669c05d4a8197593757f4ff735cf",
+      "path_exists": false,
+      "lr_taken_hops": 3,
+      "now": 1700000000,
+      "expected_actions": [
+        "request_path(destination_hash)"
+      ],
+      "note": "When path is missing, path_request_conditions=True regardless of throttle",
+      "source_lines": "Transport.py:644-646"
+    },
+    {
+      "description": "Link table proof timeout, local client link (hops=0), not throttled \u2192 request_path",
+      "trigger": "link_proof_timeout",
+      "destination_hash": "d2bb669c05d4a8197593757f4ff735cf",
+      "path_exists": true,
+      "lr_taken_hops": 0,
+      "last_path_request_time": 1699999979,
+      "now": 1700000000,
+      "path_request_throttle": false,
+      "expected_actions": [
+        "request_path(destination_hash)"
+      ],
+      "source_lines": "Transport.py:651-653"
+    },
+    {
+      "description": "Link table proof timeout, destination 1 hop away, transport enabled \u2192 request_path + mark_path_unresponsive",
+      "trigger": "link_proof_timeout",
+      "destination_hash": "d2bb669c05d4a8197593757f4ff735cf",
+      "path_exists": true,
+      "hops_to_destination": 1,
+      "lr_taken_hops": 2,
+      "transport_enabled": true,
+      "last_path_request_time": 1699999979,
+      "now": 1700000000,
+      "path_request_throttle": false,
+      "expected_actions": [
+        "mark_path_unresponsive(destination_hash)",
+        "request_path(destination_hash)"
+      ],
+      "note": "Also calls expire_path if not transport_enabled",
+      "source_lines": "Transport.py:660-676"
+    },
+    {
+      "description": "Link table proof timeout, local client (hops=0), throttled \u2192 no request",
+      "trigger": "link_proof_timeout",
+      "destination_hash": "d2bb669c05d4a8197593757f4ff735cf",
+      "path_exists": true,
+      "lr_taken_hops": 0,
+      "last_path_request_time": 1699999995,
+      "now": 1700000000,
+      "path_request_throttle": true,
+      "throttle_check": "1700000000 - 1699999995 = 5 < 20 \u2192 throttled",
+      "expected_actions": [],
+      "note": "Request suppressed due to PATH_REQUEST_MI throttle",
+      "source_lines": "Transport.py:639,651"
+    },
+    {
+      "description": "Discovery path request timeout after PATH_REQUEST_TIMEOUT \u2192 entry removed",
+      "trigger": "discovery_path_request_timeout",
+      "destination_hash": "516554b1cd463aa6af929a54e5d687a2",
+      "discovery_entry": {
+        "destination_hash": "516554b1cd463aa6af929a54e5d687a2",
+        "timeout": 1700000015,
+        "requesting_interface": "interface_placeholder"
+      },
+      "check_time_before_timeout": 1700000014,
+      "check_before_expired": false,
+      "check_time_after_timeout": 1700000016,
+      "check_after_expired": true,
+      "path_request_timeout_seconds": 15,
+      "expected_action": "Remove entry from discovery_path_requests",
+      "expiry_check": "time.time() > entry['timeout']  (strict greater-than)",
+      "source_lines": "Transport.py:728-729"
+    },
+    {
+      "description": "PATH_REQUEST_MI throttle: 19s since last \u2192 blocked, 20s \u2192 allowed, 21s \u2192 allowed",
+      "trigger": "path_request_throttle",
+      "path_request_mi_seconds": 20,
+      "examples": [
+        {
+          "last_request_time": 1699999981,
+          "now": 1700000000,
+          "time_since_last": 19,
+          "throttled": true,
+          "check": "1700000000 - 1699999981 = 19 < 20 \u2192 throttled"
+        },
+        {
+          "last_request_time": 1699999980,
+          "now": 1700000000,
+          "time_since_last": 20,
+          "throttled": false,
+          "check": "1700000000 - 1699999980 = 20 >= 20 \u2192 not throttled (uses strict <)"
+        },
+        {
+          "last_request_time": 1699999979,
+          "now": 1700000000,
+          "time_since_last": 21,
+          "throttled": false,
+          "check": "1700000000 - 1699999979 = 21 >= 20 \u2192 not throttled"
+        }
+      ],
+      "throttle_comparison": "time.time() - last_path_request < PATH_REQUEST_MI  (strict less-than)",
+      "source_lines": "Transport.py:488,639"
+    }
+  ],
+  "interface_disappearance_vectors": [
+    {
+      "description": "Path has valid TTL but attached interface no longer in Transport.interfaces \u2192 removed",
+      "destination_hash": "5007baa6d4938264e0434df77b12c35e",
+      "path_entry": {
+        "timestamp": 1700000000,
+        "next_hop": "7bfbc7ff2fbc24a987cbb7b5c1c321cb",
+        "hops": 2,
+        "expires": 1700604800,
+        "random_blobs": [
+          "aabbccddee006553f100"
+        ],
+        "attached_interface": "interface_A",
+        "packet_hash": "707ebbbb6c944e719735f3d89bff0f54"
+      },
+      "active_interfaces": [
+        "interface_B",
+        "interface_C"
+      ],
+      "now": 1700000100,
+      "ttl_expired": false,
+      "interface_present": false,
+      "expected_removed": true,
+      "reason": "Interface not in Transport.interfaces; checked independently of TTL",
+      "source_lines": "Transport.py:718-721"
+    },
+    {
+      "description": "Path has valid TTL and attached interface still present \u2192 kept",
+      "destination_hash": "ce1dc9e279e32cd7ee258f436c348fa3",
+      "path_entry": {
+        "timestamp": 1700000000,
+        "next_hop": "7bfbc7ff2fbc24a987cbb7b5c1c321cb",
+        "hops": 1,
+        "expires": 1700604800,
+        "random_blobs": [
+          "aabbccddee006553f100"
+        ],
+        "attached_interface": "interface_B",
+        "packet_hash": "363554fa7713cfe4da4b5bb0866ef083"
+      },
+      "active_interfaces": [
+        "interface_B",
+        "interface_C"
+      ],
+      "now": 1700000100,
+      "ttl_expired": false,
+      "interface_present": true,
+      "expected_removed": false
+    },
+    {
+      "description": "Path has expired TTL, interface present \u2192 removed by TTL check (not interface check)",
+      "destination_hash": "5007baa6d4938264e0434df77b12c35e",
+      "path_entry": {
+        "timestamp": 1700000000,
+        "next_hop": "7bfbc7ff2fbc24a987cbb7b5c1c321cb",
+        "hops": 2,
+        "expires": 1700604800,
+        "random_blobs": [
+          "aabbccddee006553f100"
+        ],
+        "attached_interface": "interface_B",
+        "packet_hash": "707ebbbb6c944e719735f3d89bff0f54"
+      },
+      "active_interfaces": [
+        "interface_B",
+        "interface_C"
+      ],
+      "now": 1700604801,
+      "ttl_expired": true,
+      "interface_present": true,
+      "expected_removed": true,
+      "reason": "TTL expired: now > timestamp + DESTINATION_TIMEOUT",
+      "note": "TTL check happens first (line 714); interface check is elif (line 718)"
+    },
+    {
+      "description": "Path has expired TTL and interface gone \u2192 removed (TTL check evaluated first)",
+      "destination_hash": "ce1dc9e279e32cd7ee258f436c348fa3",
+      "path_entry": {
+        "timestamp": 1700000000,
+        "next_hop": "7bfbc7ff2fbc24a987cbb7b5c1c321cb",
+        "hops": 1,
+        "expires": 1700086400,
+        "random_blobs": [
+          "aabbccddee006553f100"
+        ],
+        "attached_interface": "interface_A",
+        "packet_hash": "363554fa7713cfe4da4b5bb0866ef083"
+      },
+      "interface_mode": "MODE_ACCESS_POINT",
+      "interface_mode_value": 3,
+      "active_interfaces": [
+        "interface_B"
+      ],
+      "now": 1700086401,
+      "ttl_expired": true,
+      "interface_present": false,
+      "expected_removed": true,
+      "reason": "Both TTL expired and interface missing; TTL check at line 714 fires first since it's if/elif"
+    }
+  ]
+}

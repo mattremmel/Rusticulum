@@ -1,0 +1,2092 @@
+{
+  "description": "Reticulum v1.1.3 reference implementation - Retry timer and timeout test vectors",
+  "sources": [
+    "RNS/Link.py (keepalive, establishment timeout)",
+    "RNS/Resource.py (part timeout, proof timeout, retry progression)",
+    "RNS/Channel.py (channel packet timeout)"
+  ],
+  "link_keepalive": {
+    "description": "Link keepalive interval and stale timeout derived from RTT",
+    "constants": {
+      "KEEPALIVE_MAX": 360,
+      "KEEPALIVE_MIN": 5,
+      "KEEPALIVE_MAX_RTT": 1.75,
+      "KEEPALIVE_DEFAULT": 360,
+      "STALE_FACTOR": 2,
+      "STALE_GRACE": 5,
+      "KEEPALIVE_TIMEOUT_FACTOR": 4
+    },
+    "formulas": {
+      "keepalive": "max(min(rtt * (KEEPALIVE_MAX / KEEPALIVE_MAX_RTT), KEEPALIVE_MAX), KEEPALIVE_MIN)",
+      "stale_time": "keepalive * STALE_FACTOR",
+      "stale_timeout": "rtt * KEEPALIVE_TIMEOUT_FACTOR + STALE_GRACE",
+      "total_link_timeout": "stale_time + stale_timeout"
+    },
+    "timeout_sequence": [
+      "1. Link sends keepalive every 'keepalive' seconds of inactivity",
+      "2. If no traffic for 'stale_time', link is marked STALE, final keepalive sent",
+      "3. If no traffic for additional 'stale_timeout' after going stale, link is torn down"
+    ],
+    "vectors": [
+      {
+        "rtt": 0.001,
+        "keepalive_interval": 5,
+        "stale_time": 10,
+        "stale_timeout": 5.004,
+        "total_timeout": 15.004,
+        "description": "RTT=0.001s -> keepalive=5.0000s, stale=10.0000s"
+      },
+      {
+        "rtt": 0.01,
+        "keepalive_interval": 5,
+        "stale_time": 10,
+        "stale_timeout": 5.04,
+        "total_timeout": 15.04,
+        "description": "RTT=0.01s -> keepalive=5.0000s, stale=10.0000s"
+      },
+      {
+        "rtt": 0.05,
+        "keepalive_interval": 10.285714285714286,
+        "stale_time": 20.571428571428573,
+        "stale_timeout": 5.2,
+        "total_timeout": 25.771428571428572,
+        "description": "RTT=0.05s -> keepalive=10.2857s, stale=20.5714s"
+      },
+      {
+        "rtt": 0.1,
+        "keepalive_interval": 20.571428571428573,
+        "stale_time": 41.142857142857146,
+        "stale_timeout": 5.4,
+        "total_timeout": 46.542857142857144,
+        "description": "RTT=0.1s -> keepalive=20.5714s, stale=41.1429s"
+      },
+      {
+        "rtt": 0.25,
+        "keepalive_interval": 51.42857142857143,
+        "stale_time": 102.85714285714286,
+        "stale_timeout": 6.0,
+        "total_timeout": 108.85714285714286,
+        "description": "RTT=0.25s -> keepalive=51.4286s, stale=102.8571s"
+      },
+      {
+        "rtt": 0.5,
+        "keepalive_interval": 102.85714285714286,
+        "stale_time": 205.71428571428572,
+        "stale_timeout": 7.0,
+        "total_timeout": 212.71428571428572,
+        "description": "RTT=0.5s -> keepalive=102.8571s, stale=205.7143s"
+      },
+      {
+        "rtt": 1.0,
+        "keepalive_interval": 205.71428571428572,
+        "stale_time": 411.42857142857144,
+        "stale_timeout": 9.0,
+        "total_timeout": 420.42857142857144,
+        "description": "RTT=1.0s -> keepalive=205.7143s, stale=411.4286s"
+      },
+      {
+        "rtt": 1.75,
+        "keepalive_interval": 360.0,
+        "stale_time": 720.0,
+        "stale_timeout": 12.0,
+        "total_timeout": 732.0,
+        "description": "RTT=1.75s -> keepalive=360.0000s, stale=720.0000s"
+      },
+      {
+        "rtt": 5.0,
+        "keepalive_interval": 360,
+        "stale_time": 720,
+        "stale_timeout": 25.0,
+        "total_timeout": 745.0,
+        "description": "RTT=5.0s -> keepalive=360.0000s, stale=720.0000s"
+      },
+      {
+        "rtt": 10.0,
+        "keepalive_interval": 360,
+        "stale_time": 720,
+        "stale_timeout": 45.0,
+        "total_timeout": 765.0,
+        "description": "RTT=10.0s -> keepalive=360.0000s, stale=720.0000s"
+      }
+    ]
+  },
+  "link_establishment": {
+    "description": "Link establishment timeout based on hop count",
+    "constants": {
+      "DEFAULT_PER_HOP_TIMEOUT": 6,
+      "KEEPALIVE_DEFAULT": 360
+    },
+    "formula": "DEFAULT_PER_HOP_TIMEOUT * max(1, hops) + KEEPALIVE",
+    "note": "For 0 hops, max(1, 0) = 1, so minimum is DEFAULT_PER_HOP_TIMEOUT + KEEPALIVE",
+    "vectors": [
+      {
+        "hops": 0,
+        "timeout": 366,
+        "description": "0 hops -> 366s timeout"
+      },
+      {
+        "hops": 1,
+        "timeout": 366,
+        "description": "1 hops -> 366s timeout"
+      },
+      {
+        "hops": 2,
+        "timeout": 372,
+        "description": "2 hops -> 372s timeout"
+      },
+      {
+        "hops": 3,
+        "timeout": 378,
+        "description": "3 hops -> 378s timeout"
+      },
+      {
+        "hops": 4,
+        "timeout": 384,
+        "description": "4 hops -> 384s timeout"
+      },
+      {
+        "hops": 5,
+        "timeout": 390,
+        "description": "5 hops -> 390s timeout"
+      },
+      {
+        "hops": 6,
+        "timeout": 396,
+        "description": "6 hops -> 396s timeout"
+      },
+      {
+        "hops": 7,
+        "timeout": 402,
+        "description": "7 hops -> 402s timeout"
+      },
+      {
+        "hops": 8,
+        "timeout": 408,
+        "description": "8 hops -> 408s timeout"
+      },
+      {
+        "hops": 9,
+        "timeout": 414,
+        "description": "9 hops -> 414s timeout"
+      },
+      {
+        "hops": 10,
+        "timeout": 420,
+        "description": "10 hops -> 420s timeout"
+      },
+      {
+        "hops": 11,
+        "timeout": 426,
+        "description": "11 hops -> 426s timeout"
+      },
+      {
+        "hops": 12,
+        "timeout": 432,
+        "description": "12 hops -> 432s timeout"
+      },
+      {
+        "hops": 13,
+        "timeout": 438,
+        "description": "13 hops -> 438s timeout"
+      },
+      {
+        "hops": 14,
+        "timeout": 444,
+        "description": "14 hops -> 444s timeout"
+      },
+      {
+        "hops": 15,
+        "timeout": 450,
+        "description": "15 hops -> 450s timeout"
+      },
+      {
+        "hops": 16,
+        "timeout": 456,
+        "description": "16 hops -> 456s timeout"
+      },
+      {
+        "hops": 17,
+        "timeout": 462,
+        "description": "17 hops -> 462s timeout"
+      },
+      {
+        "hops": 18,
+        "timeout": 468,
+        "description": "18 hops -> 468s timeout"
+      },
+      {
+        "hops": 19,
+        "timeout": 474,
+        "description": "19 hops -> 474s timeout"
+      },
+      {
+        "hops": 20,
+        "timeout": 480,
+        "description": "20 hops -> 480s timeout"
+      }
+    ]
+  },
+  "resource_retry": {
+    "description": "Resource transfer retry timing and timeout progression",
+    "constants": {
+      "PART_TIMEOUT_FACTOR": 4,
+      "PART_TIMEOUT_FACTOR_AFTER_RTT": 2,
+      "PROOF_TIMEOUT_FACTOR": 3,
+      "MAX_RETRIES": 16,
+      "MAX_ADV_RETRIES": 4,
+      "SENDER_GRACE_TIME": 10.0,
+      "PROCESSING_GRACE": 1.0,
+      "RETRY_GRACE_TIME": 0.25,
+      "PER_RETRY_DELAY": 0.5,
+      "TRAFFIC_TIMEOUT_FACTOR": 6,
+      "SDU": 431
+    },
+    "formulas": {
+      "extra_wait": "retry_number * PER_RETRY_DELAY",
+      "part_timeout_before_rtt": "PART_TIMEOUT_FACTOR * ((3 * SDU) / EIFR) + RETRY_GRACE_TIME + extra_wait",
+      "part_timeout_after_rtt": "PART_TIMEOUT_FACTOR_AFTER_RTT * ((outstanding_parts * SDU * 8) / EIFR) + RETRY_GRACE_TIME + extra_wait",
+      "proof_timeout": "rtt * PROOF_TIMEOUT_FACTOR + SENDER_GRACE_TIME",
+      "sender_max_wait": "rtt * TRAFFIC_TIMEOUT_FACTOR * MAX_RETRIES + SENDER_GRACE_TIME + sum((r+1)*PER_RETRY_DELAY for r in range(MAX_RETRIES))"
+    },
+    "timeout_sequence": [
+      "1. Initial part timeout uses PART_TIMEOUT_FACTOR (4x) with estimated flight time",
+      "2. After first RTT measurement, switches to PART_TIMEOUT_FACTOR_AFTER_RTT (2x)",
+      "3. Each retry adds PER_RETRY_DELAY * retry_number to the timeout",
+      "4. On timeout: window and window_max decrease, then request_next() is called",
+      "5. After all parts sent, switches to PROOF_TIMEOUT_FACTOR (3x) for proof wait",
+      "6. Sender side uses a single max_wait encompassing all possible retries"
+    ],
+    "vectors": [
+      {
+        "description": "Fast link (100 Kbps, 100ms RTT)",
+        "rtt": 0.1,
+        "eifr_bps": 100000,
+        "sdu": 431,
+        "retry_progression": [
+          {
+            "retry_number": 0,
+            "extra_wait": 0.0,
+            "timeout_before_rtt_data": 0.30172,
+            "timeout_after_rtt_data": 0.9396,
+            "outstanding_parts_assumed": 10
+          },
+          {
+            "retry_number": 1,
+            "extra_wait": 0.5,
+            "timeout_before_rtt_data": 0.80172,
+            "timeout_after_rtt_data": 1.37064,
+            "outstanding_parts_assumed": 9
+          },
+          {
+            "retry_number": 2,
+            "extra_wait": 1.0,
+            "timeout_before_rtt_data": 1.30172,
+            "timeout_after_rtt_data": 1.80168,
+            "outstanding_parts_assumed": 8
+          },
+          {
+            "retry_number": 3,
+            "extra_wait": 1.5,
+            "timeout_before_rtt_data": 1.80172,
+            "timeout_after_rtt_data": 2.23272,
+            "outstanding_parts_assumed": 7
+          },
+          {
+            "retry_number": 4,
+            "extra_wait": 2.0,
+            "timeout_before_rtt_data": 2.30172,
+            "timeout_after_rtt_data": 2.66376,
+            "outstanding_parts_assumed": 6
+          },
+          {
+            "retry_number": 5,
+            "extra_wait": 2.5,
+            "timeout_before_rtt_data": 2.80172,
+            "timeout_after_rtt_data": 3.0948,
+            "outstanding_parts_assumed": 5
+          },
+          {
+            "retry_number": 6,
+            "extra_wait": 3.0,
+            "timeout_before_rtt_data": 3.30172,
+            "timeout_after_rtt_data": 3.52584,
+            "outstanding_parts_assumed": 4
+          },
+          {
+            "retry_number": 7,
+            "extra_wait": 3.5,
+            "timeout_before_rtt_data": 3.80172,
+            "timeout_after_rtt_data": 3.95688,
+            "outstanding_parts_assumed": 3
+          },
+          {
+            "retry_number": 8,
+            "extra_wait": 4.0,
+            "timeout_before_rtt_data": 4.30172,
+            "timeout_after_rtt_data": 4.38792,
+            "outstanding_parts_assumed": 2
+          },
+          {
+            "retry_number": 9,
+            "extra_wait": 4.5,
+            "timeout_before_rtt_data": 4.80172,
+            "timeout_after_rtt_data": 4.81896,
+            "outstanding_parts_assumed": 1
+          },
+          {
+            "retry_number": 10,
+            "extra_wait": 5.0,
+            "timeout_before_rtt_data": 5.30172,
+            "timeout_after_rtt_data": 5.31896,
+            "outstanding_parts_assumed": 1
+          },
+          {
+            "retry_number": 11,
+            "extra_wait": 5.5,
+            "timeout_before_rtt_data": 5.80172,
+            "timeout_after_rtt_data": 5.81896,
+            "outstanding_parts_assumed": 1
+          },
+          {
+            "retry_number": 12,
+            "extra_wait": 6.0,
+            "timeout_before_rtt_data": 6.30172,
+            "timeout_after_rtt_data": 6.31896,
+            "outstanding_parts_assumed": 1
+          },
+          {
+            "retry_number": 13,
+            "extra_wait": 6.5,
+            "timeout_before_rtt_data": 6.80172,
+            "timeout_after_rtt_data": 6.81896,
+            "outstanding_parts_assumed": 1
+          },
+          {
+            "retry_number": 14,
+            "extra_wait": 7.0,
+            "timeout_before_rtt_data": 7.30172,
+            "timeout_after_rtt_data": 7.31896,
+            "outstanding_parts_assumed": 1
+          },
+          {
+            "retry_number": 15,
+            "extra_wait": 7.5,
+            "timeout_before_rtt_data": 7.80172,
+            "timeout_after_rtt_data": 7.81896,
+            "outstanding_parts_assumed": 1
+          },
+          {
+            "retry_number": 16,
+            "extra_wait": 8.0,
+            "timeout_before_rtt_data": 8.30172,
+            "timeout_after_rtt_data": 8.31896,
+            "outstanding_parts_assumed": 1
+          }
+        ],
+        "proof_timeout": 10.3,
+        "sender_max_wait": 87.6
+      },
+      {
+        "description": "Medium link (50 Kbps, 500ms RTT)",
+        "rtt": 0.5,
+        "eifr_bps": 50000,
+        "sdu": 431,
+        "retry_progression": [
+          {
+            "retry_number": 0,
+            "extra_wait": 0.0,
+            "timeout_before_rtt_data": 0.35344,
+            "timeout_after_rtt_data": 1.6292,
+            "outstanding_parts_assumed": 10
+          },
+          {
+            "retry_number": 1,
+            "extra_wait": 0.5,
+            "timeout_before_rtt_data": 0.85344,
+            "timeout_after_rtt_data": 1.99128,
+            "outstanding_parts_assumed": 9
+          },
+          {
+            "retry_number": 2,
+            "extra_wait": 1.0,
+            "timeout_before_rtt_data": 1.35344,
+            "timeout_after_rtt_data": 2.35336,
+            "outstanding_parts_assumed": 8
+          },
+          {
+            "retry_number": 3,
+            "extra_wait": 1.5,
+            "timeout_before_rtt_data": 1.85344,
+            "timeout_after_rtt_data": 2.71544,
+            "outstanding_parts_assumed": 7
+          },
+          {
+            "retry_number": 4,
+            "extra_wait": 2.0,
+            "timeout_before_rtt_data": 2.35344,
+            "timeout_after_rtt_data": 3.07752,
+            "outstanding_parts_assumed": 6
+          },
+          {
+            "retry_number": 5,
+            "extra_wait": 2.5,
+            "timeout_before_rtt_data": 2.85344,
+            "timeout_after_rtt_data": 3.4396,
+            "outstanding_parts_assumed": 5
+          },
+          {
+            "retry_number": 6,
+            "extra_wait": 3.0,
+            "timeout_before_rtt_data": 3.35344,
+            "timeout_after_rtt_data": 3.80168,
+            "outstanding_parts_assumed": 4
+          },
+          {
+            "retry_number": 7,
+            "extra_wait": 3.5,
+            "timeout_before_rtt_data": 3.85344,
+            "timeout_after_rtt_data": 4.16376,
+            "outstanding_parts_assumed": 3
+          },
+          {
+            "retry_number": 8,
+            "extra_wait": 4.0,
+            "timeout_before_rtt_data": 4.35344,
+            "timeout_after_rtt_data": 4.52584,
+            "outstanding_parts_assumed": 2
+          },
+          {
+            "retry_number": 9,
+            "extra_wait": 4.5,
+            "timeout_before_rtt_data": 4.85344,
+            "timeout_after_rtt_data": 4.88792,
+            "outstanding_parts_assumed": 1
+          },
+          {
+            "retry_number": 10,
+            "extra_wait": 5.0,
+            "timeout_before_rtt_data": 5.35344,
+            "timeout_after_rtt_data": 5.38792,
+            "outstanding_parts_assumed": 1
+          },
+          {
+            "retry_number": 11,
+            "extra_wait": 5.5,
+            "timeout_before_rtt_data": 5.85344,
+            "timeout_after_rtt_data": 5.88792,
+            "outstanding_parts_assumed": 1
+          },
+          {
+            "retry_number": 12,
+            "extra_wait": 6.0,
+            "timeout_before_rtt_data": 6.35344,
+            "timeout_after_rtt_data": 6.38792,
+            "outstanding_parts_assumed": 1
+          },
+          {
+            "retry_number": 13,
+            "extra_wait": 6.5,
+            "timeout_before_rtt_data": 6.85344,
+            "timeout_after_rtt_data": 6.88792,
+            "outstanding_parts_assumed": 1
+          },
+          {
+            "retry_number": 14,
+            "extra_wait": 7.0,
+            "timeout_before_rtt_data": 7.35344,
+            "timeout_after_rtt_data": 7.38792,
+            "outstanding_parts_assumed": 1
+          },
+          {
+            "retry_number": 15,
+            "extra_wait": 7.5,
+            "timeout_before_rtt_data": 7.85344,
+            "timeout_after_rtt_data": 7.88792,
+            "outstanding_parts_assumed": 1
+          },
+          {
+            "retry_number": 16,
+            "extra_wait": 8.0,
+            "timeout_before_rtt_data": 8.35344,
+            "timeout_after_rtt_data": 8.38792,
+            "outstanding_parts_assumed": 1
+          }
+        ],
+        "proof_timeout": 11.5,
+        "sender_max_wait": 126.0
+      },
+      {
+        "description": "Slow link (5 Kbps, 2s RTT)",
+        "rtt": 2.0,
+        "eifr_bps": 5000,
+        "sdu": 431,
+        "retry_progression": [
+          {
+            "retry_number": 0,
+            "extra_wait": 0.0,
+            "timeout_before_rtt_data": 1.2844,
+            "timeout_after_rtt_data": 14.042,
+            "outstanding_parts_assumed": 10
+          },
+          {
+            "retry_number": 1,
+            "extra_wait": 0.5,
+            "timeout_before_rtt_data": 1.7844,
+            "timeout_after_rtt_data": 13.1628,
+            "outstanding_parts_assumed": 9
+          },
+          {
+            "retry_number": 2,
+            "extra_wait": 1.0,
+            "timeout_before_rtt_data": 2.2844,
+            "timeout_after_rtt_data": 12.2836,
+            "outstanding_parts_assumed": 8
+          },
+          {
+            "retry_number": 3,
+            "extra_wait": 1.5,
+            "timeout_before_rtt_data": 2.7844,
+            "timeout_after_rtt_data": 11.4044,
+            "outstanding_parts_assumed": 7
+          },
+          {
+            "retry_number": 4,
+            "extra_wait": 2.0,
+            "timeout_before_rtt_data": 3.2844,
+            "timeout_after_rtt_data": 10.5252,
+            "outstanding_parts_assumed": 6
+          },
+          {
+            "retry_number": 5,
+            "extra_wait": 2.5,
+            "timeout_before_rtt_data": 3.7844,
+            "timeout_after_rtt_data": 9.646,
+            "outstanding_parts_assumed": 5
+          },
+          {
+            "retry_number": 6,
+            "extra_wait": 3.0,
+            "timeout_before_rtt_data": 4.2844,
+            "timeout_after_rtt_data": 8.7668,
+            "outstanding_parts_assumed": 4
+          },
+          {
+            "retry_number": 7,
+            "extra_wait": 3.5,
+            "timeout_before_rtt_data": 4.7844,
+            "timeout_after_rtt_data": 7.8876,
+            "outstanding_parts_assumed": 3
+          },
+          {
+            "retry_number": 8,
+            "extra_wait": 4.0,
+            "timeout_before_rtt_data": 5.2844,
+            "timeout_after_rtt_data": 7.0084,
+            "outstanding_parts_assumed": 2
+          },
+          {
+            "retry_number": 9,
+            "extra_wait": 4.5,
+            "timeout_before_rtt_data": 5.7844,
+            "timeout_after_rtt_data": 6.1292,
+            "outstanding_parts_assumed": 1
+          },
+          {
+            "retry_number": 10,
+            "extra_wait": 5.0,
+            "timeout_before_rtt_data": 6.2844,
+            "timeout_after_rtt_data": 6.6292,
+            "outstanding_parts_assumed": 1
+          },
+          {
+            "retry_number": 11,
+            "extra_wait": 5.5,
+            "timeout_before_rtt_data": 6.7844,
+            "timeout_after_rtt_data": 7.1292,
+            "outstanding_parts_assumed": 1
+          },
+          {
+            "retry_number": 12,
+            "extra_wait": 6.0,
+            "timeout_before_rtt_data": 7.2844,
+            "timeout_after_rtt_data": 7.6292,
+            "outstanding_parts_assumed": 1
+          },
+          {
+            "retry_number": 13,
+            "extra_wait": 6.5,
+            "timeout_before_rtt_data": 7.7844,
+            "timeout_after_rtt_data": 8.1292,
+            "outstanding_parts_assumed": 1
+          },
+          {
+            "retry_number": 14,
+            "extra_wait": 7.0,
+            "timeout_before_rtt_data": 8.2844,
+            "timeout_after_rtt_data": 8.6292,
+            "outstanding_parts_assumed": 1
+          },
+          {
+            "retry_number": 15,
+            "extra_wait": 7.5,
+            "timeout_before_rtt_data": 8.7844,
+            "timeout_after_rtt_data": 9.1292,
+            "outstanding_parts_assumed": 1
+          },
+          {
+            "retry_number": 16,
+            "extra_wait": 8.0,
+            "timeout_before_rtt_data": 9.2844,
+            "timeout_after_rtt_data": 9.6292,
+            "outstanding_parts_assumed": 1
+          }
+        ],
+        "proof_timeout": 16.0,
+        "sender_max_wait": 270.0
+      },
+      {
+        "description": "Very slow link (1 Kbps, 5s RTT)",
+        "rtt": 5.0,
+        "eifr_bps": 1000,
+        "sdu": 431,
+        "retry_progression": [
+          {
+            "retry_number": 0,
+            "extra_wait": 0.0,
+            "timeout_before_rtt_data": 5.422,
+            "timeout_after_rtt_data": 69.21,
+            "outstanding_parts_assumed": 10
+          },
+          {
+            "retry_number": 1,
+            "extra_wait": 0.5,
+            "timeout_before_rtt_data": 5.922,
+            "timeout_after_rtt_data": 62.814,
+            "outstanding_parts_assumed": 9
+          },
+          {
+            "retry_number": 2,
+            "extra_wait": 1.0,
+            "timeout_before_rtt_data": 6.422,
+            "timeout_after_rtt_data": 56.418,
+            "outstanding_parts_assumed": 8
+          },
+          {
+            "retry_number": 3,
+            "extra_wait": 1.5,
+            "timeout_before_rtt_data": 6.922,
+            "timeout_after_rtt_data": 50.022,
+            "outstanding_parts_assumed": 7
+          },
+          {
+            "retry_number": 4,
+            "extra_wait": 2.0,
+            "timeout_before_rtt_data": 7.422,
+            "timeout_after_rtt_data": 43.626,
+            "outstanding_parts_assumed": 6
+          },
+          {
+            "retry_number": 5,
+            "extra_wait": 2.5,
+            "timeout_before_rtt_data": 7.922,
+            "timeout_after_rtt_data": 37.23,
+            "outstanding_parts_assumed": 5
+          },
+          {
+            "retry_number": 6,
+            "extra_wait": 3.0,
+            "timeout_before_rtt_data": 8.422,
+            "timeout_after_rtt_data": 30.834,
+            "outstanding_parts_assumed": 4
+          },
+          {
+            "retry_number": 7,
+            "extra_wait": 3.5,
+            "timeout_before_rtt_data": 8.922,
+            "timeout_after_rtt_data": 24.438,
+            "outstanding_parts_assumed": 3
+          },
+          {
+            "retry_number": 8,
+            "extra_wait": 4.0,
+            "timeout_before_rtt_data": 9.422,
+            "timeout_after_rtt_data": 18.042,
+            "outstanding_parts_assumed": 2
+          },
+          {
+            "retry_number": 9,
+            "extra_wait": 4.5,
+            "timeout_before_rtt_data": 9.922,
+            "timeout_after_rtt_data": 11.646,
+            "outstanding_parts_assumed": 1
+          },
+          {
+            "retry_number": 10,
+            "extra_wait": 5.0,
+            "timeout_before_rtt_data": 10.422,
+            "timeout_after_rtt_data": 12.146,
+            "outstanding_parts_assumed": 1
+          },
+          {
+            "retry_number": 11,
+            "extra_wait": 5.5,
+            "timeout_before_rtt_data": 10.922,
+            "timeout_after_rtt_data": 12.646,
+            "outstanding_parts_assumed": 1
+          },
+          {
+            "retry_number": 12,
+            "extra_wait": 6.0,
+            "timeout_before_rtt_data": 11.422,
+            "timeout_after_rtt_data": 13.146,
+            "outstanding_parts_assumed": 1
+          },
+          {
+            "retry_number": 13,
+            "extra_wait": 6.5,
+            "timeout_before_rtt_data": 11.922,
+            "timeout_after_rtt_data": 13.646,
+            "outstanding_parts_assumed": 1
+          },
+          {
+            "retry_number": 14,
+            "extra_wait": 7.0,
+            "timeout_before_rtt_data": 12.422,
+            "timeout_after_rtt_data": 14.146,
+            "outstanding_parts_assumed": 1
+          },
+          {
+            "retry_number": 15,
+            "extra_wait": 7.5,
+            "timeout_before_rtt_data": 12.922,
+            "timeout_after_rtt_data": 14.646,
+            "outstanding_parts_assumed": 1
+          },
+          {
+            "retry_number": 16,
+            "extra_wait": 8.0,
+            "timeout_before_rtt_data": 13.422,
+            "timeout_after_rtt_data": 15.146,
+            "outstanding_parts_assumed": 1
+          }
+        ],
+        "proof_timeout": 25.0,
+        "sender_max_wait": 558.0
+      }
+    ]
+  },
+  "resource_advertisement_retry": {
+    "description": "Resource advertisement retry timing",
+    "constants": {
+      "MAX_ADV_RETRIES": 4,
+      "TRAFFIC_TIMEOUT_FACTOR": 6,
+      "PROCESSING_GRACE": 1.0
+    },
+    "formula": "timeout = rtt * TRAFFIC_TIMEOUT_FACTOR + PROCESSING_GRACE",
+    "note": "If no part requests received within timeout, advertisement is resent up to MAX_ADV_RETRIES times",
+    "vectors": [
+      {
+        "description": "Advertisement retry at RTT=0.1s",
+        "rtt": 0.1,
+        "timeout_per_attempt": 1.6,
+        "max_retries": 4,
+        "attempts": [
+          {
+            "attempt": 0,
+            "is_initial": true,
+            "timeout_per_attempt": 1.6,
+            "retries_remaining": 4
+          },
+          {
+            "attempt": 1,
+            "is_initial": false,
+            "timeout_per_attempt": 1.6,
+            "retries_remaining": 3
+          },
+          {
+            "attempt": 2,
+            "is_initial": false,
+            "timeout_per_attempt": 1.6,
+            "retries_remaining": 2
+          },
+          {
+            "attempt": 3,
+            "is_initial": false,
+            "timeout_per_attempt": 1.6,
+            "retries_remaining": 1
+          },
+          {
+            "attempt": 4,
+            "is_initial": false,
+            "timeout_per_attempt": 1.6,
+            "retries_remaining": 0
+          }
+        ]
+      },
+      {
+        "description": "Advertisement retry at RTT=0.5s",
+        "rtt": 0.5,
+        "timeout_per_attempt": 4.0,
+        "max_retries": 4,
+        "attempts": [
+          {
+            "attempt": 0,
+            "is_initial": true,
+            "timeout_per_attempt": 4.0,
+            "retries_remaining": 4
+          },
+          {
+            "attempt": 1,
+            "is_initial": false,
+            "timeout_per_attempt": 4.0,
+            "retries_remaining": 3
+          },
+          {
+            "attempt": 2,
+            "is_initial": false,
+            "timeout_per_attempt": 4.0,
+            "retries_remaining": 2
+          },
+          {
+            "attempt": 3,
+            "is_initial": false,
+            "timeout_per_attempt": 4.0,
+            "retries_remaining": 1
+          },
+          {
+            "attempt": 4,
+            "is_initial": false,
+            "timeout_per_attempt": 4.0,
+            "retries_remaining": 0
+          }
+        ]
+      },
+      {
+        "description": "Advertisement retry at RTT=1.0s",
+        "rtt": 1.0,
+        "timeout_per_attempt": 7.0,
+        "max_retries": 4,
+        "attempts": [
+          {
+            "attempt": 0,
+            "is_initial": true,
+            "timeout_per_attempt": 7.0,
+            "retries_remaining": 4
+          },
+          {
+            "attempt": 1,
+            "is_initial": false,
+            "timeout_per_attempt": 7.0,
+            "retries_remaining": 3
+          },
+          {
+            "attempt": 2,
+            "is_initial": false,
+            "timeout_per_attempt": 7.0,
+            "retries_remaining": 2
+          },
+          {
+            "attempt": 3,
+            "is_initial": false,
+            "timeout_per_attempt": 7.0,
+            "retries_remaining": 1
+          },
+          {
+            "attempt": 4,
+            "is_initial": false,
+            "timeout_per_attempt": 7.0,
+            "retries_remaining": 0
+          }
+        ]
+      },
+      {
+        "description": "Advertisement retry at RTT=2.0s",
+        "rtt": 2.0,
+        "timeout_per_attempt": 13.0,
+        "max_retries": 4,
+        "attempts": [
+          {
+            "attempt": 0,
+            "is_initial": true,
+            "timeout_per_attempt": 13.0,
+            "retries_remaining": 4
+          },
+          {
+            "attempt": 1,
+            "is_initial": false,
+            "timeout_per_attempt": 13.0,
+            "retries_remaining": 3
+          },
+          {
+            "attempt": 2,
+            "is_initial": false,
+            "timeout_per_attempt": 13.0,
+            "retries_remaining": 2
+          },
+          {
+            "attempt": 3,
+            "is_initial": false,
+            "timeout_per_attempt": 13.0,
+            "retries_remaining": 1
+          },
+          {
+            "attempt": 4,
+            "is_initial": false,
+            "timeout_per_attempt": 13.0,
+            "retries_remaining": 0
+          }
+        ]
+      },
+      {
+        "description": "Advertisement retry at RTT=5.0s",
+        "rtt": 5.0,
+        "timeout_per_attempt": 31.0,
+        "max_retries": 4,
+        "attempts": [
+          {
+            "attempt": 0,
+            "is_initial": true,
+            "timeout_per_attempt": 31.0,
+            "retries_remaining": 4
+          },
+          {
+            "attempt": 1,
+            "is_initial": false,
+            "timeout_per_attempt": 31.0,
+            "retries_remaining": 3
+          },
+          {
+            "attempt": 2,
+            "is_initial": false,
+            "timeout_per_attempt": 31.0,
+            "retries_remaining": 2
+          },
+          {
+            "attempt": 3,
+            "is_initial": false,
+            "timeout_per_attempt": 31.0,
+            "retries_remaining": 1
+          },
+          {
+            "attempt": 4,
+            "is_initial": false,
+            "timeout_per_attempt": 31.0,
+            "retries_remaining": 0
+          }
+        ]
+      }
+    ]
+  },
+  "channel_timeout": {
+    "description": "Channel packet timeout formula",
+    "constants": {
+      "MAX_TRIES": 5
+    },
+    "formula": "pow(1.5, tries-1) * max(rtt*2.5, 0.025) * (tx_ring_length + 1.5)",
+    "notes": [
+      "tries starts at 1 for the initial send",
+      "When rtt*2.5 < 0.025, the minimum 0.025 is used",
+      "tx_ring_length is the current number of unacknowledged envelopes",
+      "On timeout, tries is incremented and packet is resent",
+      "If tries exceeds MAX_TRIES (5), the link is torn down"
+    ],
+    "worked_examples": [
+      {
+        "description": "First try, 100ms RTT, 1 packet in flight",
+        "tries": 1,
+        "rtt": 0.1,
+        "tx_ring_length": 1,
+        "pow_1_5_tries_minus_1": 1.0,
+        "max_rtt_times_2_5_or_0_025": 0.25,
+        "tx_ring_plus_1_5": 2.5,
+        "timeout": 0.625,
+        "formula": "pow(1.5, 1-1) * max(0.1*2.5, 0.025) * (1+1.5) = 1.0 * 0.25 * 2.5 = 0.625"
+      },
+      {
+        "description": "Third try, 500ms RTT, 3 packets in flight",
+        "tries": 3,
+        "rtt": 0.5,
+        "tx_ring_length": 3,
+        "pow_1_5_tries_minus_1": 2.25,
+        "max_rtt_times_2_5_or_0_025": 1.25,
+        "tx_ring_plus_1_5": 4.5,
+        "timeout": 12.65625,
+        "formula": "pow(1.5, 3-1) * max(0.5*2.5, 0.025) * (3+1.5) = 2.25 * 1.25 * 4.5 = 12.65625"
+      },
+      {
+        "description": "Max tries, 2s RTT, 5 packets in flight",
+        "tries": 5,
+        "rtt": 2.0,
+        "tx_ring_length": 5,
+        "pow_1_5_tries_minus_1": 5.0625,
+        "max_rtt_times_2_5_or_0_025": 5.0,
+        "tx_ring_plus_1_5": 6.5,
+        "timeout": 164.53125,
+        "formula": "pow(1.5, 5-1) * max(2.0*2.5, 0.025) * (5+1.5) = 5.0625 * 5.0 * 6.5 = 164.53125"
+      },
+      {
+        "description": "First try, 1ms RTT (uses min 0.025), 1 packet in flight",
+        "tries": 1,
+        "rtt": 0.001,
+        "tx_ring_length": 1,
+        "pow_1_5_tries_minus_1": 1.0,
+        "max_rtt_times_2_5_or_0_025": 0.025,
+        "tx_ring_plus_1_5": 2.5,
+        "timeout": 0.0625,
+        "formula": "pow(1.5, 1-1) * max(0.001*2.5, 0.025) * (1+1.5) = 1.0 * 0.025 * 2.5 = 0.0625"
+      }
+    ],
+    "full_matrix": [
+      {
+        "tries": 1,
+        "rtt": 0.01,
+        "tx_ring_length": 1,
+        "timeout": 0.0625
+      },
+      {
+        "tries": 1,
+        "rtt": 0.01,
+        "tx_ring_length": 2,
+        "timeout": 0.0875
+      },
+      {
+        "tries": 1,
+        "rtt": 0.01,
+        "tx_ring_length": 3,
+        "timeout": 0.1125
+      },
+      {
+        "tries": 1,
+        "rtt": 0.01,
+        "tx_ring_length": 4,
+        "timeout": 0.1375
+      },
+      {
+        "tries": 1,
+        "rtt": 0.01,
+        "tx_ring_length": 5,
+        "timeout": 0.1625
+      },
+      {
+        "tries": 1,
+        "rtt": 0.05,
+        "tx_ring_length": 1,
+        "timeout": 0.3125
+      },
+      {
+        "tries": 1,
+        "rtt": 0.05,
+        "tx_ring_length": 2,
+        "timeout": 0.4375
+      },
+      {
+        "tries": 1,
+        "rtt": 0.05,
+        "tx_ring_length": 3,
+        "timeout": 0.5625
+      },
+      {
+        "tries": 1,
+        "rtt": 0.05,
+        "tx_ring_length": 4,
+        "timeout": 0.6875
+      },
+      {
+        "tries": 1,
+        "rtt": 0.05,
+        "tx_ring_length": 5,
+        "timeout": 0.8125
+      },
+      {
+        "tries": 1,
+        "rtt": 0.1,
+        "tx_ring_length": 1,
+        "timeout": 0.625
+      },
+      {
+        "tries": 1,
+        "rtt": 0.1,
+        "tx_ring_length": 2,
+        "timeout": 0.875
+      },
+      {
+        "tries": 1,
+        "rtt": 0.1,
+        "tx_ring_length": 3,
+        "timeout": 1.125
+      },
+      {
+        "tries": 1,
+        "rtt": 0.1,
+        "tx_ring_length": 4,
+        "timeout": 1.375
+      },
+      {
+        "tries": 1,
+        "rtt": 0.1,
+        "tx_ring_length": 5,
+        "timeout": 1.625
+      },
+      {
+        "tries": 1,
+        "rtt": 0.5,
+        "tx_ring_length": 1,
+        "timeout": 3.125
+      },
+      {
+        "tries": 1,
+        "rtt": 0.5,
+        "tx_ring_length": 2,
+        "timeout": 4.375
+      },
+      {
+        "tries": 1,
+        "rtt": 0.5,
+        "tx_ring_length": 3,
+        "timeout": 5.625
+      },
+      {
+        "tries": 1,
+        "rtt": 0.5,
+        "tx_ring_length": 4,
+        "timeout": 6.875
+      },
+      {
+        "tries": 1,
+        "rtt": 0.5,
+        "tx_ring_length": 5,
+        "timeout": 8.125
+      },
+      {
+        "tries": 1,
+        "rtt": 1.0,
+        "tx_ring_length": 1,
+        "timeout": 6.25
+      },
+      {
+        "tries": 1,
+        "rtt": 1.0,
+        "tx_ring_length": 2,
+        "timeout": 8.75
+      },
+      {
+        "tries": 1,
+        "rtt": 1.0,
+        "tx_ring_length": 3,
+        "timeout": 11.25
+      },
+      {
+        "tries": 1,
+        "rtt": 1.0,
+        "tx_ring_length": 4,
+        "timeout": 13.75
+      },
+      {
+        "tries": 1,
+        "rtt": 1.0,
+        "tx_ring_length": 5,
+        "timeout": 16.25
+      },
+      {
+        "tries": 1,
+        "rtt": 2.0,
+        "tx_ring_length": 1,
+        "timeout": 12.5
+      },
+      {
+        "tries": 1,
+        "rtt": 2.0,
+        "tx_ring_length": 2,
+        "timeout": 17.5
+      },
+      {
+        "tries": 1,
+        "rtt": 2.0,
+        "tx_ring_length": 3,
+        "timeout": 22.5
+      },
+      {
+        "tries": 1,
+        "rtt": 2.0,
+        "tx_ring_length": 4,
+        "timeout": 27.5
+      },
+      {
+        "tries": 1,
+        "rtt": 2.0,
+        "tx_ring_length": 5,
+        "timeout": 32.5
+      },
+      {
+        "tries": 1,
+        "rtt": 5.0,
+        "tx_ring_length": 1,
+        "timeout": 31.25
+      },
+      {
+        "tries": 1,
+        "rtt": 5.0,
+        "tx_ring_length": 2,
+        "timeout": 43.75
+      },
+      {
+        "tries": 1,
+        "rtt": 5.0,
+        "tx_ring_length": 3,
+        "timeout": 56.25
+      },
+      {
+        "tries": 1,
+        "rtt": 5.0,
+        "tx_ring_length": 4,
+        "timeout": 68.75
+      },
+      {
+        "tries": 1,
+        "rtt": 5.0,
+        "tx_ring_length": 5,
+        "timeout": 81.25
+      },
+      {
+        "tries": 2,
+        "rtt": 0.01,
+        "tx_ring_length": 1,
+        "timeout": 0.09375
+      },
+      {
+        "tries": 2,
+        "rtt": 0.01,
+        "tx_ring_length": 2,
+        "timeout": 0.13125
+      },
+      {
+        "tries": 2,
+        "rtt": 0.01,
+        "tx_ring_length": 3,
+        "timeout": 0.16875
+      },
+      {
+        "tries": 2,
+        "rtt": 0.01,
+        "tx_ring_length": 4,
+        "timeout": 0.20625
+      },
+      {
+        "tries": 2,
+        "rtt": 0.01,
+        "tx_ring_length": 5,
+        "timeout": 0.24375
+      },
+      {
+        "tries": 2,
+        "rtt": 0.05,
+        "tx_ring_length": 1,
+        "timeout": 0.46875
+      },
+      {
+        "tries": 2,
+        "rtt": 0.05,
+        "tx_ring_length": 2,
+        "timeout": 0.65625
+      },
+      {
+        "tries": 2,
+        "rtt": 0.05,
+        "tx_ring_length": 3,
+        "timeout": 0.84375
+      },
+      {
+        "tries": 2,
+        "rtt": 0.05,
+        "tx_ring_length": 4,
+        "timeout": 1.03125
+      },
+      {
+        "tries": 2,
+        "rtt": 0.05,
+        "tx_ring_length": 5,
+        "timeout": 1.21875
+      },
+      {
+        "tries": 2,
+        "rtt": 0.1,
+        "tx_ring_length": 1,
+        "timeout": 0.9375
+      },
+      {
+        "tries": 2,
+        "rtt": 0.1,
+        "tx_ring_length": 2,
+        "timeout": 1.3125
+      },
+      {
+        "tries": 2,
+        "rtt": 0.1,
+        "tx_ring_length": 3,
+        "timeout": 1.6875
+      },
+      {
+        "tries": 2,
+        "rtt": 0.1,
+        "tx_ring_length": 4,
+        "timeout": 2.0625
+      },
+      {
+        "tries": 2,
+        "rtt": 0.1,
+        "tx_ring_length": 5,
+        "timeout": 2.4375
+      },
+      {
+        "tries": 2,
+        "rtt": 0.5,
+        "tx_ring_length": 1,
+        "timeout": 4.6875
+      },
+      {
+        "tries": 2,
+        "rtt": 0.5,
+        "tx_ring_length": 2,
+        "timeout": 6.5625
+      },
+      {
+        "tries": 2,
+        "rtt": 0.5,
+        "tx_ring_length": 3,
+        "timeout": 8.4375
+      },
+      {
+        "tries": 2,
+        "rtt": 0.5,
+        "tx_ring_length": 4,
+        "timeout": 10.3125
+      },
+      {
+        "tries": 2,
+        "rtt": 0.5,
+        "tx_ring_length": 5,
+        "timeout": 12.1875
+      },
+      {
+        "tries": 2,
+        "rtt": 1.0,
+        "tx_ring_length": 1,
+        "timeout": 9.375
+      },
+      {
+        "tries": 2,
+        "rtt": 1.0,
+        "tx_ring_length": 2,
+        "timeout": 13.125
+      },
+      {
+        "tries": 2,
+        "rtt": 1.0,
+        "tx_ring_length": 3,
+        "timeout": 16.875
+      },
+      {
+        "tries": 2,
+        "rtt": 1.0,
+        "tx_ring_length": 4,
+        "timeout": 20.625
+      },
+      {
+        "tries": 2,
+        "rtt": 1.0,
+        "tx_ring_length": 5,
+        "timeout": 24.375
+      },
+      {
+        "tries": 2,
+        "rtt": 2.0,
+        "tx_ring_length": 1,
+        "timeout": 18.75
+      },
+      {
+        "tries": 2,
+        "rtt": 2.0,
+        "tx_ring_length": 2,
+        "timeout": 26.25
+      },
+      {
+        "tries": 2,
+        "rtt": 2.0,
+        "tx_ring_length": 3,
+        "timeout": 33.75
+      },
+      {
+        "tries": 2,
+        "rtt": 2.0,
+        "tx_ring_length": 4,
+        "timeout": 41.25
+      },
+      {
+        "tries": 2,
+        "rtt": 2.0,
+        "tx_ring_length": 5,
+        "timeout": 48.75
+      },
+      {
+        "tries": 2,
+        "rtt": 5.0,
+        "tx_ring_length": 1,
+        "timeout": 46.875
+      },
+      {
+        "tries": 2,
+        "rtt": 5.0,
+        "tx_ring_length": 2,
+        "timeout": 65.625
+      },
+      {
+        "tries": 2,
+        "rtt": 5.0,
+        "tx_ring_length": 3,
+        "timeout": 84.375
+      },
+      {
+        "tries": 2,
+        "rtt": 5.0,
+        "tx_ring_length": 4,
+        "timeout": 103.125
+      },
+      {
+        "tries": 2,
+        "rtt": 5.0,
+        "tx_ring_length": 5,
+        "timeout": 121.875
+      },
+      {
+        "tries": 3,
+        "rtt": 0.01,
+        "tx_ring_length": 1,
+        "timeout": 0.140625
+      },
+      {
+        "tries": 3,
+        "rtt": 0.01,
+        "tx_ring_length": 2,
+        "timeout": 0.196875
+      },
+      {
+        "tries": 3,
+        "rtt": 0.01,
+        "tx_ring_length": 3,
+        "timeout": 0.253125
+      },
+      {
+        "tries": 3,
+        "rtt": 0.01,
+        "tx_ring_length": 4,
+        "timeout": 0.309375
+      },
+      {
+        "tries": 3,
+        "rtt": 0.01,
+        "tx_ring_length": 5,
+        "timeout": 0.365625
+      },
+      {
+        "tries": 3,
+        "rtt": 0.05,
+        "tx_ring_length": 1,
+        "timeout": 0.703125
+      },
+      {
+        "tries": 3,
+        "rtt": 0.05,
+        "tx_ring_length": 2,
+        "timeout": 0.984375
+      },
+      {
+        "tries": 3,
+        "rtt": 0.05,
+        "tx_ring_length": 3,
+        "timeout": 1.265625
+      },
+      {
+        "tries": 3,
+        "rtt": 0.05,
+        "tx_ring_length": 4,
+        "timeout": 1.546875
+      },
+      {
+        "tries": 3,
+        "rtt": 0.05,
+        "tx_ring_length": 5,
+        "timeout": 1.828125
+      },
+      {
+        "tries": 3,
+        "rtt": 0.1,
+        "tx_ring_length": 1,
+        "timeout": 1.40625
+      },
+      {
+        "tries": 3,
+        "rtt": 0.1,
+        "tx_ring_length": 2,
+        "timeout": 1.96875
+      },
+      {
+        "tries": 3,
+        "rtt": 0.1,
+        "tx_ring_length": 3,
+        "timeout": 2.53125
+      },
+      {
+        "tries": 3,
+        "rtt": 0.1,
+        "tx_ring_length": 4,
+        "timeout": 3.09375
+      },
+      {
+        "tries": 3,
+        "rtt": 0.1,
+        "tx_ring_length": 5,
+        "timeout": 3.65625
+      },
+      {
+        "tries": 3,
+        "rtt": 0.5,
+        "tx_ring_length": 1,
+        "timeout": 7.03125
+      },
+      {
+        "tries": 3,
+        "rtt": 0.5,
+        "tx_ring_length": 2,
+        "timeout": 9.84375
+      },
+      {
+        "tries": 3,
+        "rtt": 0.5,
+        "tx_ring_length": 3,
+        "timeout": 12.65625
+      },
+      {
+        "tries": 3,
+        "rtt": 0.5,
+        "tx_ring_length": 4,
+        "timeout": 15.46875
+      },
+      {
+        "tries": 3,
+        "rtt": 0.5,
+        "tx_ring_length": 5,
+        "timeout": 18.28125
+      },
+      {
+        "tries": 3,
+        "rtt": 1.0,
+        "tx_ring_length": 1,
+        "timeout": 14.0625
+      },
+      {
+        "tries": 3,
+        "rtt": 1.0,
+        "tx_ring_length": 2,
+        "timeout": 19.6875
+      },
+      {
+        "tries": 3,
+        "rtt": 1.0,
+        "tx_ring_length": 3,
+        "timeout": 25.3125
+      },
+      {
+        "tries": 3,
+        "rtt": 1.0,
+        "tx_ring_length": 4,
+        "timeout": 30.9375
+      },
+      {
+        "tries": 3,
+        "rtt": 1.0,
+        "tx_ring_length": 5,
+        "timeout": 36.5625
+      },
+      {
+        "tries": 3,
+        "rtt": 2.0,
+        "tx_ring_length": 1,
+        "timeout": 28.125
+      },
+      {
+        "tries": 3,
+        "rtt": 2.0,
+        "tx_ring_length": 2,
+        "timeout": 39.375
+      },
+      {
+        "tries": 3,
+        "rtt": 2.0,
+        "tx_ring_length": 3,
+        "timeout": 50.625
+      },
+      {
+        "tries": 3,
+        "rtt": 2.0,
+        "tx_ring_length": 4,
+        "timeout": 61.875
+      },
+      {
+        "tries": 3,
+        "rtt": 2.0,
+        "tx_ring_length": 5,
+        "timeout": 73.125
+      },
+      {
+        "tries": 3,
+        "rtt": 5.0,
+        "tx_ring_length": 1,
+        "timeout": 70.3125
+      },
+      {
+        "tries": 3,
+        "rtt": 5.0,
+        "tx_ring_length": 2,
+        "timeout": 98.4375
+      },
+      {
+        "tries": 3,
+        "rtt": 5.0,
+        "tx_ring_length": 3,
+        "timeout": 126.5625
+      },
+      {
+        "tries": 3,
+        "rtt": 5.0,
+        "tx_ring_length": 4,
+        "timeout": 154.6875
+      },
+      {
+        "tries": 3,
+        "rtt": 5.0,
+        "tx_ring_length": 5,
+        "timeout": 182.8125
+      },
+      {
+        "tries": 4,
+        "rtt": 0.01,
+        "tx_ring_length": 1,
+        "timeout": 0.2109375
+      },
+      {
+        "tries": 4,
+        "rtt": 0.01,
+        "tx_ring_length": 2,
+        "timeout": 0.2953125
+      },
+      {
+        "tries": 4,
+        "rtt": 0.01,
+        "tx_ring_length": 3,
+        "timeout": 0.3796875
+      },
+      {
+        "tries": 4,
+        "rtt": 0.01,
+        "tx_ring_length": 4,
+        "timeout": 0.4640625
+      },
+      {
+        "tries": 4,
+        "rtt": 0.01,
+        "tx_ring_length": 5,
+        "timeout": 0.5484375
+      },
+      {
+        "tries": 4,
+        "rtt": 0.05,
+        "tx_ring_length": 1,
+        "timeout": 1.0546875
+      },
+      {
+        "tries": 4,
+        "rtt": 0.05,
+        "tx_ring_length": 2,
+        "timeout": 1.4765625
+      },
+      {
+        "tries": 4,
+        "rtt": 0.05,
+        "tx_ring_length": 3,
+        "timeout": 1.8984375
+      },
+      {
+        "tries": 4,
+        "rtt": 0.05,
+        "tx_ring_length": 4,
+        "timeout": 2.3203125
+      },
+      {
+        "tries": 4,
+        "rtt": 0.05,
+        "tx_ring_length": 5,
+        "timeout": 2.7421875
+      },
+      {
+        "tries": 4,
+        "rtt": 0.1,
+        "tx_ring_length": 1,
+        "timeout": 2.109375
+      },
+      {
+        "tries": 4,
+        "rtt": 0.1,
+        "tx_ring_length": 2,
+        "timeout": 2.953125
+      },
+      {
+        "tries": 4,
+        "rtt": 0.1,
+        "tx_ring_length": 3,
+        "timeout": 3.796875
+      },
+      {
+        "tries": 4,
+        "rtt": 0.1,
+        "tx_ring_length": 4,
+        "timeout": 4.640625
+      },
+      {
+        "tries": 4,
+        "rtt": 0.1,
+        "tx_ring_length": 5,
+        "timeout": 5.484375
+      },
+      {
+        "tries": 4,
+        "rtt": 0.5,
+        "tx_ring_length": 1,
+        "timeout": 10.546875
+      },
+      {
+        "tries": 4,
+        "rtt": 0.5,
+        "tx_ring_length": 2,
+        "timeout": 14.765625
+      },
+      {
+        "tries": 4,
+        "rtt": 0.5,
+        "tx_ring_length": 3,
+        "timeout": 18.984375
+      },
+      {
+        "tries": 4,
+        "rtt": 0.5,
+        "tx_ring_length": 4,
+        "timeout": 23.203125
+      },
+      {
+        "tries": 4,
+        "rtt": 0.5,
+        "tx_ring_length": 5,
+        "timeout": 27.421875
+      },
+      {
+        "tries": 4,
+        "rtt": 1.0,
+        "tx_ring_length": 1,
+        "timeout": 21.09375
+      },
+      {
+        "tries": 4,
+        "rtt": 1.0,
+        "tx_ring_length": 2,
+        "timeout": 29.53125
+      },
+      {
+        "tries": 4,
+        "rtt": 1.0,
+        "tx_ring_length": 3,
+        "timeout": 37.96875
+      },
+      {
+        "tries": 4,
+        "rtt": 1.0,
+        "tx_ring_length": 4,
+        "timeout": 46.40625
+      },
+      {
+        "tries": 4,
+        "rtt": 1.0,
+        "tx_ring_length": 5,
+        "timeout": 54.84375
+      },
+      {
+        "tries": 4,
+        "rtt": 2.0,
+        "tx_ring_length": 1,
+        "timeout": 42.1875
+      },
+      {
+        "tries": 4,
+        "rtt": 2.0,
+        "tx_ring_length": 2,
+        "timeout": 59.0625
+      },
+      {
+        "tries": 4,
+        "rtt": 2.0,
+        "tx_ring_length": 3,
+        "timeout": 75.9375
+      },
+      {
+        "tries": 4,
+        "rtt": 2.0,
+        "tx_ring_length": 4,
+        "timeout": 92.8125
+      },
+      {
+        "tries": 4,
+        "rtt": 2.0,
+        "tx_ring_length": 5,
+        "timeout": 109.6875
+      },
+      {
+        "tries": 4,
+        "rtt": 5.0,
+        "tx_ring_length": 1,
+        "timeout": 105.46875
+      },
+      {
+        "tries": 4,
+        "rtt": 5.0,
+        "tx_ring_length": 2,
+        "timeout": 147.65625
+      },
+      {
+        "tries": 4,
+        "rtt": 5.0,
+        "tx_ring_length": 3,
+        "timeout": 189.84375
+      },
+      {
+        "tries": 4,
+        "rtt": 5.0,
+        "tx_ring_length": 4,
+        "timeout": 232.03125
+      },
+      {
+        "tries": 4,
+        "rtt": 5.0,
+        "tx_ring_length": 5,
+        "timeout": 274.21875
+      },
+      {
+        "tries": 5,
+        "rtt": 0.01,
+        "tx_ring_length": 1,
+        "timeout": 0.31640625
+      },
+      {
+        "tries": 5,
+        "rtt": 0.01,
+        "tx_ring_length": 2,
+        "timeout": 0.44296875
+      },
+      {
+        "tries": 5,
+        "rtt": 0.01,
+        "tx_ring_length": 3,
+        "timeout": 0.56953125
+      },
+      {
+        "tries": 5,
+        "rtt": 0.01,
+        "tx_ring_length": 4,
+        "timeout": 0.69609375
+      },
+      {
+        "tries": 5,
+        "rtt": 0.01,
+        "tx_ring_length": 5,
+        "timeout": 0.82265625
+      },
+      {
+        "tries": 5,
+        "rtt": 0.05,
+        "tx_ring_length": 1,
+        "timeout": 1.58203125
+      },
+      {
+        "tries": 5,
+        "rtt": 0.05,
+        "tx_ring_length": 2,
+        "timeout": 2.21484375
+      },
+      {
+        "tries": 5,
+        "rtt": 0.05,
+        "tx_ring_length": 3,
+        "timeout": 2.84765625
+      },
+      {
+        "tries": 5,
+        "rtt": 0.05,
+        "tx_ring_length": 4,
+        "timeout": 3.48046875
+      },
+      {
+        "tries": 5,
+        "rtt": 0.05,
+        "tx_ring_length": 5,
+        "timeout": 4.11328125
+      },
+      {
+        "tries": 5,
+        "rtt": 0.1,
+        "tx_ring_length": 1,
+        "timeout": 3.1640625
+      },
+      {
+        "tries": 5,
+        "rtt": 0.1,
+        "tx_ring_length": 2,
+        "timeout": 4.4296875
+      },
+      {
+        "tries": 5,
+        "rtt": 0.1,
+        "tx_ring_length": 3,
+        "timeout": 5.6953125
+      },
+      {
+        "tries": 5,
+        "rtt": 0.1,
+        "tx_ring_length": 4,
+        "timeout": 6.9609375
+      },
+      {
+        "tries": 5,
+        "rtt": 0.1,
+        "tx_ring_length": 5,
+        "timeout": 8.2265625
+      },
+      {
+        "tries": 5,
+        "rtt": 0.5,
+        "tx_ring_length": 1,
+        "timeout": 15.8203125
+      },
+      {
+        "tries": 5,
+        "rtt": 0.5,
+        "tx_ring_length": 2,
+        "timeout": 22.1484375
+      },
+      {
+        "tries": 5,
+        "rtt": 0.5,
+        "tx_ring_length": 3,
+        "timeout": 28.4765625
+      },
+      {
+        "tries": 5,
+        "rtt": 0.5,
+        "tx_ring_length": 4,
+        "timeout": 34.8046875
+      },
+      {
+        "tries": 5,
+        "rtt": 0.5,
+        "tx_ring_length": 5,
+        "timeout": 41.1328125
+      },
+      {
+        "tries": 5,
+        "rtt": 1.0,
+        "tx_ring_length": 1,
+        "timeout": 31.640625
+      },
+      {
+        "tries": 5,
+        "rtt": 1.0,
+        "tx_ring_length": 2,
+        "timeout": 44.296875
+      },
+      {
+        "tries": 5,
+        "rtt": 1.0,
+        "tx_ring_length": 3,
+        "timeout": 56.953125
+      },
+      {
+        "tries": 5,
+        "rtt": 1.0,
+        "tx_ring_length": 4,
+        "timeout": 69.609375
+      },
+      {
+        "tries": 5,
+        "rtt": 1.0,
+        "tx_ring_length": 5,
+        "timeout": 82.265625
+      },
+      {
+        "tries": 5,
+        "rtt": 2.0,
+        "tx_ring_length": 1,
+        "timeout": 63.28125
+      },
+      {
+        "tries": 5,
+        "rtt": 2.0,
+        "tx_ring_length": 2,
+        "timeout": 88.59375
+      },
+      {
+        "tries": 5,
+        "rtt": 2.0,
+        "tx_ring_length": 3,
+        "timeout": 113.90625
+      },
+      {
+        "tries": 5,
+        "rtt": 2.0,
+        "tx_ring_length": 4,
+        "timeout": 139.21875
+      },
+      {
+        "tries": 5,
+        "rtt": 2.0,
+        "tx_ring_length": 5,
+        "timeout": 164.53125
+      },
+      {
+        "tries": 5,
+        "rtt": 5.0,
+        "tx_ring_length": 1,
+        "timeout": 158.203125
+      },
+      {
+        "tries": 5,
+        "rtt": 5.0,
+        "tx_ring_length": 2,
+        "timeout": 221.484375
+      },
+      {
+        "tries": 5,
+        "rtt": 5.0,
+        "tx_ring_length": 3,
+        "timeout": 284.765625
+      },
+      {
+        "tries": 5,
+        "rtt": 5.0,
+        "tx_ring_length": 4,
+        "timeout": 348.046875
+      },
+      {
+        "tries": 5,
+        "rtt": 5.0,
+        "tx_ring_length": 5,
+        "timeout": 411.328125
+      }
+    ]
+  }
+}
