@@ -5,8 +5,8 @@ edition = "2024"
 authors = ["Matthew Remmel <matt@remmel.dev>"]
 license-file = "LICENSE"
 description = "A Rust implementation of the Reticulum network stack"
-homepage = "https://github.com/bellrock-cc/rusticulum"
-repository = "https://github.com/bellrock-cc/rusticulum"
+homepage = "https://github.com/mattremmel/rusticulum"
+repository = "https://github.com/mattremmel/rusticulum"
 readme = "README.md"
 
 [dependencies]
