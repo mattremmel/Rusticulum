@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Rusticulum is a Rust implementation of the Reticulum encrypted mesh networking protocol (targeting interop with Python reference v1.1.3). The project is in early development — source is a library skeleton with a comprehensive implementation plan and 17 JSON test vector files ready for validation.
+Rusticulum is a Rust implementation of the Reticulum encrypted mesh networking protocol (targeting interop with Python reference v1.1.3). The project is in early development — source is a library skeleton with a comprehensive implementation plan and 17 JSON test vector files ready for validation. The Python reference implementation is available at `.reference/reticulum/` for consulting when clarification on protocol behavior is needed.
 
 ## Build & Test Commands
 
