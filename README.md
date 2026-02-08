@@ -1,2 +1,2 @@
-# rusticulum
+# Rusticulum
 Rust implementation of Reticulum 
