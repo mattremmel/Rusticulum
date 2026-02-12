@@ -616,6 +616,7 @@ version = "0.1.0"
 dependencies = [
  "hex",
  "reticulum-crypto",
+ "reticulum-test-vectors",
  "rmpv",
  "serde",
  "serde_json",

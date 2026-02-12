@@ -1,0 +1,119 @@
+//! Packet context type enumeration.
+//!
+//! Context types identify the purpose of a packet's data payload,
+//! enabling multiplexing of different protocol functions over the same link.
+
+use crate::error::PacketError;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum ContextType {
+    None = 0,
+    Resource = 1,
+    ResourceAdv = 2,
+    ResourceReq = 3,
+    ResourceHmu = 4,
+    ResourcePrf = 5,
+    ResourceIcl = 6,
+    ResourceRcl = 7,
+    CacheRequest = 8,
+    Request = 9,
+    Response = 10,
+    PathResponse = 11,
+    Command = 12,
+    CommandStatus = 13,
+    Channel = 14,
+    Keepalive = 250,
+    LinkIdentify = 251,
+    LinkClose = 252,
+    LinkProof = 253,
+    Lrrtt = 254,
+    Lrproof = 255,
+}
+
+impl ContextType {
+    pub fn from_byte(byte: u8) -> Result<Self, PacketError> {
+        match byte {
+            0 => Ok(ContextType::None),
+            1 => Ok(ContextType::Resource),
+            2 => Ok(ContextType::ResourceAdv),
+            3 => Ok(ContextType::ResourceReq),
+            4 => Ok(ContextType::ResourceHmu),
+            5 => Ok(ContextType::ResourcePrf),
+            6 => Ok(ContextType::ResourceIcl),
+            7 => Ok(ContextType::ResourceRcl),
+            8 => Ok(ContextType::CacheRequest),
+            9 => Ok(ContextType::Request),
+            10 => Ok(ContextType::Response),
+            11 => Ok(ContextType::PathResponse),
+            12 => Ok(ContextType::Command),
+            13 => Ok(ContextType::CommandStatus),
+            14 => Ok(ContextType::Channel),
+            250 => Ok(ContextType::Keepalive),
+            251 => Ok(ContextType::LinkIdentify),
+            252 => Ok(ContextType::LinkClose),
+            253 => Ok(ContextType::LinkProof),
+            254 => Ok(ContextType::Lrrtt),
+            255 => Ok(ContextType::Lrproof),
+            _ => Err(PacketError::InvalidContextType(byte)),
+        }
+    }
+
+    pub fn to_byte(&self) -> u8 {
+        *self as u8
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_context_type_values_match_test_vectors() {
+        let v = reticulum_test_vectors::packet_headers::load();
+        let ctv = &v.context_type_values;
+
+        let expected: &[(&str, u8)] = &[
+            ("NONE", 0),
+            ("RESOURCE", 1),
+            ("RESOURCE_ADV", 2),
+            ("RESOURCE_REQ", 3),
+            ("RESOURCE_HMU", 4),
+            ("RESOURCE_PRF", 5),
+            ("RESOURCE_ICL", 6),
+            ("RESOURCE_RCL", 7),
+            ("CACHE_REQUEST", 8),
+            ("REQUEST", 9),
+            ("RESPONSE", 10),
+            ("PATH_RESPONSE", 11),
+            ("COMMAND", 12),
+            ("COMMAND_STATUS", 13),
+            ("CHANNEL", 14),
+            ("KEEPALIVE", 250),
+            ("LINKIDENTIFY", 251),
+            ("LINKCLOSE", 252),
+            ("LINKPROOF", 253),
+            ("LRRTT", 254),
+            ("LRPROOF", 255),
+        ];
+
+        for &(name, value) in expected {
+            assert_eq!(
+                ctv[name].as_u64().unwrap(),
+                value as u64,
+                "context type value mismatch for {name}"
+            );
+            // Verify our enum roundtrips
+            let ct = ContextType::from_byte(value).unwrap();
+            assert_eq!(ct.to_byte(), value, "roundtrip failed for {name}");
+        }
+    }
+
+    #[test]
+    fn test_context_type_invalid() {
+        // Values between 15 and 249 are invalid
+        for v in [15, 16, 100, 200, 249] {
+            assert!(ContextType::from_byte(v).is_err());
+        }
+    }
+}
