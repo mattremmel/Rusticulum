@@ -682,6 +682,7 @@ dependencies = [
  "hex",
  "reticulum-core",
  "reticulum-crypto",
+ "reticulum-test-vectors",
  "rmpv",
  "serde",
  "serde_json",

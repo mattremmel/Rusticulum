@@ -1,0 +1,134 @@
+//! Tests for protocol error types.
+
+use reticulum_core::error::{IdentityError, PacketError};
+use reticulum_crypto::CryptoError;
+use reticulum_protocol::error::{
+    BufferError, ChannelError, LinkError, RequestError, ResourceError,
+};
+
+#[test]
+fn link_error_display_handshake_failed() {
+    let err = LinkError::HandshakeFailed("timeout".into());
+    assert_eq!(err.to_string(), "handshake failed: timeout");
+}
+
+#[test]
+fn link_error_display_invalid_proof() {
+    let err = LinkError::InvalidProof;
+    assert_eq!(err.to_string(), "invalid link proof");
+}
+
+#[test]
+fn link_error_display_invalid_state() {
+    let err = LinkError::InvalidState {
+        expected: "ACTIVE",
+        actual: "PENDING",
+    };
+    assert_eq!(
+        err.to_string(),
+        "invalid state: expected ACTIVE, got PENDING"
+    );
+}
+
+#[test]
+fn link_error_display_unsupported_mode() {
+    let err = LinkError::UnsupportedMode(42);
+    assert_eq!(err.to_string(), "unsupported link mode: 42");
+}
+
+#[test]
+fn link_error_from_crypto_error() {
+    let crypto_err = CryptoError::DecryptionFailed;
+    let link_err: LinkError = crypto_err.into();
+    assert!(matches!(link_err, LinkError::EncryptionFailed(_)));
+    assert!(link_err.to_string().contains("decryption failed"));
+}
+
+#[test]
+fn link_error_from_identity_error() {
+    let id_err = IdentityError::NoPrivateKey;
+    let link_err: LinkError = id_err.into();
+    assert!(matches!(link_err, LinkError::IdentityError(_)));
+}
+
+#[test]
+fn link_error_from_packet_error() {
+    let pkt_err = PacketError::InvalidHeaderType(0xFF);
+    let link_err: LinkError = pkt_err.into();
+    assert!(matches!(link_err, LinkError::PacketError(_)));
+}
+
+#[test]
+fn channel_error_display_not_ready() {
+    let err = ChannelError::NotReady;
+    assert_eq!(err.to_string(), "channel not ready");
+}
+
+#[test]
+fn channel_error_display_message_too_large() {
+    let err = ChannelError::MessageTooLarge {
+        size: 1024,
+        max: 512,
+    };
+    assert_eq!(err.to_string(), "message too large: 1024 bytes (max 512)");
+}
+
+#[test]
+fn channel_error_from_link_error() {
+    let link_err = LinkError::InvalidProof;
+    let chan_err: ChannelError = link_err.into();
+    assert!(matches!(chan_err, ChannelError::LinkError(_)));
+}
+
+#[test]
+fn resource_error_from_link_error() {
+    let link_err = LinkError::NoPrivateKey;
+    let res_err: ResourceError = link_err.into();
+    assert!(matches!(res_err, ResourceError::LinkError(_)));
+}
+
+#[test]
+fn resource_error_from_channel_error() {
+    let chan_err = ChannelError::NotReady;
+    let res_err: ResourceError = chan_err.into();
+    assert!(matches!(res_err, ResourceError::ChannelError(_)));
+}
+
+#[test]
+fn buffer_error_from_channel_error() {
+    let chan_err = ChannelError::NotReady;
+    let buf_err: BufferError = chan_err.into();
+    assert!(matches!(buf_err, BufferError::ChannelError(_)));
+}
+
+#[test]
+fn request_error_from_link_error() {
+    let link_err = LinkError::InvalidProof;
+    let req_err: RequestError = link_err.into();
+    assert!(matches!(req_err, RequestError::LinkError(_)));
+}
+
+#[test]
+fn request_error_from_resource_error() {
+    let res_err = ResourceError::Timeout;
+    let req_err: RequestError = res_err.into();
+    assert!(matches!(req_err, RequestError::ResourceError(_)));
+}
+
+#[test]
+fn request_error_display_timeout() {
+    let err = RequestError::Timeout;
+    assert_eq!(err.to_string(), "request timed out");
+}
+
+#[test]
+fn resource_error_display_too_large() {
+    let err = ResourceError::TooLarge(999999);
+    assert_eq!(err.to_string(), "resource too large: 999999 bytes");
+}
+
+#[test]
+fn buffer_error_display_closed() {
+    let err = BufferError::Closed;
+    assert_eq!(err.to_string(), "buffer closed");
+}
