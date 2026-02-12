@@ -1,12 +1,63 @@
-[package]
-name = "rusticulum"
-version = "0.1.0"
+[workspace]
+members = [
+    "crates/reticulum-crypto",
+    "crates/reticulum-core",
+    "crates/reticulum-protocol",
+    "crates/reticulum-transport",
+    "crates/reticulum-interfaces",
+    "crates/reticulum-node",
+    "crates/reticulum-test-vectors",
+]
+resolver = "3"
+
+[workspace.package]
 edition = "2024"
 authors = ["Matthew Remmel <matt@remmel.dev>"]
 license-file = "LICENSE"
-description = "A Rust implementation of the Reticulum network stack"
 homepage = "https://github.com/mattremmel/rusticulum"
 repository = "https://github.com/mattremmel/rusticulum"
-readme = "README.md"
 
-[dependencies]
+[workspace.dependencies]
+# Internal crates
+reticulum-crypto = { path = "crates/reticulum-crypto", default-features = false }
+reticulum-core = { path = "crates/reticulum-core", default-features = false }
+reticulum-protocol = { path = "crates/reticulum-protocol" }
+reticulum-transport = { path = "crates/reticulum-transport" }
+reticulum-interfaces = { path = "crates/reticulum-interfaces" }
+reticulum-node = { path = "crates/reticulum-node" }
+reticulum-test-vectors = { path = "crates/reticulum-test-vectors" }
+
+# Crypto (RustCrypto family)
+sha2 = "0.10"
+hmac = "0.12"
+hkdf = "0.12"
+aes = "0.8"
+cbc = "0.1"
+x25519-dalek = { version = "2", features = ["static_secrets"] }
+ed25519-dalek = { version = "2", features = ["rand_core"] }
+rand = "0.8"
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+rmpv = "1"
+hex = "0.4"
+
+# Async
+tokio = { version = "1", features = ["full"] }
+
+# Compression
+bzip2 = "0.4"
+
+# Error handling
+thiserror = "2"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# CLI
+clap = { version = "4", features = ["derive"] }
+
+# Testing
+criterion = "0.5"

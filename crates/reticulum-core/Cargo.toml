@@ -1,0 +1,25 @@
+[package]
+name = "reticulum-core"
+version = "0.1.0"
+description = "Core types, constants, and wire formats for the Reticulum network stack"
+edition.workspace = true
+authors.workspace = true
+license-file.workspace = true
+homepage.workspace = true
+repository.workspace = true
+
+[features]
+default = ["std"]
+std = ["reticulum-crypto/std", "tracing"]
+tracing = ["dep:tracing", "reticulum-crypto/tracing"]
+
+[dependencies]
+reticulum-crypto = { workspace = true }
+serde = { workspace = true }
+rmpv = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true, optional = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }
+hex = { workspace = true }

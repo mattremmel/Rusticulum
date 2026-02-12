@@ -1,0 +1,22 @@
+[package]
+name = "reticulum-protocol"
+version = "0.1.0"
+description = "Protocol state machines for the Reticulum network stack"
+edition.workspace = true
+authors.workspace = true
+license-file.workspace = true
+homepage.workspace = true
+repository.workspace = true
+
+[dependencies]
+reticulum-core = { workspace = true, features = ["std"] }
+reticulum-crypto = { workspace = true, features = ["std"] }
+rmpv = { workspace = true }
+bzip2 = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+hex = { workspace = true }
