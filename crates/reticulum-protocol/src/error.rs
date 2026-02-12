@@ -92,6 +92,9 @@ pub enum BufferError {
     #[error("compression failed: {0}")]
     CompressionFailed(String),
 
+    #[error("decompression failed: {0}")]
+    DecompressionFailed(String),
+
     #[error("invalid stream header")]
     InvalidStreamHeader,
 
