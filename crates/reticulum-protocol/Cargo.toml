@@ -20,4 +20,5 @@ tracing = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 hex = { workspace = true }
+proptest = { workspace = true }
 reticulum-test-vectors = { path = "../reticulum-test-vectors" }

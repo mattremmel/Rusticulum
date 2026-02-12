@@ -61,3 +61,4 @@ clap = { version = "4", features = ["derive"] }
 
 # Testing
 criterion = "0.5"
+proptest = "1"

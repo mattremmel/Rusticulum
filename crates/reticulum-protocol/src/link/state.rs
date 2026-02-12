@@ -602,6 +602,7 @@ impl LinkActive {
     ///
     /// Returns `IV(16) || ciphertext || HMAC(32)`.
     pub fn encrypt(&self, plaintext: &[u8]) -> Result<Vec<u8>, LinkError> {
+        tracing::trace!(plaintext_len = plaintext.len(), "encrypting link data");
         let token = Token::new(self.derived_key.as_bytes());
         Ok(token.encrypt(plaintext))
     }
@@ -614,6 +615,7 @@ impl LinkActive {
 
     /// Decrypt data using the link's derived key (Token format).
     pub fn decrypt(&self, ciphertext: &[u8]) -> Result<Vec<u8>, LinkError> {
+        tracing::trace!(ciphertext_len = ciphertext.len(), "decrypting link data");
         let token = Token::new(self.derived_key.as_bytes());
         Ok(token.decrypt(ciphertext)?)
     }
