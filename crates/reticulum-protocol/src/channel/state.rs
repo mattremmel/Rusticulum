@@ -68,7 +68,12 @@ impl ChannelState {
                 medium_rate_rounds: 0,
             }
         } else {
-            tracing::debug!(rtt, window = WINDOW, window_max = WINDOW_MAX_SLOW, "channel: normal init");
+            tracing::debug!(
+                rtt,
+                window = WINDOW,
+                window_max = WINDOW_MAX_SLOW,
+                "channel: normal init"
+            );
             Self {
                 next_tx_sequence: 0,
                 next_rx_sequence: 0,
@@ -111,7 +116,11 @@ impl ChannelState {
     pub fn next_sequence(&mut self) -> u16 {
         let seq = self.next_tx_sequence;
         self.next_tx_sequence = ((seq as u32 + 1) % SEQ_MODULUS) as u16;
-        tracing::trace!(seq, next = self.next_tx_sequence, "channel: assigned TX sequence");
+        tracing::trace!(
+            seq,
+            next = self.next_tx_sequence,
+            "channel: assigned TX sequence"
+        );
         seq
     }
 
@@ -182,7 +191,11 @@ impl ChannelState {
         // Grow window toward max.
         if self.window < self.window_max {
             self.window += 1;
-            tracing::debug!(window = self.window, window_max = self.window_max, "channel: window grew on delivery");
+            tracing::debug!(
+                window = self.window,
+                window_max = self.window_max,
+                "channel: window grew on delivery"
+            );
         }
 
         // RTT == 0 means no measurement yet — skip rate adaptation.
@@ -217,9 +230,7 @@ impl ChannelState {
             // Fast — accumulate fast rounds.
             self.fast_rate_rounds += 1;
 
-            if self.window_max < WINDOW_MAX_FAST
-                && self.fast_rate_rounds == FAST_RATE_THRESHOLD
-            {
+            if self.window_max < WINDOW_MAX_FAST && self.fast_rate_rounds == FAST_RATE_THRESHOLD {
                 self.window_max = WINDOW_MAX_FAST;
                 self.window_min = WINDOW_MIN_LIMIT_FAST;
                 tracing::debug!(
@@ -260,7 +271,10 @@ impl ChannelState {
         // Shrink window_max (but maintain flexibility gap).
         if self.window_max > self.window_min + self.window_flexibility {
             self.window_max -= 1;
-            tracing::debug!(window_max = self.window_max, "channel: window_max shrank on timeout");
+            tracing::debug!(
+                window_max = self.window_max,
+                "channel: window_max shrank on timeout"
+            );
         }
 
         (new_tries, TimeoutOutcome::Retry)

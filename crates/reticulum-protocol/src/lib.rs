@@ -6,3 +6,4 @@
 pub mod channel;
 pub mod error;
 pub mod link;
+pub mod resource;
