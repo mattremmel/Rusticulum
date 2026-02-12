@@ -5,6 +5,8 @@
 
 pub mod constants;
 pub mod envelope;
+pub mod state;
 
 pub use constants::*;
 pub use envelope::Envelope;
+pub use state::{ChannelState, TimeoutOutcome, MAX_TRIES};

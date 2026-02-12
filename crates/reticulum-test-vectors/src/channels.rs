@@ -61,6 +61,10 @@ pub struct SequenceNumberVector {
     pub accepted: Option<bool>,
     #[serde(default)]
     pub reason: Option<String>,
+    #[serde(default)]
+    pub window_max: Option<u64>,
+    #[serde(default)]
+    pub window_overflow: Option<u64>,
 }
 
 #[derive(Debug, Deserialize)]
