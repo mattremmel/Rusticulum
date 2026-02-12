@@ -65,287 +65,162 @@ mod tests {
     use super::*;
 
     #[test]
-    fn all_test_vectors_deserialize_successfully() {
-        // Each load() call will panic with a descriptive message if deserialization fails.
+    fn deserialize_hashes() {
+        let v = hashes::load();
+        assert!(!v.sha256.is_empty());
+        assert!(!v.sha512.is_empty());
+        assert!(!v.truncated_hash.is_empty());
+    }
 
-        let h = hashes::load();
-        assert!(
-            !h.sha256.is_empty(),
-            "hashes: sha256 vectors should not be empty"
-        );
-        assert!(
-            !h.sha512.is_empty(),
-            "hashes: sha512 vectors should not be empty"
-        );
-        assert!(
-            !h.truncated_hash.is_empty(),
-            "hashes: truncated_hash vectors should not be empty"
-        );
+    #[test]
+    fn deserialize_hkdf() {
+        let v = hkdf::load();
+        assert!(!v.rfc5869_vectors.is_empty());
+    }
 
-        let hk = hkdf::load();
-        assert!(
-            !hk.rfc5869_vectors.is_empty(),
-            "hkdf: rfc5869_vectors should not be empty"
-        );
+    #[test]
+    fn deserialize_token() {
+        let v = token::load();
+        assert!(!v.pkcs7_padding.is_empty());
+        assert!(!v.hmac_sha256.is_empty());
+        assert!(!v.deterministic_fernet_vectors.is_empty());
+    }
 
-        let t = token::load();
-        assert!(
-            !t.pkcs7_padding.is_empty(),
-            "token: pkcs7_padding should not be empty"
-        );
-        assert!(
-            !t.hmac_sha256.is_empty(),
-            "token: hmac_sha256 should not be empty"
-        );
-        assert!(
-            !t.deterministic_fernet_vectors.is_empty(),
-            "token: deterministic_fernet_vectors should not be empty"
-        );
+    #[test]
+    fn deserialize_keypairs() {
+        let v = keypairs::load();
+        assert!(!v.keypairs.is_empty());
+        assert!(!v.signature_vectors.is_empty());
+        assert!(!v.ecdh_vectors.is_empty());
+    }
 
-        let kp = keypairs::load();
-        assert!(
-            !kp.keypairs.is_empty(),
-            "keypairs: keypairs should not be empty"
-        );
-        assert!(
-            !kp.signature_vectors.is_empty(),
-            "keypairs: signature_vectors should not be empty"
-        );
-        assert!(
-            !kp.ecdh_vectors.is_empty(),
-            "keypairs: ecdh_vectors should not be empty"
-        );
+    #[test]
+    fn deserialize_destination_hashes() {
+        let v = destination_hashes::load();
+        assert!(!v.single_destinations.is_empty());
+        assert!(!v.plain_destinations.is_empty());
+    }
 
-        let dh = destination_hashes::load();
-        assert!(
-            !dh.single_destinations.is_empty(),
-            "destination_hashes: single_destinations should not be empty"
-        );
-        assert!(
-            !dh.plain_destinations.is_empty(),
-            "destination_hashes: plain_destinations should not be empty"
-        );
+    #[test]
+    fn deserialize_packet_headers() {
+        let v = packet_headers::load();
+        assert!(!v.flag_packing_vectors.is_empty());
+        assert!(!v.flag_unpacking_vectors.is_empty());
+        assert!(!v.exhaustive_flag_vectors.is_empty());
+        assert!(!v.header_vectors.is_empty());
+    }
 
-        let ph = packet_headers::load();
-        assert!(
-            !ph.flag_packing_vectors.is_empty(),
-            "packet_headers: flag_packing_vectors should not be empty"
-        );
-        assert!(
-            !ph.flag_unpacking_vectors.is_empty(),
-            "packet_headers: flag_unpacking_vectors should not be empty"
-        );
-        assert!(
-            !ph.exhaustive_flag_vectors.is_empty(),
-            "packet_headers: exhaustive_flag_vectors should not be empty"
-        );
-        assert!(
-            !ph.header_vectors.is_empty(),
-            "packet_headers: header_vectors should not be empty"
-        );
+    #[test]
+    fn deserialize_packets_data() {
+        let v = packets_data::load();
+        assert!(!v.data_packet_vectors.is_empty());
+        assert!(!v.proof_generation_vectors.is_empty());
+        assert!(!v.proof_validation_vectors.is_empty());
+    }
 
-        let pd = packets_data::load();
-        assert!(
-            !pd.data_packet_vectors.is_empty(),
-            "packets_data: data_packet_vectors should not be empty"
-        );
-        assert!(
-            !pd.proof_generation_vectors.is_empty(),
-            "packets_data: proof_generation_vectors should not be empty"
-        );
-        assert!(
-            !pd.proof_validation_vectors.is_empty(),
-            "packets_data: proof_validation_vectors should not be empty"
-        );
+    #[test]
+    fn deserialize_announces() {
+        let v = announces::load();
+        assert!(!v.valid_announces.is_empty());
+        assert!(!v.invalid_announces.is_empty());
+        assert!(!v.app_data_announces.is_empty());
+        assert!(!v.ratchet_announces.is_empty());
+    }
 
-        let ann = announces::load();
-        assert!(
-            !ann.valid_announces.is_empty(),
-            "announces: valid_announces should not be empty"
-        );
-        assert!(
-            !ann.invalid_announces.is_empty(),
-            "announces: invalid_announces should not be empty"
-        );
-        assert!(
-            !ann.app_data_announces.is_empty(),
-            "announces: app_data_announces should not be empty"
-        );
-        assert!(
-            !ann.ratchet_announces.is_empty(),
-            "announces: ratchet_announces should not be empty"
-        );
+    #[test]
+    fn deserialize_interface_framing() {
+        let v = interface_framing::load();
+        assert!(!v.hdlc.vectors.is_empty());
+        assert!(!v.kiss.vectors.is_empty());
+        assert!(!v.ifac.vectors.is_empty());
+        assert!(!v.full_pipeline.vectors.is_empty());
+    }
 
-        let ifr = interface_framing::load();
-        assert!(
-            !ifr.hdlc.vectors.is_empty(),
-            "interface_framing: hdlc vectors should not be empty"
-        );
-        assert!(
-            !ifr.kiss.vectors.is_empty(),
-            "interface_framing: kiss vectors should not be empty"
-        );
-        assert!(
-            !ifr.ifac.vectors.is_empty(),
-            "interface_framing: ifac vectors should not be empty"
-        );
-        assert!(
-            !ifr.full_pipeline.vectors.is_empty(),
-            "interface_framing: full_pipeline vectors should not be empty"
-        );
+    #[test]
+    fn deserialize_links() {
+        let v = links::load();
+        assert!(!v.ephemeral_keys.is_empty());
+        assert!(!v.signalling_bytes_vectors.is_empty());
+        assert!(!v.link_id_vectors.is_empty());
+        assert!(!v.handshake_vectors.is_empty());
+    }
 
-        let lnk = links::load();
-        assert!(
-            !lnk.ephemeral_keys.is_empty(),
-            "links: ephemeral_keys should not be empty"
-        );
-        assert!(
-            !lnk.signalling_bytes_vectors.is_empty(),
-            "links: signalling_bytes_vectors should not be empty"
-        );
-        assert!(
-            !lnk.link_id_vectors.is_empty(),
-            "links: link_id_vectors should not be empty"
-        );
-        assert!(
-            !lnk.handshake_vectors.is_empty(),
-            "links: handshake_vectors should not be empty"
-        );
+    #[test]
+    fn deserialize_channels() {
+        let v = channels::load();
+        assert!(!v.envelope_vectors.is_empty());
+        assert!(!v.stream_data_vectors.is_empty());
+    }
 
-        let ch = channels::load();
-        assert!(
-            !ch.envelope_vectors.is_empty(),
-            "channels: envelope_vectors should not be empty"
-        );
-        assert!(
-            !ch.stream_data_vectors.is_empty(),
-            "channels: stream_data_vectors should not be empty"
-        );
+    #[test]
+    fn deserialize_resources() {
+        let v = resources::load();
+        assert!(!v.metadata_vectors.is_empty());
+        assert!(!v.resource_advertisement_vectors.is_empty());
+        assert!(!v.assembly_vectors.is_empty());
+        assert!(!v.resource_proof_vectors.is_empty());
+    }
 
-        let res = resources::load();
-        assert!(
-            !res.metadata_vectors.is_empty(),
-            "resources: metadata_vectors should not be empty"
-        );
-        assert!(
-            !res.resource_advertisement_vectors.is_empty(),
-            "resources: resource_advertisement_vectors should not be empty"
-        );
-        assert!(
-            !res.assembly_vectors.is_empty(),
-            "resources: assembly_vectors should not be empty"
-        );
-        assert!(
-            !res.resource_proof_vectors.is_empty(),
-            "resources: resource_proof_vectors should not be empty"
-        );
+    #[test]
+    fn deserialize_resource_transfers() {
+        let v = resource_transfers::load();
+        assert!(!v.transfer_sequence_vectors.is_empty());
+        assert!(!v.cancellation_vectors.is_empty());
+    }
 
-        let rt = resource_transfers::load();
-        assert!(
-            !rt.transfer_sequence_vectors.is_empty(),
-            "resource_transfers: transfer_sequence_vectors should not be empty"
-        );
-        assert!(
-            !rt.cancellation_vectors.is_empty(),
-            "resource_transfers: cancellation_vectors should not be empty"
-        );
+    #[test]
+    fn deserialize_buffer_transfers() {
+        let v = buffer_transfers::load();
+        assert!(!v.small_transfer_vectors.is_empty());
+        assert!(!v.large_transfer_vectors.is_empty());
+        assert!(!v.compression_vectors.is_empty());
+        assert!(!v.eof_vectors.is_empty());
+    }
 
-        let bt = buffer_transfers::load();
-        assert!(
-            !bt.small_transfer_vectors.is_empty(),
-            "buffer_transfers: small_transfer_vectors should not be empty"
-        );
-        assert!(
-            !bt.large_transfer_vectors.is_empty(),
-            "buffer_transfers: large_transfer_vectors should not be empty"
-        );
-        assert!(
-            !bt.compression_vectors.is_empty(),
-            "buffer_transfers: compression_vectors should not be empty"
-        );
-        assert!(
-            !bt.eof_vectors.is_empty(),
-            "buffer_transfers: eof_vectors should not be empty"
-        );
+    #[test]
+    fn deserialize_requests() {
+        let v = requests::load();
+        assert!(!v.path_hash_vectors.is_empty());
+        assert!(!v.request_serialization_vectors.is_empty());
+        assert!(!v.response_serialization_vectors.is_empty());
+    }
 
-        let req = requests::load();
-        assert!(
-            !req.path_hash_vectors.is_empty(),
-            "requests: path_hash_vectors should not be empty"
-        );
-        assert!(
-            !req.request_serialization_vectors.is_empty(),
-            "requests: request_serialization_vectors should not be empty"
-        );
-        assert!(
-            !req.response_serialization_vectors.is_empty(),
-            "requests: response_serialization_vectors should not be empty"
-        );
+    #[test]
+    fn deserialize_retry_timers() {
+        let v = retry_timers::load();
+        assert!(!v.link_keepalive.vectors.is_empty());
+        assert!(!v.link_establishment.vectors.is_empty());
+        assert!(!v.resource_retry.vectors.is_empty());
+    }
 
-        let rtm = retry_timers::load();
-        assert!(
-            !rtm.link_keepalive.vectors.is_empty(),
-            "retry_timers: link_keepalive vectors should not be empty"
-        );
-        assert!(
-            !rtm.link_establishment.vectors.is_empty(),
-            "retry_timers: link_establishment vectors should not be empty"
-        );
-        assert!(
-            !rtm.resource_retry.vectors.is_empty(),
-            "retry_timers: resource_retry vectors should not be empty"
-        );
+    #[test]
+    fn deserialize_window_adaptation() {
+        let v = window_adaptation::load();
+        assert!(!v.resource_window.growth_vectors.is_empty());
+        assert!(!v.resource_window.shrink_vectors.is_empty());
+        assert!(!v.channel_window.key_differences.is_empty());
+    }
 
-        let wa = window_adaptation::load();
-        assert!(
-            !wa.resource_window.growth_vectors.is_empty(),
-            "window_adaptation: resource growth_vectors should not be empty"
-        );
-        assert!(
-            !wa.resource_window.shrink_vectors.is_empty(),
-            "window_adaptation: resource shrink_vectors should not be empty"
-        );
-        assert!(
-            !wa.channel_window.key_differences.is_empty(),
-            "window_adaptation: channel key_differences should not be empty"
-        );
+    #[test]
+    fn deserialize_path_requests() {
+        let v = path_requests::load();
+        assert!(!v.path_request_destination_vectors.is_empty());
+        assert!(!v.path_request_packet_vectors.is_empty());
+        assert!(!v.path_request_parsing_vectors.is_empty());
+    }
 
-        let pr = path_requests::load();
-        assert!(
-            !pr.path_request_destination_vectors.is_empty(),
-            "path_requests: path_request_destination_vectors should not be empty"
-        );
-        assert!(
-            !pr.path_request_packet_vectors.is_empty(),
-            "path_requests: path_request_packet_vectors should not be empty"
-        );
-        assert!(
-            !pr.path_request_parsing_vectors.is_empty(),
-            "path_requests: path_request_parsing_vectors should not be empty"
-        );
+    #[test]
+    fn deserialize_path_expiration() {
+        let v = path_expiration::load();
+        assert!(!v.ttl_enforcement_vectors.is_empty());
+        assert!(!v.expire_path_vectors.is_empty());
+    }
 
-        let pe = path_expiration::load();
-        assert!(
-            !pe.ttl_enforcement_vectors.is_empty(),
-            "path_expiration: ttl_enforcement_vectors should not be empty"
-        );
-        assert!(
-            !pe.expire_path_vectors.is_empty(),
-            "path_expiration: expire_path_vectors should not be empty"
-        );
-
-        let mhr = multi_hop_routing::load();
-        assert!(
-            !mhr.header_transformation_vectors.is_empty(),
-            "multi_hop_routing: header_transformation_vectors should not be empty"
-        );
-        assert!(
-            !mhr.announce_propagation_vectors.is_empty(),
-            "multi_hop_routing: announce_propagation_vectors should not be empty"
-        );
-        assert!(
-            !mhr.link_request_forwarding_vectors.is_empty(),
-            "multi_hop_routing: link_request_forwarding_vectors should not be empty"
-        );
+    #[test]
+    fn deserialize_multi_hop_routing() {
+        let v = multi_hop_routing::load();
+        assert!(!v.header_transformation_vectors.is_empty());
+        assert!(!v.announce_propagation_vectors.is_empty());
+        assert!(!v.link_request_forwarding_vectors.is_empty());
     }
 }
