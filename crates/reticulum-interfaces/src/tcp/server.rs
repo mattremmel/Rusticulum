@@ -153,7 +153,7 @@ impl Interface for TcpServerInterface {
         self.shutdown.is_online()
     }
 
-    async fn start(&mut self) -> Result<(), InterfaceError> {
+    async fn start(&self) -> Result<(), InterfaceError> {
         let listener = TcpListener::bind(self.config.bind_addr)
             .await
             .map_err(InterfaceError::Io)?;
@@ -176,13 +176,13 @@ impl Interface for TcpServerInterface {
         Ok(())
     }
 
-    async fn stop(&mut self) -> Result<(), InterfaceError> {
+    async fn stop(&self) -> Result<(), InterfaceError> {
         self.shutdown.signal_stop_and_go_offline();
 
         // Stop all spawned clients
         {
             let mut clients = self.spawned_clients.lock().await;
-            for client in clients.iter_mut() {
+            for client in clients.iter() {
                 let _ = client.stop().await;
             }
             clients.clear();
@@ -215,7 +215,7 @@ mod tests {
     #[tokio::test]
     async fn server_spawns_clients() {
         let config = TcpServerConfig::new("test-server", "127.0.0.1:0".parse().unwrap());
-        let mut server = TcpServerInterface::new(config, InterfaceId(100));
+        let server = TcpServerInterface::new(config, InterfaceId(100));
         server.start().await.unwrap();
 
         let addr = server.local_addr().await.unwrap();
@@ -239,14 +239,14 @@ mod tests {
     #[tokio::test]
     async fn server_client_roundtrip() {
         let config = TcpServerConfig::new("test-server-rt", "127.0.0.1:0".parse().unwrap());
-        let mut server = TcpServerInterface::new(config, InterfaceId(200));
+        let server = TcpServerInterface::new(config, InterfaceId(200));
         server.start().await.unwrap();
 
         let addr = server.local_addr().await.unwrap();
 
         // Create an initiator client pointing at the server
         let client_config = TcpClientConfig::initiator("test-client-rt", addr);
-        let mut client = TcpClientInterface::new(client_config, InterfaceId(201)).unwrap();
+        let client = TcpClientInterface::new(client_config, InterfaceId(201)).unwrap();
         client.start().await.unwrap();
 
         // Wait for connection

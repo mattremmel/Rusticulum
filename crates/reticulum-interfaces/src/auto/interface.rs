@@ -413,7 +413,7 @@ impl Interface for AutoInterface {
         self.shutdown.is_online()
     }
 
-    async fn start(&mut self) -> Result<(), InterfaceError> {
+    async fn start(&self) -> Result<(), InterfaceError> {
         let interfaces = netif::enumerate_ipv6_interfaces(
             &self.config.allowed_interfaces,
             &self.config.ignored_interfaces,
@@ -587,7 +587,7 @@ impl Interface for AutoInterface {
         Ok(())
     }
 
-    async fn stop(&mut self) -> Result<(), InterfaceError> {
+    async fn stop(&self) -> Result<(), InterfaceError> {
         self.shutdown.signal_stop_and_go_offline();
 
         // Clear outbound sockets.

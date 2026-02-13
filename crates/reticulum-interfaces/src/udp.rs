@@ -204,7 +204,7 @@ impl Interface for UdpInterface {
         self.shutdown.is_online()
     }
 
-    async fn start(&mut self) -> Result<(), InterfaceError> {
+    async fn start(&self) -> Result<(), InterfaceError> {
         let socket = UdpSocket::bind(self.config.bind_addr).await?;
 
         if self.config.broadcast {
@@ -236,7 +236,7 @@ impl Interface for UdpInterface {
         Ok(())
     }
 
-    async fn stop(&mut self) -> Result<(), InterfaceError> {
+    async fn stop(&self) -> Result<(), InterfaceError> {
         self.shutdown.signal_stop_and_go_offline();
 
         // Clear the socket to unblock any pending recv
@@ -308,8 +308,8 @@ mod tests {
         let config_a = UdpConfig::unicast("udp-a", addr_a, addr_b);
         let config_b = UdpConfig::unicast("udp-b", addr_b, addr_a);
 
-        let mut iface_a = UdpInterface::new(config_a, InterfaceId(10));
-        let mut iface_b = UdpInterface::new(config_b, InterfaceId(11));
+        let iface_a = UdpInterface::new(config_a, InterfaceId(10));
+        let iface_b = UdpInterface::new(config_b, InterfaceId(11));
 
         iface_a.start().await.unwrap();
         iface_b.start().await.unwrap();
@@ -354,7 +354,7 @@ mod tests {
     #[tokio::test]
     async fn receive_only_cannot_transmit() {
         let config = UdpConfig::receive_only("udp-rx-only", "127.0.0.1:0".parse().unwrap());
-        let mut iface = UdpInterface::new(config, InterfaceId(30));
+        let iface = UdpInterface::new(config, InterfaceId(30));
         iface.start().await.unwrap();
 
         let result = iface.transmit(&[0x01; 20]).await;
@@ -373,7 +373,7 @@ mod tests {
     #[tokio::test]
     async fn start_stop_lifecycle() {
         let config = UdpConfig::receive_only("udp-lifecycle", "127.0.0.1:0".parse().unwrap());
-        let mut iface = UdpInterface::new(config, InterfaceId(50));
+        let iface = UdpInterface::new(config, InterfaceId(50));
 
         assert!(!iface.is_connected());
 

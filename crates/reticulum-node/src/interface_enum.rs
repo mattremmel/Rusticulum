@@ -72,7 +72,7 @@ impl AnyInterface {
         delegate_sync!(self, is_connected)
     }
 
-    pub async fn start(&mut self) -> Result<(), InterfaceError> {
+    pub async fn start(&self) -> Result<(), InterfaceError> {
         match self {
             Self::TcpClient(i) => i.start().await,
             Self::TcpServer(i) => i.start().await,
@@ -86,7 +86,7 @@ impl AnyInterface {
         }
     }
 
-    pub async fn stop(&mut self) -> Result<(), InterfaceError> {
+    pub async fn stop(&self) -> Result<(), InterfaceError> {
         match self {
             Self::TcpClient(i) => i.stop().await,
             Self::TcpServer(i) => i.stop().await,

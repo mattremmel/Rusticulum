@@ -289,7 +289,7 @@ impl Interface for LocalClientInterface {
         self.inner.connected.load(Ordering::SeqCst)
     }
 
-    async fn start(&mut self) -> Result<(), InterfaceError> {
+    async fn start(&self) -> Result<(), InterfaceError> {
         match &self.role {
             LocalClientRole::Initiator { socket_path } => {
                 let inner = Arc::clone(&self.inner);
@@ -312,7 +312,7 @@ impl Interface for LocalClientInterface {
         }
     }
 
-    async fn stop(&mut self) -> Result<(), InterfaceError> {
+    async fn stop(&self) -> Result<(), InterfaceError> {
         // Signal background tasks to stop
         self.inner.shutdown.signal_stop();
 
@@ -383,7 +383,7 @@ mod tests {
 
         // Create an initiator client
         let config = LocalClientConfig::initiator("test-local-client", path.clone());
-        let mut client = LocalClientInterface::new(config, InterfaceId(1)).unwrap();
+        let client = LocalClientInterface::new(config, InterfaceId(1)).unwrap();
         client.start().await.unwrap();
 
         // Accept the connection on the listener side
@@ -437,7 +437,7 @@ mod tests {
         let listener = UnixListener::bind(&path).unwrap();
 
         let config = LocalClientConfig::initiator("test-reconnect", path.clone());
-        let mut client = LocalClientInterface::new(config, InterfaceId(2)).unwrap();
+        let client = LocalClientInterface::new(config, InterfaceId(2)).unwrap();
         client.start().await.unwrap();
 
         // Accept first connection

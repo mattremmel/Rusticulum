@@ -192,7 +192,7 @@ impl Interface for LocalServerInterface {
         self.shutdown.is_online()
     }
 
-    async fn start(&mut self) -> Result<(), InterfaceError> {
+    async fn start(&self) -> Result<(), InterfaceError> {
         // Handle stale socket file before binding
         Self::handle_stale_socket(&self.config.socket_path).await?;
 
@@ -217,13 +217,13 @@ impl Interface for LocalServerInterface {
         Ok(())
     }
 
-    async fn stop(&mut self) -> Result<(), InterfaceError> {
+    async fn stop(&self) -> Result<(), InterfaceError> {
         self.shutdown.signal_stop_and_go_offline();
 
         // Stop all spawned clients
         {
             let mut clients = self.spawned_clients.lock().await;
-            for client in clients.iter_mut() {
+            for client in clients.iter() {
                 let _ = client.stop().await;
             }
             clients.clear();
@@ -288,7 +288,7 @@ mod tests {
         let _ = std::fs::remove_file(&path);
 
         let config = LocalServerConfig::new("test-local-server", path.clone());
-        let mut server = LocalServerInterface::new(config, InterfaceId(100));
+        let server = LocalServerInterface::new(config, InterfaceId(100));
         server.start().await.unwrap();
 
         // Connect two raw Unix streams
@@ -314,12 +314,12 @@ mod tests {
         let _ = std::fs::remove_file(&path);
 
         let config = LocalServerConfig::new("test-local-server-rt", path.clone());
-        let mut server = LocalServerInterface::new(config, InterfaceId(200));
+        let server = LocalServerInterface::new(config, InterfaceId(200));
         server.start().await.unwrap();
 
         // Create an initiator client pointing at the server
         let client_config = LocalClientConfig::initiator("test-local-client-rt", path.clone());
-        let mut client = LocalClientInterface::new(client_config, InterfaceId(201)).unwrap();
+        let client = LocalClientInterface::new(client_config, InterfaceId(201)).unwrap();
         client.start().await.unwrap();
 
         // Wait for connection
@@ -370,7 +370,7 @@ mod tests {
         let _ = std::fs::remove_file(&path);
 
         let config = LocalServerConfig::new("test-cleanup", path.clone());
-        let mut server = LocalServerInterface::new(config, InterfaceId(300));
+        let server = LocalServerInterface::new(config, InterfaceId(300));
         server.start().await.unwrap();
 
         // Socket file should exist while server is running
@@ -398,7 +398,7 @@ mod tests {
 
         // Server should detect the stale socket file and remove it before binding
         let config = LocalServerConfig::new("test-stale", path.clone());
-        let mut server = LocalServerInterface::new(config, InterfaceId(400));
+        let server = LocalServerInterface::new(config, InterfaceId(400));
         server.start().await.unwrap();
 
         assert!(server.is_connected());

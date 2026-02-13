@@ -298,27 +298,14 @@ impl Node {
         Ok(())
     }
 
-    /// Start all interfaces. Must be called before wrapping in Arc.
+    /// Start all interfaces.
     async fn start_interfaces(&mut self) -> Result<(), NodeError> {
-        // We need &mut access to start each interface, so temporarily extract from map.
-        let ids: Vec<InterfaceId> = self.interfaces.keys().copied().collect();
-        for id in ids {
-            let arc = self.interfaces.remove(&id).ok_or_else(|| {
-                NodeError::Interface(reticulum_interfaces::InterfaceError::Configuration(
-                    format!("interface {:?} missing from map during startup", id),
-                ))
-            })?;
-            let mut iface = Arc::try_unwrap(arc).map_err(|_| {
-                NodeError::Interface(reticulum_interfaces::InterfaceError::Configuration(
-                    "interface Arc should have single owner at startup".into(),
-                ))
-            })?;
+        for (&id, iface) in &self.interfaces {
             if let Err(e) = iface.start().await {
-                tracing::error!(interface = %iface.name(), "failed to start interface: {e}");
+                tracing::error!(interface = %iface.name(), "failed to start: {e}");
                 return Err(NodeError::Interface(e));
             }
             tracing::info!(interface = %iface.name(), id = id.0, "interface started");
-            self.interfaces.insert(id, Arc::new(iface));
         }
         Ok(())
     }
@@ -452,22 +439,9 @@ impl Node {
         }
 
         // Stop each interface.
-        let ids: Vec<InterfaceId> = self.interfaces.keys().copied().collect();
-        for id in ids {
-            if let Some(arc) = self.interfaces.remove(&id) {
-                match Arc::try_unwrap(arc) {
-                    Ok(mut iface) => {
-                        if let Err(e) = iface.stop().await {
-                            tracing::warn!(id = id.0, "error stopping interface: {e}");
-                        }
-                    }
-                    Err(_arc) => {
-                        tracing::warn!(
-                            id = id.0,
-                            "could not unwrap interface Arc (still referenced)"
-                        );
-                    }
-                }
+        for (id, iface) in &self.interfaces {
+            if let Err(e) = iface.stop().await {
+                tracing::warn!(id = id.0, "error stopping interface: {e}");
             }
         }
 
@@ -705,8 +679,8 @@ bind = "127.0.0.1:0"
         let cfg_a = UdpConfig::unicast("iface_a", bind_a_addr, external_addr);
         let cfg_b = UdpConfig::unicast("iface_b", bind_b_addr, sink_addr);
 
-        let mut iface_a = UdpInterface::new(cfg_a, id_a);
-        let mut iface_b = UdpInterface::new(cfg_b, id_b);
+        let iface_a = UdpInterface::new(cfg_a, id_a);
+        let iface_b = UdpInterface::new(cfg_b, id_b);
 
         use reticulum_interfaces::Interface;
         iface_a.start().await.unwrap();

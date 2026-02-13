@@ -45,10 +45,10 @@ pub trait Interface: Send + Sync {
     // -- Async I/O --
 
     /// Start the interface (bind sockets, open ports, spawn read loops, etc.).
-    fn start(&mut self) -> impl Future<Output = Result<(), InterfaceError>> + Send;
+    fn start(&self) -> impl Future<Output = Result<(), InterfaceError>> + Send;
 
     /// Stop the interface and release resources.
-    fn stop(&mut self) -> impl Future<Output = Result<(), InterfaceError>> + Send;
+    fn stop(&self) -> impl Future<Output = Result<(), InterfaceError>> + Send;
 
     /// Transmit raw packet bytes over this interface.
     fn transmit(&self, data: &[u8]) -> impl Future<Output = Result<(), InterfaceError>> + Send;

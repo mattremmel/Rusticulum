@@ -290,7 +290,7 @@ impl Interface for TcpClientInterface {
         self.inner.connected.load(Ordering::SeqCst)
     }
 
-    async fn start(&mut self) -> Result<(), InterfaceError> {
+    async fn start(&self) -> Result<(), InterfaceError> {
         match &self.role {
             TcpClientRole::Initiator { target_addr } => {
                 let inner = Arc::clone(&self.inner);
@@ -313,7 +313,7 @@ impl Interface for TcpClientInterface {
         }
     }
 
-    async fn stop(&mut self) -> Result<(), InterfaceError> {
+    async fn stop(&self) -> Result<(), InterfaceError> {
         // Signal background tasks to stop
         self.inner.shutdown.signal_stop();
 
@@ -368,7 +368,7 @@ mod tests {
 
         // Create an initiator client
         let config = TcpClientConfig::initiator("test-client", addr);
-        let mut client = TcpClientInterface::new(config, InterfaceId(1)).unwrap();
+        let client = TcpClientInterface::new(config, InterfaceId(1)).unwrap();
         client.start().await.unwrap();
 
         // Accept the connection on the listener side
@@ -421,7 +421,7 @@ mod tests {
         let addr = listener.local_addr().unwrap();
 
         let config = TcpClientConfig::initiator("test-reconnect", addr);
-        let mut client = TcpClientInterface::new(config, InterfaceId(2)).unwrap();
+        let client = TcpClientInterface::new(config, InterfaceId(2)).unwrap();
         client.start().await.unwrap();
 
         // Accept first connection
