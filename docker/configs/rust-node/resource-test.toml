@@ -1,0 +1,18 @@
+[node]
+enable_transport = true
+storage_path = "/var/lib/reticulum"
+
+[[interfaces.tcp_client]]
+name = "TCP to Python RNS"
+target = "python-rns:4242"
+
+[[destinations]]
+app_name = "resource_test"
+aspects = ["transfer", "v1"]
+accept_links = true
+app_data = "hello from rust"
+
+[[link_targets]]
+app_name = "resource_test"
+aspects = ["transfer", "v1"]
+auto_resource = "Hello from Rust via resource transfer! This is a test of the bidirectional resource transfer system between the Rust Reticulum implementation and the Python reference implementation. The resource protocol uses double-layer encryption: the resource data is Token-encrypted first, then each part is Token-encrypted again by the link layer. On receive, the link layer strips the outer encryption, and the resource assembly strips the inner encryption. This message is repeated to ensure we test multi-part resources."

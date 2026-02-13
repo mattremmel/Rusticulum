@@ -1017,6 +1017,7 @@ dependencies = [
  "dirs",
  "hex",
  "postcard",
+ "rand 0.8.5",
  "reticulum-core",
  "reticulum-crypto",
  "reticulum-interfaces",

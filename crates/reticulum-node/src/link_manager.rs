@@ -45,9 +45,11 @@ pub struct LinkManager {
     /// Destinations we have active links to (for dedup on re-announce)
     linked_destinations: HashSet<DestinationHash>,
     /// Destinations queued for link initiation
-    pending_link_targets: Vec<(DestinationHash, Option<String>)>,
+    pending_link_targets: Vec<(DestinationHash, Option<String>, Option<String>)>,
     /// Auto-data to send after link establishment (link_id → data)
     auto_data_queue: HashMap<LinkId, String>,
+    /// Auto-resource to send after link establishment (link_id → data)
+    auto_resource_queue: HashMap<LinkId, String>,
 }
 
 impl LinkManager {
@@ -63,6 +65,7 @@ impl LinkManager {
             linked_destinations: HashSet::new(),
             pending_link_targets: Vec::new(),
             auto_data_queue: HashMap::new(),
+            auto_resource_queue: HashMap::new(),
         }
     }
 
@@ -129,8 +132,11 @@ impl LinkManager {
                         app_name = %target.app_name,
                         "queuing auto-link to announced destination"
                     );
-                    self.pending_link_targets
-                        .push((dest_hash, target.auto_data.clone()));
+                    self.pending_link_targets.push((
+                        dest_hash,
+                        target.auto_data.clone(),
+                        target.auto_resource.clone(),
+                    ));
                     return true;
                 }
             }
@@ -148,7 +154,9 @@ impl LinkManager {
     }
 
     /// Drain destinations queued for link initiation.
-    pub fn drain_pending_targets(&mut self) -> Vec<(DestinationHash, Option<String>)> {
+    pub fn drain_pending_targets(
+        &mut self,
+    ) -> Vec<(DestinationHash, Option<String>, Option<String>)> {
         std::mem::take(&mut self.pending_link_targets)
     }
 
@@ -159,6 +167,7 @@ impl LinkManager {
         &mut self,
         dest_hash: DestinationHash,
         auto_data: Option<String>,
+        auto_resource: Option<String>,
     ) -> Option<Vec<u8>> {
         let identity = self.known_identities.get(&dest_hash)?;
         let _ = identity; // We need the identity later for proof verification
@@ -228,9 +237,12 @@ impl LinkManager {
             "initiating link request"
         );
 
-        // Store auto_data if configured
+        // Store auto_data/auto_resource if configured
         if let Some(data) = auto_data {
             self.auto_data_queue.insert(link_id, data);
+        }
+        if let Some(resource) = auto_resource {
+            self.auto_resource_queue.insert(link_id, resource);
         }
 
         // The pending's link_id was computed from placeholder data.
@@ -492,9 +504,103 @@ impl LinkManager {
         self.auto_data_queue.remove(link_id)
     }
 
+    /// Drain auto-resource that should be sent for newly established links.
+    pub fn drain_auto_resource(&mut self, link_id: &LinkId) -> Option<String> {
+        self.auto_resource_queue.remove(link_id)
+    }
+
     /// Get the number of active links.
     pub fn active_link_count(&self) -> usize {
         self.active_links.len()
+    }
+
+    /// Encrypt and build a data packet with a specific context type.
+    ///
+    /// Like `encrypt_and_send` but sets `context_flag = true` and the given context.
+    pub fn encrypt_and_send_with_context(
+        &mut self,
+        link_id: &LinkId,
+        plaintext: &[u8],
+        context: ContextType,
+    ) -> Option<Vec<u8>> {
+        let active = self.active_links.get_mut(link_id)?;
+
+        let ciphertext = match active.encrypt(plaintext) {
+            Ok(ct) => ct,
+            Err(e) => {
+                tracing::warn!(
+                    link_id = %hex::encode(link_id.as_ref()),
+                    "failed to encrypt link data: {e}"
+                );
+                return None;
+            }
+        };
+
+        active.record_outbound(ciphertext.len() as u64);
+
+        let packet = RawPacket {
+            flags: PacketFlags {
+                header_type: HeaderType::Header1,
+                context_flag: true,
+                transport_type: TransportType::Broadcast,
+                destination_type: DestinationType::Link,
+                packet_type: PacketType::Data,
+            },
+            hops: 0,
+            transport_id: None,
+            destination: link_id_to_dest_hash(link_id),
+            context,
+            data: ciphertext,
+        };
+
+        Some(packet.serialize())
+    }
+
+    /// Build a link data packet with raw (unencrypted) data and a specific context.
+    ///
+    /// Used for RESOURCE packets where the resource layer handles its own encryption
+    /// and the packet/link layer must NOT add another encryption layer.
+    pub fn send_raw_with_context(
+        &mut self,
+        link_id: &LinkId,
+        raw_data: &[u8],
+        context: ContextType,
+    ) -> Option<Vec<u8>> {
+        let active = self.active_links.get_mut(link_id)?;
+        active.record_outbound(raw_data.len() as u64);
+
+        let packet = RawPacket {
+            flags: PacketFlags {
+                header_type: HeaderType::Header1,
+                context_flag: true,
+                transport_type: TransportType::Broadcast,
+                destination_type: DestinationType::Link,
+                packet_type: PacketType::Data,
+            },
+            hops: 0,
+            transport_id: None,
+            destination: link_id_to_dest_hash(link_id),
+            context,
+            data: raw_data.to_vec(),
+        };
+
+        Some(packet.serialize())
+    }
+
+    /// Extract raw data from a link packet without decrypting.
+    ///
+    /// Used for RESOURCE packets where the resource layer handles its own encryption
+    /// and the packet/link layer must NOT decrypt.
+    pub fn get_raw_link_data(&mut self, packet: &RawPacket) -> Option<Vec<u8>> {
+        let link_id = dest_hash_to_link_id(&packet.destination);
+        let active = self.active_links.get_mut(&link_id)?;
+        active.record_inbound(packet.data.len() as u64);
+        Some(packet.data.clone())
+    }
+
+    /// Get the derived key for an active link.
+    pub fn get_derived_key(&self, link_id: &LinkId) -> Option<&reticulum_protocol::link::types::DerivedKey> {
+        self.active_links.get(link_id).map(|a| &a.derived_key)
     }
 }
 
@@ -539,7 +645,7 @@ mod tests {
         assert!(mgr.drain_pending_targets().is_empty());
 
         mgr.pending_link_targets
-            .push((DestinationHash::new([0x01; 16]), Some("hello".to_string())));
+            .push((DestinationHash::new([0x01; 16]), Some("hello".to_string()), None));
         let targets = mgr.drain_pending_targets();
         assert_eq!(targets.len(), 1);
         assert!(mgr.drain_pending_targets().is_empty());
@@ -572,7 +678,7 @@ mod tests {
 
         // Step 1: Initiator creates LINKREQUEST
         let lr_raw = init_mgr
-            .initiate_link(resp_dh, Some("hello".to_string()))
+            .initiate_link(resp_dh, Some("hello".to_string()), None)
             .expect("should create link request");
 
         // Step 2: Responder processes LINKREQUEST

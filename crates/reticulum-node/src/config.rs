@@ -44,6 +44,8 @@ pub struct LinkTargetEntry {
     pub aspects: Vec<String>,
     /// Data to send automatically after link establishment.
     pub auto_data: Option<String>,
+    /// Data to send as a resource transfer after link establishment.
+    pub auto_resource: Option<String>,
 }
 
 impl NodeConfig {

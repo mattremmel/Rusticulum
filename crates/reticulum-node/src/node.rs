@@ -38,6 +38,7 @@ use crate::config::{NodeConfig, parse_mode, parse_socket_addr};
 use crate::error::NodeError;
 use crate::interface_enum::AnyInterface;
 use crate::link_manager::LinkManager;
+use crate::resource_manager::ResourceManager;
 use crate::storage::Storage;
 
 /// A handle that can trigger node shutdown from another task or signal handler.
@@ -70,6 +71,7 @@ pub struct Node {
     config: NodeConfig,
     router: PacketRouter,
     link_manager: LinkManager,
+    resource_manager: ResourceManager,
     ifac_config: Option<IfacConfig>,
     storage: Option<Storage>,
     transport_identity: Option<Identity>,
@@ -118,6 +120,7 @@ impl Node {
         };
 
         let link_manager = LinkManager::new(config.link_targets.clone());
+        let resource_manager = ResourceManager::new();
 
         let (event_tx, event_rx) = mpsc::channel(1024);
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
@@ -126,6 +129,7 @@ impl Node {
             config,
             router,
             link_manager,
+            resource_manager,
             ifac_config,
             storage,
             transport_identity: None,
@@ -441,14 +445,6 @@ impl Node {
         cull_interval.tick().await;
         persist_interval.tick().await;
 
-        // Broadcast pending announces (from config destinations)
-        if !self.pending_announces.is_empty() {
-            let announces = std::mem::take(&mut self.pending_announces);
-            for raw in announces {
-                self.broadcast_to_interfaces(None, &raw).await;
-            }
-        }
-
         tracing::info!("entering event loop");
 
         loop {
@@ -474,6 +470,18 @@ impl Node {
                 }
 
                 _ = maintenance_interval.tick() => {
+                    // Broadcast any pending initial announces (deferred from startup
+                    // until interfaces are connected)
+                    if !self.pending_announces.is_empty() {
+                        let has_connected = self.interfaces.values().any(|i| i.is_connected());
+                        if has_connected {
+                            let announces = std::mem::take(&mut self.pending_announces);
+                            for raw in &announces {
+                                self.broadcast_to_interfaces(None, raw).await;
+                            }
+                        }
+                    }
+
                     let actions = self.collect_announce_actions();
                     for action in actions {
                         if let RouterAction::Broadcast { exclude, raw } = action {
@@ -736,6 +744,26 @@ impl Node {
                 false
             }
 
+            // ResourceAdv: incoming resource advertisement
+            (PacketType::Data, ContextType::ResourceAdv, DestinationType::Link) => {
+                self.handle_resource_adv(packet).await
+            }
+
+            // ResourceReq: part request from receiver
+            (PacketType::Data, ContextType::ResourceReq, DestinationType::Link) => {
+                self.handle_resource_req(packet).await
+            }
+
+            // Resource: incoming resource part data
+            (PacketType::Data, ContextType::Resource, DestinationType::Link) => {
+                self.handle_resource_part(packet).await
+            }
+
+            // ResourcePrf: proof from receiver
+            (PacketType::Data, ContextType::ResourcePrf, DestinationType::Link) => {
+                self.handle_resource_proof(packet).await
+            }
+
             _ => false,
         }
     }
@@ -743,8 +771,11 @@ impl Node {
     /// Process destinations queued for link initiation.
     async fn process_pending_link_targets(&mut self) {
         let targets = self.link_manager.drain_pending_targets();
-        for (dest_hash, auto_data) in targets {
-            if let Some(lr_raw) = self.link_manager.initiate_link(dest_hash, auto_data) {
+        for (dest_hash, auto_data, auto_resource) in targets {
+            if let Some(lr_raw) = self
+                .link_manager
+                .initiate_link(dest_hash, auto_data, auto_resource)
+            {
                 self.broadcast_to_interfaces(None, &lr_raw).await;
             }
         }
@@ -761,6 +792,232 @@ impl Node {
                 "link_data_sent"
             );
             self.broadcast_to_interfaces(None, &raw).await;
+        }
+
+        // Also send auto-resource if configured
+        if let Some(resource_data) = self.link_manager.drain_auto_resource(link_id) {
+            self.send_resource(link_id, resource_data.as_bytes()).await;
+        }
+    }
+
+    /// Send a resource over an active link.
+    async fn send_resource(&mut self, link_id: &reticulum_core::types::LinkId, data: &[u8]) {
+        let derived_key = match self.link_manager.get_derived_key(link_id) {
+            Some(k) => k.clone(),
+            None => {
+                tracing::warn!(
+                    link_id = %hex::encode(link_id.as_ref()),
+                    "no derived key for link, cannot send resource"
+                );
+                return;
+            }
+        };
+
+        let (resource_hash, adv_bytes) =
+            match self.resource_manager.prepare_outgoing(*link_id, data, &derived_key) {
+                Ok(result) => result,
+                Err(e) => {
+                    tracing::warn!(
+                        link_id = %hex::encode(link_id.as_ref()),
+                        "failed to prepare resource: {e}"
+                    );
+                    return;
+                }
+            };
+
+        // Send advertisement via link with ResourceAdv context
+        if let Some(raw) = self.link_manager.encrypt_and_send_with_context(
+            link_id,
+            &adv_bytes,
+            ContextType::ResourceAdv,
+        ) {
+            tracing::info!(
+                link_id = %hex::encode(link_id.as_ref()),
+                resource_hash = %hex::encode(resource_hash),
+                "resource_advertisement_sent"
+            );
+            self.broadcast_to_interfaces(None, &raw).await;
+        }
+    }
+
+    /// Handle incoming resource advertisement.
+    async fn handle_resource_adv(&mut self, packet: &RawPacket) -> bool {
+        if !self.link_manager.has_pending_or_active(&packet.destination) {
+            return false;
+        }
+        let plaintext = match self.link_manager.handle_link_data(packet) {
+            Some(pt) => pt,
+            None => return false,
+        };
+
+        let link_id_bytes: [u8; 16] = packet
+            .destination
+            .as_ref()
+            .try_into()
+            .unwrap_or([0u8; 16]);
+        let link_id = reticulum_core::types::LinkId::new(link_id_bytes);
+
+        match self
+            .resource_manager
+            .accept_advertisement(link_id, &plaintext)
+        {
+            Ok((resource_hash, request_bytes)) => {
+                tracing::info!(
+                    resource_hash = %hex::encode(resource_hash),
+                    link_id = %hex::encode(link_id.as_ref()),
+                    "accepted resource advertisement, sending part request"
+                );
+
+                // Send part request
+                if let Some(raw) = self.link_manager.encrypt_and_send_with_context(
+                    &link_id,
+                    &request_bytes,
+                    ContextType::ResourceReq,
+                ) {
+                    self.broadcast_to_interfaces(None, &raw).await;
+                }
+                true
+            }
+            Err(e) => {
+                tracing::warn!("failed to accept resource advertisement: {e}");
+                false
+            }
+        }
+    }
+
+    /// Handle incoming resource part request.
+    async fn handle_resource_req(&mut self, packet: &RawPacket) -> bool {
+        if !self.link_manager.has_pending_or_active(&packet.destination) {
+            return false;
+        }
+        let plaintext = match self.link_manager.handle_link_data(packet) {
+            Some(pt) => pt,
+            None => return false,
+        };
+
+        match self.resource_manager.handle_part_request(&plaintext) {
+            Ok((link_id, parts)) => {
+                tracing::info!(
+                    link_id = %hex::encode(link_id.as_ref()),
+                    parts = parts.len(),
+                    "sending resource parts"
+                );
+
+                // Send each part as a Resource context packet.
+                // RESOURCE parts bypass link-layer encryption — the resource
+                // layer already encrypted the data in prepare_resource().
+                for part in &parts {
+                    if let Some(raw) = self.link_manager.send_raw_with_context(
+                        &link_id,
+                        part,
+                        ContextType::Resource,
+                    ) {
+                        self.broadcast_to_interfaces(None, &raw).await;
+                    }
+                }
+                true
+            }
+            Err(e) => {
+                tracing::warn!("failed to handle part request: {e}");
+                false
+            }
+        }
+    }
+
+    /// Handle incoming resource part data.
+    async fn handle_resource_part(&mut self, packet: &RawPacket) -> bool {
+        if !self.link_manager.has_pending_or_active(&packet.destination) {
+            return false;
+        }
+        // RESOURCE parts bypass link-layer encryption — extract raw data
+        // without decrypting. The resource layer handles its own encryption.
+        let plaintext = match self.link_manager.get_raw_link_data(packet) {
+            Some(pt) => pt,
+            None => return false,
+        };
+
+        let link_id_bytes: [u8; 16] = packet
+            .destination
+            .as_ref()
+            .try_into()
+            .unwrap_or([0u8; 16]);
+        let link_id = reticulum_core::types::LinkId::new(link_id_bytes);
+
+        match self.resource_manager.receive_part(&link_id, &plaintext) {
+            Ok(result) => {
+                if result.all_received {
+                    // All parts received — assemble and send proof
+                    let derived_key = match self.link_manager.get_derived_key(&link_id) {
+                        Some(k) => k.clone(),
+                        None => {
+                            tracing::warn!("no derived key for assembly");
+                            return true;
+                        }
+                    };
+
+                    match self
+                        .resource_manager
+                        .assemble_and_prove(&link_id, &derived_key)
+                    {
+                        Ok((data, proof_bytes)) => {
+                            let text = String::from_utf8_lossy(&data);
+                            tracing::info!(
+                                link_id = %hex::encode(link_id.as_ref()),
+                                data_len = data.len(),
+                                data_preview = %&text[..text.len().min(200)],
+                                "resource_received"
+                            );
+
+                            // Send proof
+                            if let Some(raw) = self.link_manager.encrypt_and_send_with_context(
+                                &link_id,
+                                &proof_bytes,
+                                ContextType::ResourcePrf,
+                            ) {
+                                self.broadcast_to_interfaces(None, &raw).await;
+                                tracing::info!(
+                                    link_id = %hex::encode(link_id.as_ref()),
+                                    "resource proof sent"
+                                );
+                            }
+                        }
+                        Err(e) => {
+                            tracing::warn!("failed to assemble resource: {e}");
+                        }
+                    }
+                }
+                true
+            }
+            Err(e) => {
+                tracing::warn!("failed to receive resource part: {e}");
+                false
+            }
+        }
+    }
+
+    /// Handle incoming resource proof.
+    async fn handle_resource_proof(&mut self, packet: &RawPacket) -> bool {
+        if !self.link_manager.has_pending_or_active(&packet.destination) {
+            return false;
+        }
+        let plaintext = match self.link_manager.handle_link_data(packet) {
+            Some(pt) => pt,
+            None => return false,
+        };
+
+        match self.resource_manager.handle_proof(&plaintext) {
+            Ok(valid) => {
+                if valid {
+                    tracing::info!("resource_proof_verified");
+                } else {
+                    tracing::warn!("resource proof invalid");
+                }
+                true
+            }
+            Err(e) => {
+                tracing::warn!("failed to handle resource proof: {e}");
+                false
+            }
         }
     }
 

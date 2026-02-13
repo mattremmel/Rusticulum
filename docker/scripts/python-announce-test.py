@@ -19,13 +19,18 @@ import RNS
 rust_announce_received = False
 rust_announce_data = None
 
-def announce_handler(destination_hash, announced_identity, app_data):
-    global rust_announce_received, rust_announce_data
-    rust_announce_received = True
-    rust_announce_data = app_data
-    RNS.log(f"Received announce from {RNS.prettyhexrep(destination_hash)}")
-    if app_data:
-        RNS.log(f"  app_data: {app_data}")
+class RustAnnounceHandler:
+    """Announce handler that accepts announces from any aspect."""
+    def __init__(self):
+        self.aspect_filter = None  # Accept all announces
+
+    def received_announce(self, destination_hash, announced_identity, app_data):
+        global rust_announce_received, rust_announce_data
+        rust_announce_received = True
+        rust_announce_data = app_data
+        RNS.log(f"Received announce from {RNS.prettyhexrep(destination_hash)}")
+        if app_data:
+            RNS.log(f"  app_data: {app_data}")
 
 def main():
     RNS.log("Starting Python announce test")
@@ -34,7 +39,7 @@ def main():
     reticulum = RNS.Reticulum("/etc/reticulum")
 
     # Register announce handler for Rust node announces
-    RNS.Transport.register_announce_handler(announce_handler)
+    RNS.Transport.register_announce_handler(RustAnnounceHandler())
 
     # Create our own destination
     identity = RNS.Identity()
@@ -51,17 +56,24 @@ def main():
 
     # Wait for Rust node to connect
     RNS.log("Waiting for Rust node to connect...")
-    time.sleep(5)
+    time.sleep(10)
 
     # Send our announce
     RNS.log("Sending announce with app_data='hello from python'")
     destination.announce(app_data=b"hello from python")
 
-    # Poll for Rust announce (30s timeout)
-    timeout = 30
+    # Poll for Rust announce (60s timeout)
+    # Also re-announce halfway through in case first was missed
+    timeout = 60
+    re_announced = False
     start = time.time()
     while not rust_announce_received and (time.time() - start) < timeout:
         time.sleep(0.5)
+        # Re-announce halfway through in case first was missed
+        if not re_announced and (time.time() - start) > 15:
+            RNS.log("Re-announcing in case first announce was missed")
+            destination.announce(app_data=b"hello from python")
+            re_announced = True
 
     # Build results
     results = {
