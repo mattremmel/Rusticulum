@@ -23,14 +23,17 @@ use reticulum_interfaces::local::{
 };
 
 use reticulum_core::announce::{Announce, make_random_hash};
-use reticulum_core::constants::{DestinationType, PacketType};
+use reticulum_core::constants::{DestinationType, HeaderType, PacketType};
 use reticulum_core::destination;
 use reticulum_core::packet::context::ContextType;
 use reticulum_core::packet::wire::RawPacket;
+use reticulum_core::types::TruncatedHash;
 use reticulum_transport::ifac::{IfacConfig, has_ifac_flag, ifac_apply, ifac_verify};
 use reticulum_transport::path::constants::PATHFINDER_M;
-use reticulum_transport::router::dispatch::PacketRouter;
-use reticulum_transport::router::types::RouterAction;
+use reticulum_transport::router::dispatch::{
+    PacketRouter, compute_link_id_from_raw, inject_transport_header, strip_transport_header,
+};
+use reticulum_transport::router::types::{LinkTableEntry, ReverseEntry, RouterAction};
 
 use reticulum_core::identity::Identity;
 
@@ -492,6 +495,41 @@ impl Node {
                     let actions = self.collect_announce_actions();
                     for action in actions {
                         if let RouterAction::Broadcast { exclude, raw } = action {
+                            // When transport is enabled, retransmit announces with HEADER_2
+                            // so downstream nodes see us as the relay.
+                            // Increment hops before injection (matches Python reference
+                            // behavior where hops are incremented on reception).
+                            if self.config.node.enable_transport
+                                && let Some(ref identity) = self.transport_identity
+                            {
+                                let our_hash = TruncatedHash::try_from(
+                                    identity.hash().as_ref(),
+                                )
+                                .unwrap_or(TruncatedHash::new([0u8; 16]));
+
+                                // Increment hops in the raw packet before injection
+                                let mut raw_inc = raw.clone();
+                                if raw_inc.len() > 1 {
+                                    raw_inc[1] = raw_inc[1].saturating_add(1);
+                                }
+
+                                match inject_transport_header(&raw_inc, &our_hash) {
+                                    Ok(h2_raw) => {
+                                        tracing::debug!(
+                                            "transport_relay_announce"
+                                        );
+                                        self.broadcast_to_interfaces(exclude, &h2_raw)
+                                            .await;
+                                        continue;
+                                    }
+                                    Err(e) => {
+                                        tracing::debug!(
+                                            "failed to inject transport header for announce: {e}"
+                                        );
+                                        // Fall through to broadcast original
+                                    }
+                                }
+                            }
                             self.broadcast_to_interfaces(exclude, &raw).await;
                         }
                     }
@@ -574,6 +612,38 @@ impl Node {
         }
     }
 
+    /// Transmit raw bytes to a specific interface (with IFAC application).
+    async fn transmit_to_interface(&self, iface_id: InterfaceId, raw: &[u8]) {
+        let iface = match self.interfaces.get(&iface_id) {
+            Some(i) => i,
+            None => {
+                tracing::warn!(id = iface_id.0, "transmit_to_interface: interface not found");
+                return;
+            }
+        };
+
+        if !iface.can_transmit() || !iface.is_connected() {
+            tracing::debug!(id = iface_id.0, "transmit_to_interface: interface not available");
+            return;
+        }
+
+        let outbound = if let Some(ref ifac) = self.ifac_config {
+            match ifac_apply(ifac, raw) {
+                Ok(masked) => masked,
+                Err(e) => {
+                    tracing::warn!(id = iface_id.0, "IFAC apply failed: {e}");
+                    return;
+                }
+            }
+        } else {
+            raw.to_vec()
+        };
+
+        if let Err(e) = iface.transmit(&outbound).await {
+            tracing::warn!(id = iface_id.0, "transmit failed: {e}");
+        }
+    }
+
     /// Handle an inbound packet: IFAC verify, parse, dedup, announce processing, flood.
     async fn handle_inbound_packet(&mut self, from_iface: InterfaceId, raw: &[u8]) {
         if raw.is_empty() {
@@ -619,6 +689,21 @@ impl Node {
             return;
         }
 
+        // Log all non-announce packets for debugging
+        if packet.flags.packet_type != PacketType::Announce {
+            tracing::debug!(
+                id = from_iface.0,
+                packet_type = ?packet.flags.packet_type,
+                dest_type = ?packet.flags.destination_type,
+                header_type = ?packet.flags.header_type,
+                context = ?packet.context,
+                hops = packet.hops,
+                destination = %hex::encode(packet.destination.as_ref()),
+                data_len = packet.data.len(),
+                "inbound_packet"
+            );
+        }
+
         // Announce processing
         if packet.flags.packet_type == PacketType::Announce {
             let interface_mode = self
@@ -639,6 +724,7 @@ impl Node {
                 interface_mode,
                 now_secs,
                 now_f64,
+                packet.transport_id,
             ) {
                 Ok(result) => {
                     tracing::info!(
@@ -668,17 +754,361 @@ impl Node {
         // Link packet handling — route before flood
         let handled_locally = self.handle_link_packet(&packet).await;
 
-        // Increment hops and re-serialize for forwarding
-        // Don't flood link packets that we handled locally
-        if !handled_locally {
+        // Transport relay: if we're a transport node and this is a HEADER_2 packet for us
+        if self.config.node.enable_transport
+            && packet.flags.header_type == HeaderType::Header2
+            && packet.flags.packet_type != PacketType::Announce
+        {
+            if let Some(ref transport_id) = packet.transport_id {
+                let our_hash = self
+                    .transport_identity
+                    .as_ref()
+                    .map(|id| id.hash());
+
+                if our_hash.as_ref().map(|h| h.as_ref()) == Some(transport_id.as_ref()) {
+                    // We are the designated relay for this packet
+                    self.handle_transport_relay(&packet, &packet_bytes, from_iface)
+                        .await;
+                    return; // Don't flood — we've handled routing
+                }
+            }
+            // HEADER_2 but not for us — drop silently (don't flood)
+            return;
+        }
+
+        // Transport-enabled HEADER_1 routing via link table.
+        // When we're a transport node, LRPROOF and link data arrive as HEADER_1
+        // from directly-connected endpoints and must be routed via our link table.
+        if self.config.node.enable_transport && !handled_locally {
+            // Route LRPROOF via link table
+            if packet.flags.packet_type == PacketType::Proof
+                && packet.context == ContextType::Lrproof
+            {
+                let link_id_bytes: [u8; 16] = match packet.destination.as_ref().try_into() {
+                    Ok(b) => b,
+                    Err(_) => {
+                        return;
+                    }
+                };
+                let link_id = reticulum_core::types::LinkId::new(link_id_bytes);
+
+                if let Some(entry) = self.router.link_table().get(&link_id).cloned()
+                    && from_iface == entry.next_hop_interface
+                {
+                    // Forward toward initiator
+                    let mut forwarded = packet_bytes.to_vec();
+                    forwarded[1] = packet.hops.saturating_add(1);
+
+                    tracing::info!(
+                        link_id = %hex::encode(link_id.as_ref()),
+                        "transport_relay_lrproof"
+                    );
+
+                    if let Some(e) = self.router.link_table_mut().get_mut(&link_id) {
+                        e.validated = true;
+                    }
+
+                    self.transmit_to_interface(entry.received_interface, &forwarded)
+                        .await;
+                    return;
+                }
+            }
+
+            // Route link data via link table
+            if packet.flags.destination_type == DestinationType::Link
+                && packet.flags.packet_type != PacketType::LinkRequest
+                && packet.context != ContextType::Lrproof
+            {
+                let link_id_bytes: [u8; 16] = match packet.destination.as_ref().try_into() {
+                    Ok(b) => b,
+                    Err(_) => {
+                        return;
+                    }
+                };
+                let link_id = reticulum_core::types::LinkId::new(link_id_bytes);
+
+                if let Some(entry) = self.router.link_table().get(&link_id).cloned() {
+                    let outbound = if from_iface == entry.next_hop_interface {
+                        Some(entry.received_interface)
+                    } else if from_iface == entry.received_interface {
+                        Some(entry.next_hop_interface)
+                    } else {
+                        None
+                    };
+
+                    if let Some(out_iface) = outbound {
+                        let mut forwarded = packet_bytes.to_vec();
+                        forwarded[1] = packet.hops.saturating_add(1);
+
+                        tracing::debug!(
+                            link_id = %hex::encode(link_id.as_ref()),
+                            "transport_relay_link_data"
+                        );
+
+                        self.transmit_to_interface(out_iface, &forwarded).await;
+                        return;
+                    }
+                }
+            }
+        }
+
+        // Standard HEADER_1 forwarding
+        //
+        // When transport is enabled, announces are NOT flooded — they propagate
+        // only via the announce retransmission mechanism (with HEADER_2 transport
+        // headers). This matches the Python reference behavior where Transport.cache()
+        // queues announces for retransmission but does not immediately forward them.
+        let skip_flood = self.config.node.enable_transport
+            && packet.flags.packet_type == PacketType::Announce;
+
+        if !handled_locally && !skip_flood {
             let mut forward_packet = packet.clone();
             forward_packet.hops = packet.hops.saturating_add(1);
             let forward_raw = forward_packet.serialize();
+
+            tracing::debug!(
+                from_iface = from_iface.0,
+                packet_type = ?packet.flags.packet_type,
+                destination = %hex::encode(packet.destination.as_ref()),
+                "flooding_to_other_interfaces"
+            );
 
             // Flood to all other interfaces
             self.broadcast_to_interfaces(Some(from_iface), &forward_raw)
                 .await;
         }
+    }
+
+    /// Handle transport relay for a HEADER_2 packet addressed to us.
+    ///
+    /// Looks up the destination in the path table or link table, creates
+    /// reverse/link table entries as needed, and forwards the packet.
+    async fn handle_transport_relay(
+        &mut self,
+        packet: &RawPacket,
+        raw: &[u8],
+        from_iface: InterfaceId,
+    ) {
+        let new_hops = packet.hops.saturating_add(1);
+
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default();
+        let now_secs = now.as_secs();
+
+        // Handle LRPROOF via link table (proof routing back to initiator)
+        if packet.flags.packet_type == PacketType::Proof
+            && packet.context == ContextType::Lrproof
+        {
+            self.relay_lrproof(packet, raw, from_iface, new_hops).await;
+            return;
+        }
+
+        // Handle link-related packets via link table
+        if packet.flags.destination_type == DestinationType::Link
+            && packet.flags.packet_type != PacketType::LinkRequest
+        {
+            self.relay_link_packet(packet, raw, from_iface, new_hops)
+                .await;
+            return;
+        }
+
+        // For all other packets (including LINKREQUEST): use path table
+        let path_info = {
+            let pt = self.router.path_table();
+            pt.get(&packet.destination).map(|e| {
+                (
+                    e.next_hop,
+                    e.hops,
+                    e.receiving_interface,
+                )
+            })
+        };
+
+        let (next_hop, remaining_hops, outbound_iface) = match path_info {
+            Some(info) => info,
+            None => {
+                tracing::debug!(
+                    destination = %hex::encode(packet.destination.as_ref()),
+                    "transport_relay: no path to destination, dropping"
+                );
+                return;
+            }
+        };
+
+        // For LINKREQUEST: create link table entry
+        if packet.flags.packet_type == PacketType::LinkRequest {
+            if let Ok(link_id) = compute_link_id_from_raw(raw) {
+                let proof_timeout = now_secs + 30 * (remaining_hops.max(1) as u64);
+                let entry = LinkTableEntry {
+                    timestamp: now_secs,
+                    next_hop_transport_id: next_hop,
+                    next_hop_interface: outbound_iface,
+                    remaining_hops,
+                    received_interface: from_iface,
+                    taken_hops: new_hops,
+                    dest_hash: packet.destination,
+                    validated: false,
+                    proof_timeout,
+                };
+                self.router.link_table_mut().insert(link_id, entry);
+                tracing::info!(
+                    link_id = %hex::encode(link_id.as_ref()),
+                    remaining_hops,
+                    "link_table_entry_created"
+                );
+            }
+        } else {
+            // For non-link-request packets: create reverse table entry
+            let packet_hash = packet.packet_hash();
+            let trunc = packet_hash.truncated();
+            self.router.reverse_table_mut().insert(
+                trunc,
+                ReverseEntry {
+                    receiving_interface: from_iface,
+                    outbound_interface: outbound_iface,
+                    timestamp: now_secs,
+                },
+            );
+        }
+
+        // Forward based on remaining hops
+        if remaining_hops > 1 {
+            // Keep HEADER_2, replace transport_id with next_hop
+            let mut forwarded = raw.to_vec();
+            forwarded[1] = new_hops;
+            forwarded[2..18].copy_from_slice(next_hop.as_ref());
+
+            tracing::info!(
+                destination = %hex::encode(packet.destination.as_ref()),
+                next_hop = %hex::encode(next_hop.as_ref()),
+                remaining_hops,
+                "transport_relay"
+            );
+            self.transmit_to_interface(outbound_iface, &forwarded).await;
+        } else {
+            // remaining_hops <= 1: final hop, strip HEADER_2 → HEADER_1
+            // (Our hops are 1 less than Python's since we don't increment on reception,
+            // so remaining_hops=0 corresponds to Python's remaining_hops=1.)
+            match strip_transport_header(raw, new_hops) {
+                Ok(stripped) => {
+                    tracing::info!(
+                        destination = %hex::encode(packet.destination.as_ref()),
+                        remaining_hops,
+                        "transport_relay_final_hop"
+                    );
+                    self.transmit_to_interface(outbound_iface, &stripped).await;
+                }
+                Err(e) => {
+                    tracing::warn!("failed to strip transport header: {e}");
+                }
+            }
+        }
+    }
+
+    /// Relay an LRPROOF via the link table back toward the initiator.
+    async fn relay_lrproof(
+        &mut self,
+        packet: &RawPacket,
+        raw: &[u8],
+        from_iface: InterfaceId,
+        new_hops: u8,
+    ) {
+        let link_id_bytes: [u8; 16] = match packet.destination.as_ref().try_into() {
+            Ok(b) => b,
+            Err(_) => return,
+        };
+        let link_id = reticulum_core::types::LinkId::new(link_id_bytes);
+
+        let entry = match self.router.link_table().get(&link_id) {
+            Some(e) => e.clone(),
+            None => {
+                tracing::debug!(
+                    link_id = %hex::encode(link_id.as_ref()),
+                    "transport_relay: no link table entry for LRPROOF"
+                );
+                return;
+            }
+        };
+
+        // Proof should arrive on the next-hop interface
+        if from_iface != entry.next_hop_interface {
+            tracing::debug!(
+                link_id = %hex::encode(link_id.as_ref()),
+                "transport_relay: LRPROOF arrived on wrong interface"
+            );
+            return;
+        }
+
+        // Forward proof back to the received interface (toward initiator)
+        let mut forwarded = raw.to_vec();
+        forwarded[1] = new_hops;
+
+        tracing::info!(
+            link_id = %hex::encode(link_id.as_ref()),
+            "transport_relay_lrproof"
+        );
+
+        // Mark link as validated
+        if let Some(e) = self.router.link_table_mut().get_mut(&link_id) {
+            e.validated = true;
+        }
+
+        self.transmit_to_interface(entry.received_interface, &forwarded)
+            .await;
+    }
+
+    /// Relay a link-related packet (data, proof, etc.) via the link table.
+    async fn relay_link_packet(
+        &mut self,
+        packet: &RawPacket,
+        raw: &[u8],
+        from_iface: InterfaceId,
+        new_hops: u8,
+    ) {
+        let link_id_bytes: [u8; 16] = match packet.destination.as_ref().try_into() {
+            Ok(b) => b,
+            Err(_) => return,
+        };
+        let link_id = reticulum_core::types::LinkId::new(link_id_bytes);
+
+        let entry = match self.router.link_table().get(&link_id) {
+            Some(e) => e.clone(),
+            None => {
+                tracing::debug!(
+                    link_id = %hex::encode(link_id.as_ref()),
+                    "transport_relay: no link table entry for link packet"
+                );
+                return;
+            }
+        };
+
+        // Determine forwarding direction:
+        // - Arrived on received_interface → forward to next_hop_interface (toward destination)
+        // - Arrived on next_hop_interface → forward to received_interface (toward initiator)
+        let target_iface = if from_iface == entry.received_interface {
+            entry.next_hop_interface
+        } else if from_iface == entry.next_hop_interface {
+            entry.received_interface
+        } else {
+            tracing::debug!(
+                link_id = %hex::encode(link_id.as_ref()),
+                "transport_relay: link packet arrived on unknown interface"
+            );
+            return;
+        };
+
+        let mut forwarded = raw.to_vec();
+        forwarded[1] = new_hops;
+
+        tracing::debug!(
+            link_id = %hex::encode(link_id.as_ref()),
+            packet_type = ?packet.flags.packet_type,
+            context = ?packet.context,
+            "transport_relay_link_packet"
+        );
+
+        self.transmit_to_interface(target_iface, &forwarded).await;
     }
 
     /// Handle link-related packets. Returns true if the packet was handled locally.
@@ -813,6 +1243,34 @@ impl Node {
         let targets = self.link_manager.drain_pending_targets();
         for (dest_hash, actions) in targets {
             if let Some(lr_raw) = self.link_manager.initiate_link(dest_hash, actions) {
+                // Check if destination requires transport (multi-hop path).
+                // If hops > 0 and we have a next_hop relay, inject HEADER_2
+                // transport headers so the relay can forward the LINKREQUEST.
+                let path_info = self.router.path_table().get(&dest_hash).map(|e| {
+                    (e.hops, e.next_hop, e.receiving_interface)
+                });
+
+                if let Some((hops, next_hop, outbound_iface)) = path_info
+                    && hops > 0
+                    && next_hop.as_ref() != [0u8; 16]
+                {
+                    match inject_transport_header(&lr_raw, &next_hop) {
+                        Ok(h2_raw) => {
+                            tracing::info!(
+                                dest = %hex::encode(dest_hash.as_ref()),
+                                next_hop = %hex::encode(next_hop.as_ref()),
+                                "sending LINKREQUEST via transport"
+                            );
+                            self.transmit_to_interface(outbound_iface, &h2_raw).await;
+                            continue;
+                        }
+                        Err(e) => {
+                            tracing::warn!("failed to inject transport header for LINKREQUEST: {e}");
+                        }
+                    }
+                }
+
+                // Direct destination or fallback: broadcast as HEADER_1
                 self.broadcast_to_interfaces(None, &lr_raw).await;
             }
         }

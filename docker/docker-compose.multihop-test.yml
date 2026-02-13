@@ -1,0 +1,49 @@
+services:
+  python-relay:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.python
+    volumes:
+      - ./configs/python-relay:/etc/reticulum
+    networks:
+      - multihop-net
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c 'import socket; s=socket.socket(); s.settimeout(2); s.connect((\"127.0.0.1\", 4242)); s.close()'"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+  rust-a:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.rust
+    volumes:
+      - ./configs/rust-a/multihop-test.toml:/etc/reticulum/config.toml:ro
+    networks:
+      - multihop-net
+    environment:
+      - RUST_LOG=debug
+      - RUST_LOG_FORMAT=json
+    depends_on:
+      python-relay:
+        condition: service_healthy
+
+  rust-b:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.rust
+    volumes:
+      - ./configs/rust-b/multihop-test.toml:/etc/reticulum/config.toml:ro
+    networks:
+      - multihop-net
+    environment:
+      - RUST_LOG=debug
+      - RUST_LOG_FORMAT=json
+    depends_on:
+      python-relay:
+        condition: service_healthy
+
+networks:
+  multihop-net:
+    driver: bridge

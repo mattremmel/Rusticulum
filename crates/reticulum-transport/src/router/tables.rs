@@ -91,6 +91,11 @@ impl LinkTable {
         self.entries.get(link_id)
     }
 
+    /// Look up a mutable link table entry.
+    pub fn get_mut(&mut self, link_id: &LinkId) -> Option<&mut LinkTableEntry> {
+        self.entries.get_mut(link_id)
+    }
+
     /// Remove a link table entry.
     pub fn remove(&mut self, link_id: &LinkId) -> Option<LinkTableEntry> {
         self.entries.remove(link_id)

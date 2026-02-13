@@ -22,4 +22,8 @@ target
 
 # Docker integration test artifacts
 docker/configs/python-rns/storage/
+docker/configs/python-a/storage/
+docker/configs/python-b/storage/
+docker/configs/python-relay/storage/
 docker/integration-test.log
+docker/*-test.log

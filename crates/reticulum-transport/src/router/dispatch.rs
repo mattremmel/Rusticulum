@@ -208,6 +208,10 @@ impl PacketRouter {
     }
 
     /// Process an inbound announce packet: validate, update path table, queue for retransmission.
+    ///
+    /// `transport_id` should be `Some(id)` when the announce arrived via a HEADER_2 transport
+    /// relay. This is stored as the next_hop in the path table so the node knows which
+    /// relay to forward through.
     pub fn process_inbound_announce(
         &mut self,
         packet: &RawPacket,
@@ -215,6 +219,7 @@ impl PacketRouter {
         interface_mode: InterfaceMode,
         now: u64,
         now_f64: f64,
+        transport_id: Option<DestinationHash>,
     ) -> Result<AnnounceResult, RouterError> {
         if packet.flags.packet_type != PacketType::Announce {
             return Err(RouterError::InvalidTransformation(
@@ -235,6 +240,13 @@ impl PacketRouter {
         let hops = packet.hops;
         let packet_hash = packet.packet_hash();
 
+        // Determine the next_hop for the path entry:
+        // - If HEADER_2 with transport_id: the relay's identity hash
+        // - If HEADER_1 (direct): zero (no relay needed)
+        let next_hop = transport_id
+            .map(|tid| TruncatedHash::try_from(tid.as_ref()).unwrap_or(TruncatedHash::new([0u8; 16])))
+            .unwrap_or(TruncatedHash::new([0u8; 16]));
+
         // Decide whether to update the path table
         let path_updated = if let Some(existing) = self.path_table.get(&dest) {
             if existing.has_random_blob(&announce.random_hash) {
@@ -244,7 +256,7 @@ impl PacketRouter {
                 // Better path or expired — replace
                 let entry = PathEntry::new(
                     now,
-                    TruncatedHash::new([0u8; 16]), // direct from interface
+                    next_hop,
                     hops,
                     interface_mode,
                     vec![announce.random_hash],
@@ -264,7 +276,7 @@ impl PacketRouter {
             // New destination — add to path table
             let entry = PathEntry::new(
                 now,
-                TruncatedHash::new([0u8; 16]), // direct from interface
+                next_hop,
                 hops,
                 interface_mode,
                 vec![announce.random_hash],
@@ -364,7 +376,7 @@ mod tests {
         let iface = InterfaceId(1);
 
         let result = router
-            .process_inbound_announce(&raw_packet, iface, InterfaceMode::Full, 1000, 1000.0)
+            .process_inbound_announce(&raw_packet, iface, InterfaceMode::Full, 1000, 1000.0, None)
             .expect("process failed");
 
         assert_eq!(result.destination_hash, dh);
@@ -410,7 +422,7 @@ mod tests {
         let raw_packet = announce.to_raw_packet(2);
 
         let result = router
-            .process_inbound_announce(&raw_packet, iface, InterfaceMode::Full, 1001, 1001.0)
+            .process_inbound_announce(&raw_packet, iface, InterfaceMode::Full, 1001, 1001.0, None)
             .expect("process failed");
 
         assert!(result.path_updated);
@@ -437,13 +449,13 @@ mod tests {
 
         // First time — should update
         let r1 = router
-            .process_inbound_announce(&raw_packet, iface, InterfaceMode::Full, 1000, 1000.0)
+            .process_inbound_announce(&raw_packet, iface, InterfaceMode::Full, 1000, 1000.0, None)
             .unwrap();
         assert!(r1.path_updated);
 
         // Second time with same random_hash — should not update
         let r2 = router
-            .process_inbound_announce(&raw_packet, iface, InterfaceMode::Full, 1001, 1001.0)
+            .process_inbound_announce(&raw_packet, iface, InterfaceMode::Full, 1001, 1001.0, None)
             .unwrap();
         assert!(!r2.path_updated);
     }
@@ -472,6 +484,7 @@ mod tests {
             InterfaceMode::Full,
             1000,
             1000.0,
+            None,
         );
 
         assert!(result.is_err());
