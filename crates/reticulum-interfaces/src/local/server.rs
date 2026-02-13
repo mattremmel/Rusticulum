@@ -75,13 +75,13 @@ impl LocalServerInterface {
     /// - Try to connect to it. If connection is refused (no process listening),
     ///   the file is stale and can be removed.
     /// - If connection succeeds, another server is already running — return an error.
-    fn handle_stale_socket(path: &PathBuf) -> Result<(), InterfaceError> {
+    async fn handle_stale_socket(path: &PathBuf) -> Result<(), InterfaceError> {
         if !path.exists() {
             return Ok(());
         }
 
-        // Try connecting synchronously via std to check if someone is listening
-        match std::os::unix::net::UnixStream::connect(path) {
+        // Try connecting via tokio to check if someone is listening
+        match tokio::net::UnixStream::connect(path).await {
             Ok(_) => {
                 // Another process is actively listening — cannot bind
                 Err(InterfaceError::Configuration(format!(
@@ -92,13 +92,17 @@ impl LocalServerInterface {
             Err(e) if e.kind() == std::io::ErrorKind::ConnectionRefused => {
                 // Stale socket file — safe to remove
                 info!("removing stale socket file: {:?}", path);
-                std::fs::remove_file(path).map_err(InterfaceError::Io)?;
+                tokio::fs::remove_file(path)
+                    .await
+                    .map_err(InterfaceError::Io)?;
                 Ok(())
             }
             Err(_) => {
                 // Other error (e.g. permission denied, not a socket) — try removing
                 info!("removing orphan socket file: {:?}", path);
-                std::fs::remove_file(path).map_err(InterfaceError::Io)?;
+                tokio::fs::remove_file(path)
+                    .await
+                    .map_err(InterfaceError::Io)?;
                 Ok(())
             }
         }
@@ -190,7 +194,7 @@ impl Interface for LocalServerInterface {
 
     async fn start(&mut self) -> Result<(), InterfaceError> {
         // Handle stale socket file before binding
-        Self::handle_stale_socket(&self.config.socket_path)?;
+        Self::handle_stale_socket(&self.config.socket_path).await?;
 
         let listener = UnixListener::bind(&self.config.socket_path).map_err(InterfaceError::Io)?;
 
@@ -233,7 +237,7 @@ impl Interface for LocalServerInterface {
         }
 
         // Clean up the socket file
-        if let Err(e) = std::fs::remove_file(&self.config.socket_path) {
+        if let Err(e) = tokio::fs::remove_file(&self.config.socket_path).await {
             debug!(
                 "{}: could not remove socket file {:?}: {}",
                 self.config.name, self.config.socket_path, e

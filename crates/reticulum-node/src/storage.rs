@@ -4,8 +4,9 @@
 //! packet deduplication hashlist across restarts. Uses atomic writes (write to
 //! `.tmp`, then rename) to prevent corruption.
 
-use std::fs;
 use std::path::{Path, PathBuf};
+
+use tokio::fs;
 
 use serde::{Deserialize, Serialize};
 
@@ -109,7 +110,7 @@ pub struct Storage {
 impl Storage {
     /// Create a new storage instance, creating the directory if needed.
     pub fn new(base_dir: PathBuf) -> Result<Self, StorageError> {
-        fs::create_dir_all(&base_dir)?;
+        std::fs::create_dir_all(&base_dir)?;
         Ok(Self { base_dir })
     }
 
@@ -121,27 +122,27 @@ impl Storage {
     }
 
     /// Save a transport identity as raw 64 bytes.
-    pub fn save_identity(&self, identity: &Identity) -> Result<(), StorageError> {
+    pub async fn save_identity(&self, identity: &Identity) -> Result<(), StorageError> {
         let bytes = identity
             .private_key_bytes()
             .ok_or(StorageError::InvalidIdentityLength(0))?;
         let path = self.base_dir.join(IDENTITY_FILE);
-        self.atomic_write(&path, &bytes)?;
+        self.atomic_write(&path, &bytes).await?;
 
         // Set file permissions to 0600 on Unix
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            fs::set_permissions(&path, fs::Permissions::from_mode(0o600))?;
+            fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).await?;
         }
 
         Ok(())
     }
 
     /// Load a transport identity. Returns `Ok(None)` if the file doesn't exist.
-    pub fn load_identity(&self) -> Result<Option<Identity>, StorageError> {
+    pub async fn load_identity(&self) -> Result<Option<Identity>, StorageError> {
         let path = self.base_dir.join(IDENTITY_FILE);
-        match fs::read(&path) {
+        match fs::read(&path).await {
             Ok(bytes) => {
                 if bytes.len() != 64 {
                     return Err(StorageError::InvalidIdentityLength(bytes.len()));
@@ -155,7 +156,7 @@ impl Storage {
     }
 
     /// Save the path table.
-    pub fn save_path_table(&self, table: &PathTable) -> Result<(), StorageError> {
+    pub async fn save_path_table(&self, table: &PathTable) -> Result<(), StorageError> {
         let entries: Vec<StorablePathEntry> = table
             .iter()
             .map(|(dest, entry)| StorablePathEntry::from_entry(dest, entry))
@@ -165,12 +166,13 @@ impl Storage {
             postcard::to_allocvec(&entries).map_err(|e| StorageError::Serialize(e.to_string()))?;
 
         self.atomic_write(&self.base_dir.join(PATH_TABLE_FILE), &bytes)
+            .await
     }
 
     /// Load the path table. Returns an empty table if the file doesn't exist.
-    pub fn load_path_table(&self) -> Result<PathTable, StorageError> {
+    pub async fn load_path_table(&self) -> Result<PathTable, StorageError> {
         let path = self.base_dir.join(PATH_TABLE_FILE);
-        match fs::read(&path) {
+        match fs::read(&path).await {
             Ok(bytes) => {
                 let entries: Vec<StorablePathEntry> = postcard::from_bytes(&bytes)
                     .map_err(|e| StorageError::Deserialize(e.to_string()))?;
@@ -184,7 +186,7 @@ impl Storage {
     }
 
     /// Save the packet hashlist.
-    pub fn save_hashlist(&self, hashlist: &PacketHashlist) -> Result<(), StorageError> {
+    pub async fn save_hashlist(&self, hashlist: &PacketHashlist) -> Result<(), StorageError> {
         let hashes: Vec<[u8; 32]> = hashlist
             .iter_all()
             .map(|h| {
@@ -198,12 +200,13 @@ impl Storage {
             postcard::to_allocvec(&hashes).map_err(|e| StorageError::Serialize(e.to_string()))?;
 
         self.atomic_write(&self.base_dir.join(HASHLIST_FILE), &bytes)
+            .await
     }
 
     /// Load the packet hashlist. Returns an empty hashlist if the file doesn't exist.
-    pub fn load_hashlist(&self) -> Result<PacketHashlist, StorageError> {
+    pub async fn load_hashlist(&self) -> Result<PacketHashlist, StorageError> {
         let path = self.base_dir.join(HASHLIST_FILE);
-        match fs::read(&path) {
+        match fs::read(&path).await {
             Ok(bytes) => {
                 let hashes: Vec<[u8; 32]> = postcard::from_bytes(&bytes)
                     .map_err(|e| StorageError::Deserialize(e.to_string()))?;
@@ -217,10 +220,10 @@ impl Storage {
     }
 
     /// Write data atomically: write to a `.tmp` file then rename.
-    fn atomic_write(&self, path: &Path, data: &[u8]) -> Result<(), StorageError> {
+    async fn atomic_write(&self, path: &Path, data: &[u8]) -> Result<(), StorageError> {
         let tmp_path = path.with_extension("tmp");
-        fs::write(&tmp_path, data)?;
-        fs::rename(&tmp_path, path)?;
+        fs::write(&tmp_path, data).await?;
+        fs::rename(&tmp_path, path).await?;
         Ok(())
     }
 }
@@ -254,37 +257,37 @@ mod tests {
         )
     }
 
-    #[test]
-    fn test_identity_save_load_roundtrip() {
+    #[tokio::test]
+    async fn test_identity_save_load_roundtrip() {
         let dir = tempfile::tempdir().unwrap();
         let storage = Storage::new(dir.path().to_path_buf()).unwrap();
 
         let identity = Identity::generate();
-        storage.save_identity(&identity).unwrap();
+        storage.save_identity(&identity).await.unwrap();
 
-        let loaded = storage.load_identity().unwrap().expect("should load");
+        let loaded = storage.load_identity().await.unwrap().expect("should load");
         assert_eq!(identity.hash().as_ref(), loaded.hash().as_ref());
         assert_eq!(identity.public_key_bytes(), loaded.public_key_bytes());
     }
 
-    #[test]
-    fn test_identity_load_missing() {
+    #[tokio::test]
+    async fn test_identity_load_missing() {
         let dir = tempfile::tempdir().unwrap();
         let storage = Storage::new(dir.path().to_path_buf()).unwrap();
 
-        let result = storage.load_identity().unwrap();
+        let result = storage.load_identity().await.unwrap();
         assert!(result.is_none());
     }
 
-    #[test]
-    fn test_identity_load_corrupt() {
+    #[tokio::test]
+    async fn test_identity_load_corrupt() {
         let dir = tempfile::tempdir().unwrap();
         let storage = Storage::new(dir.path().to_path_buf()).unwrap();
 
         // Write garbage bytes (wrong length)
-        fs::write(dir.path().join(IDENTITY_FILE), b"too short").unwrap();
+        std::fs::write(dir.path().join(IDENTITY_FILE), b"too short").unwrap();
 
-        let result = storage.load_identity();
+        let result = storage.load_identity().await;
         assert!(result.is_err());
         match result {
             Err(StorageError::InvalidIdentityLength(9)) => {}
@@ -293,8 +296,8 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_path_table_roundtrip() {
+    #[tokio::test]
+    async fn test_path_table_roundtrip() {
         let dir = tempfile::tempdir().unwrap();
         let storage = Storage::new(dir.path().to_path_buf()).unwrap();
 
@@ -304,8 +307,8 @@ mod tests {
         table.insert(make_dest(1), entry1);
         table.insert(make_dest(2), entry2);
 
-        storage.save_path_table(&table).unwrap();
-        let loaded = storage.load_path_table().unwrap();
+        storage.save_path_table(&table).await.unwrap();
+        let loaded = storage.load_path_table().await.unwrap();
 
         assert_eq!(loaded.len(), 2);
         let e1 = loaded.get(&make_dest(1)).unwrap();
@@ -318,19 +321,19 @@ mod tests {
         assert_eq!(e2.hops, 5);
     }
 
-    #[test]
-    fn test_path_table_empty_roundtrip() {
+    #[tokio::test]
+    async fn test_path_table_empty_roundtrip() {
         let dir = tempfile::tempdir().unwrap();
         let storage = Storage::new(dir.path().to_path_buf()).unwrap();
 
         let table = PathTable::new();
-        storage.save_path_table(&table).unwrap();
-        let loaded = storage.load_path_table().unwrap();
+        storage.save_path_table(&table).await.unwrap();
+        let loaded = storage.load_path_table().await.unwrap();
         assert!(loaded.is_empty());
     }
 
-    #[test]
-    fn test_path_table_random_blob_truncation() {
+    #[tokio::test]
+    async fn test_path_table_random_blob_truncation() {
         let dir = tempfile::tempdir().unwrap();
         let storage = Storage::new(dir.path().to_path_buf()).unwrap();
 
@@ -351,14 +354,14 @@ mod tests {
         let mut table = PathTable::new();
         table.insert(make_dest(1), entry);
 
-        storage.save_path_table(&table).unwrap();
-        let loaded = storage.load_path_table().unwrap();
+        storage.save_path_table(&table).await.unwrap();
+        let loaded = storage.load_path_table().await.unwrap();
         let e = loaded.get(&make_dest(1)).unwrap();
         assert_eq!(e.random_blobs.len(), MAX_PERSISTED_BLOBS);
     }
 
-    #[test]
-    fn test_hashlist_roundtrip() {
+    #[tokio::test]
+    async fn test_hashlist_roundtrip() {
         let dir = tempfile::tempdir().unwrap();
         let storage = Storage::new(dir.path().to_path_buf()).unwrap();
 
@@ -368,36 +371,36 @@ mod tests {
         hashlist.insert(h1);
         hashlist.insert(h2);
 
-        storage.save_hashlist(&hashlist).unwrap();
-        let loaded = storage.load_hashlist().unwrap();
+        storage.save_hashlist(&hashlist).await.unwrap();
+        let loaded = storage.load_hashlist().await.unwrap();
 
         assert!(loaded.contains(&h1));
         assert!(loaded.contains(&h2));
         assert_eq!(loaded.len(), 2);
     }
 
-    #[test]
-    fn test_hashlist_empty_roundtrip() {
+    #[tokio::test]
+    async fn test_hashlist_empty_roundtrip() {
         let dir = tempfile::tempdir().unwrap();
         let storage = Storage::new(dir.path().to_path_buf()).unwrap();
 
         let hashlist = PacketHashlist::new();
-        storage.save_hashlist(&hashlist).unwrap();
-        let loaded = storage.load_hashlist().unwrap();
+        storage.save_hashlist(&hashlist).await.unwrap();
+        let loaded = storage.load_hashlist().await.unwrap();
         assert!(loaded.is_empty());
     }
 
-    #[test]
-    fn test_atomic_write_cleanup() {
+    #[tokio::test]
+    async fn test_atomic_write_cleanup() {
         let dir = tempfile::tempdir().unwrap();
         let storage = Storage::new(dir.path().to_path_buf()).unwrap();
 
         let path = dir.path().join("test_file");
-        storage.atomic_write(&path, b"hello").unwrap();
+        storage.atomic_write(&path, b"hello").await.unwrap();
 
         assert!(path.exists());
         assert!(!path.with_extension("tmp").exists());
-        assert_eq!(fs::read(&path).unwrap(), b"hello");
+        assert_eq!(std::fs::read(&path).unwrap(), b"hello");
     }
 
     #[test]

@@ -123,14 +123,14 @@ impl Node {
 
         // Load or generate transport identity
         if let Some(ref storage) = self.storage {
-            match storage.load_identity() {
+            match storage.load_identity().await {
                 Ok(Some(id)) => {
                     tracing::info!("loaded transport identity");
                     self.transport_identity = Some(id);
                 }
                 Ok(None) => {
                     let id = Identity::generate();
-                    if let Err(e) = storage.save_identity(&id) {
+                    if let Err(e) = storage.save_identity(&id).await {
                         tracing::warn!("failed to save new identity: {e}");
                     } else {
                         tracing::info!("generated and saved new transport identity");
@@ -144,7 +144,7 @@ impl Node {
             }
 
             // Load path table
-            match storage.load_path_table() {
+            match storage.load_path_table().await {
                 Ok(table) => {
                     let count = table.len();
                     if count > 0 {
@@ -158,7 +158,7 @@ impl Node {
             }
 
             // Load hashlist
-            match storage.load_hashlist() {
+            match storage.load_hashlist().await {
                 Ok(hashlist) => {
                     let count = hashlist.len();
                     if count > 0 {
@@ -415,7 +415,7 @@ impl Node {
                 }
 
                 _ = persist_interval.tick(), if persist_enabled => {
-                    self.persist_state();
+                    self.persist_state().await;
                 }
 
                 _ = self.shutdown_rx.changed() => {
@@ -437,7 +437,7 @@ impl Node {
         self.trigger_shutdown();
 
         // Final state persistence before shutdown
-        self.persist_state();
+        self.persist_state().await;
 
         // Wait for all bridge tasks to finish.
         for handle in self.bridge_handles.drain(..) {
@@ -554,12 +554,12 @@ impl Node {
     }
 
     /// Persist path table and hashlist to storage.
-    fn persist_state(&self) {
+    async fn persist_state(&self) {
         if let Some(ref storage) = self.storage {
-            if let Err(e) = storage.save_path_table(&self.router.path_table) {
+            if let Err(e) = storage.save_path_table(&self.router.path_table).await {
                 tracing::warn!("failed to persist path table: {e}");
             }
-            if let Err(e) = storage.save_hashlist(&self.router.hashlist) {
+            if let Err(e) = storage.save_hashlist(&self.router.hashlist).await {
                 tracing::warn!("failed to persist hashlist: {e}");
             }
             tracing::debug!("persisted state to storage");
