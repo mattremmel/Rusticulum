@@ -46,6 +46,10 @@ hex = "0.4"
 # Async
 tokio = { version = "1", features = ["full"] }
 
+# Platform / networking
+socket2 = { version = "0.5", features = ["all"] }
+nix = { version = "0.29", features = ["net"] }
+
 # Compression
 bzip2 = "0.4"
 
