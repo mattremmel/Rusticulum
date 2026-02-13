@@ -245,7 +245,7 @@ mod tests {
         let addr = server.local_addr().await.unwrap();
 
         // Create an initiator client pointing at the server
-        let client_config = TcpClientConfig::initiator("test-client-rt", addr);
+        let client_config = TcpClientConfig::initiator("test-client-rt", addr.to_string());
         let client = TcpClientInterface::new(client_config, InterfaceId(201)).unwrap();
         client.start().await.unwrap();
 

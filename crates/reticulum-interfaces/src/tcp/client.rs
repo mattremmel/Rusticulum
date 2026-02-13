@@ -21,8 +21,8 @@ use crate::traits::Interface;
 /// Whether this client initiates connections or was spawned by a server.
 #[derive(Debug, Clone)]
 pub enum TcpClientRole {
-    /// Client that connects to a remote address and auto-reconnects.
-    Initiator { target_addr: std::net::SocketAddr },
+    /// Client that connects to a remote address/hostname and auto-reconnects.
+    Initiator { target: String },
     /// Client spawned by a server from an accepted connection (no reconnect).
     Responder,
 }
@@ -56,10 +56,10 @@ pub struct TcpClientInterface {
 impl TcpClientInterface {
     /// Create an initiator client that will connect to `config.target_addr`.
     pub fn new(config: TcpClientConfig, id: InterfaceId) -> Result<Self, InterfaceError> {
-        let target_addr = config.target_addr.ok_or_else(|| {
+        let target = config.target_addr.clone().ok_or_else(|| {
             InterfaceError::Configuration("initiator config must have target_addr".into())
         })?;
-        let role = TcpClientRole::Initiator { target_addr };
+        let role = TcpClientRole::Initiator { target };
         Ok(Self::build(config, id, role))
     }
 
@@ -128,7 +128,7 @@ impl TcpClientInterface {
     /// Run the initiator's connect-and-reconnect loop.
     async fn connect_and_run(
         inner: Arc<TcpClientInner>,
-        target_addr: std::net::SocketAddr,
+        target: String,
         connect_timeout: std::time::Duration,
         max_reconnect_tries: Option<u32>,
         mut stop_rx: watch::Receiver<bool>,
@@ -142,50 +142,46 @@ impl TcpClientInterface {
             }
 
             // Try to connect
-            let stream = match tokio::time::timeout(
-                connect_timeout,
-                TcpStream::connect(target_addr),
-            )
-            .await
-            {
-                Ok(Ok(stream)) => {
-                    let _ = stream.set_nodelay(true);
-                    info!("{}: connected to {}", name, target_addr);
-                    attempts = 0;
-                    stream
-                }
-                Ok(Err(e)) => {
-                    debug!("{}: connection failed: {}", name, e);
-                    attempts += 1;
-                    if let Some(max) = max_reconnect_tries
-                        && attempts > max
-                    {
-                        warn!("{}: max reconnect attempts ({}) reached", name, max);
-                        break;
+            let stream =
+                match tokio::time::timeout(connect_timeout, TcpStream::connect(&*target)).await {
+                    Ok(Ok(stream)) => {
+                        let _ = stream.set_nodelay(true);
+                        info!("{}: connected to {}", name, target);
+                        attempts = 0;
+                        stream
                     }
-                    // Wait before retrying, but break early on stop
-                    tokio::select! {
-                        _ = tokio::time::sleep(RECONNECT_WAIT) => {}
-                        _ = stop_rx.changed() => { break; }
+                    Ok(Err(e)) => {
+                        debug!("{}: connection failed: {}", name, e);
+                        attempts += 1;
+                        if let Some(max) = max_reconnect_tries
+                            && attempts > max
+                        {
+                            warn!("{}: max reconnect attempts ({}) reached", name, max);
+                            break;
+                        }
+                        // Wait before retrying, but break early on stop
+                        tokio::select! {
+                            _ = tokio::time::sleep(RECONNECT_WAIT) => {}
+                            _ = stop_rx.changed() => { break; }
+                        }
+                        continue;
                     }
-                    continue;
-                }
-                Err(_) => {
-                    debug!("{}: connection timed out", name);
-                    attempts += 1;
-                    if let Some(max) = max_reconnect_tries
-                        && attempts > max
-                    {
-                        warn!("{}: max reconnect attempts ({}) reached", name, max);
-                        break;
+                    Err(_) => {
+                        debug!("{}: connection timed out", name);
+                        attempts += 1;
+                        if let Some(max) = max_reconnect_tries
+                            && attempts > max
+                        {
+                            warn!("{}: max reconnect attempts ({}) reached", name, max);
+                            break;
+                        }
+                        tokio::select! {
+                            _ = tokio::time::sleep(RECONNECT_WAIT) => {}
+                            _ = stop_rx.changed() => { break; }
+                        }
+                        continue;
                     }
-                    tokio::select! {
-                        _ = tokio::time::sleep(RECONNECT_WAIT) => {}
-                        _ = stop_rx.changed() => { break; }
-                    }
-                    continue;
-                }
-            };
+                };
 
             let (reader, writer) = stream.into_split();
             {
@@ -292,9 +288,9 @@ impl Interface for TcpClientInterface {
 
     async fn start(&self) -> Result<(), InterfaceError> {
         match &self.role {
-            TcpClientRole::Initiator { target_addr } => {
+            TcpClientRole::Initiator { target } => {
                 let inner = Arc::clone(&self.inner);
-                let target = *target_addr;
+                let target = target.clone();
                 let timeout = self.config.connect_timeout;
                 let max_tries = self.config.max_reconnect_tries;
                 let stop_rx = self.inner.shutdown.subscribe();
@@ -367,7 +363,7 @@ mod tests {
         let addr = listener.local_addr().unwrap();
 
         // Create an initiator client
-        let config = TcpClientConfig::initiator("test-client", addr);
+        let config = TcpClientConfig::initiator("test-client", addr.to_string());
         let client = TcpClientInterface::new(config, InterfaceId(1)).unwrap();
         client.start().await.unwrap();
 
@@ -407,7 +403,7 @@ mod tests {
     async fn transmit_when_disconnected() {
         let config = TcpClientConfig::initiator(
             "test-disconnected",
-            "127.0.0.1:1".parse().unwrap(), // will not connect
+            "127.0.0.1:1", // will not connect
         );
         let client = TcpClientInterface::new(config, InterfaceId(99)).unwrap();
         // Don't start — not connected
@@ -416,11 +412,54 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn client_connects_via_hostname() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+
+        // Use "localhost" hostname instead of raw IP
+        let target = format!("localhost:{port}");
+        let config = TcpClientConfig::initiator("test-hostname", target);
+        let client = TcpClientInterface::new(config, InterfaceId(10)).unwrap();
+        client.start().await.unwrap();
+
+        // Accept the connection
+        let (mut peer_stream, _) = listener.accept().await.unwrap();
+
+        // Wait for connected
+        for _ in 0..50 {
+            if client.is_connected() {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
+        assert!(client.is_connected());
+
+        // Client → peer
+        let payload = vec![0x42; 20];
+        client.transmit(&payload).await.unwrap();
+
+        let mut buf = vec![0u8; 256];
+        let n = peer_stream.read(&mut buf).await.unwrap();
+        let expected_frame = hdlc_frame(&payload);
+        assert_eq!(&buf[..n], &expected_frame[..]);
+
+        // Peer → client
+        let return_payload = vec![0x55; 25];
+        let return_frame = hdlc_frame(&return_payload);
+        peer_stream.write_all(&return_frame).await.unwrap();
+
+        let received = client.receive().await.unwrap();
+        assert_eq!(received, return_payload);
+
+        client.stop().await.unwrap();
+    }
+
+    #[tokio::test]
     async fn reconnection_after_disconnect() {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
 
-        let config = TcpClientConfig::initiator("test-reconnect", addr);
+        let config = TcpClientConfig::initiator("test-reconnect", addr.to_string());
         let client = TcpClientInterface::new(config, InterfaceId(2)).unwrap();
         client.start().await.unwrap();
 

@@ -303,4 +303,31 @@ data_port = 42671
         assert_eq!(parse_mode("gateway").unwrap(), InterfaceMode::Gateway);
         assert!(parse_mode("invalid").is_err());
     }
+
+    #[test]
+    fn parse_tcp_client_hostname_target() {
+        let toml = r#"
+[[interfaces.tcp_client]]
+name = "hostname"
+target = "some-hostname:4242"
+
+[[interfaces.tcp_client]]
+name = "localhost"
+target = "localhost:4242"
+
+[[interfaces.tcp_client]]
+name = "ipv4"
+target = "192.168.1.10:4242"
+
+[[interfaces.tcp_client]]
+name = "ipv6"
+target = "[::1]:4242"
+"#;
+        let config = NodeConfig::parse(toml).unwrap();
+        assert_eq!(config.interfaces.tcp_client.len(), 4);
+        assert_eq!(config.interfaces.tcp_client[0].target, "some-hostname:4242");
+        assert_eq!(config.interfaces.tcp_client[1].target, "localhost:4242");
+        assert_eq!(config.interfaces.tcp_client[2].target, "192.168.1.10:4242");
+        assert_eq!(config.interfaces.tcp_client[3].target, "[::1]:4242");
+    }
 }

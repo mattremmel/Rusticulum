@@ -295,8 +295,7 @@ mod tests {
 
             // Verify the eof_message stream packing
             let eof_msg = &tv.eof_message;
-            let expected_stream_packed =
-                hex::decode(&eof_msg.stream_packed_hex).unwrap();
+            let expected_stream_packed = hex::decode(&eof_msg.stream_packed_hex).unwrap();
 
             let stream_msg = StreamDataMessage {
                 header,
@@ -350,8 +349,7 @@ mod tests {
                 tv.index
             );
             assert_eq!(
-                processed_length,
-                write_result.processed_length as usize,
+                processed_length, write_result.processed_length as usize,
                 "processed_length mismatch for vector index={}",
                 tv.index
             );

@@ -41,8 +41,8 @@ pub const TCP_RECV_BUFFER: usize = 4096;
 pub struct TcpClientConfig {
     /// Human-readable name for this interface.
     pub name: String,
-    /// Target address (required for initiator mode, ignored for responder).
-    pub target_addr: Option<SocketAddr>,
+    /// Target address or hostname:port (required for initiator mode, ignored for responder).
+    pub target_addr: Option<String>,
     /// Interface operating mode.
     pub mode: InterfaceMode,
     /// Maximum reconnection attempts (`None` = unlimited).
@@ -57,10 +57,10 @@ pub struct TcpClientConfig {
 
 impl TcpClientConfig {
     /// Create a config for a client that initiates connections.
-    pub fn initiator(name: impl Into<String>, target: SocketAddr) -> Self {
+    pub fn initiator(name: impl Into<String>, target: impl Into<String>) -> Self {
         Self {
             name: name.into(),
-            target_addr: Some(target),
+            target_addr: Some(target.into()),
             mode: InterfaceMode::Full,
             max_reconnect_tries: None,
             connect_timeout: INITIAL_CONNECT_TIMEOUT,

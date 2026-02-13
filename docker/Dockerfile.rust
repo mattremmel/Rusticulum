@@ -1,0 +1,21 @@
+# Build stage
+FROM rust:1.85 AS builder
+
+WORKDIR /build
+COPY . .
+
+RUN cargo build --release -p reticulum-node
+
+# Runtime stage
+FROM debian:bookworm-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /build/target/release/reticulum-node /usr/local/bin/reticulum-node
+
+RUN mkdir -p /etc/reticulum /var/lib/reticulum
+
+ENTRYPOINT ["reticulum-node"]
+CMD ["--config", "/etc/reticulum/config.toml"]

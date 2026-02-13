@@ -19,6 +19,19 @@ pub fn init() {
     tracing_subscriber::fmt().with_env_filter(filter).init();
 }
 
+/// Initialize the tracing subscriber with JSON output.
+///
+/// Useful for structured logging in containerized environments.
+/// Activated by setting `RUST_LOG_FORMAT=json`.
+pub fn init_json() {
+    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
+
+    tracing_subscriber::fmt()
+        .json()
+        .with_env_filter(filter)
+        .init();
+}
+
 /// Initialize the tracing subscriber for tests.
 ///
 /// Uses `try_init` to avoid panicking if called multiple times.

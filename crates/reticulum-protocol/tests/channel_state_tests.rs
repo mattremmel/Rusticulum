@@ -143,18 +143,14 @@ fn window_adaptation_all_vectors() {
                 state.on_delivery(rtt);
 
                 assert_eq!(
-                    state.window,
-                    after.window as u16,
+                    state.window, after.window as u16,
                     "vector {}: {} — window mismatch",
-                    v.index,
-                    v.description
+                    v.index, v.description
                 );
                 assert_eq!(
-                    state.window_max,
-                    after.window_max as u16,
+                    state.window_max, after.window_max as u16,
                     "vector {}: {} — window_max mismatch",
-                    v.index,
-                    v.description
+                    v.index, v.description
                 );
                 if let Some(wmin) = after.window_min {
                     assert_eq!(
@@ -195,18 +191,14 @@ fn window_adaptation_all_vectors() {
                 state.on_timeout(0);
 
                 assert_eq!(
-                    state.window,
-                    after.window as u16,
+                    state.window, after.window as u16,
                     "vector {}: {} — window mismatch after timeout",
-                    v.index,
-                    v.description
+                    v.index, v.description
                 );
                 assert_eq!(
-                    state.window_max,
-                    after.window_max as u16,
+                    state.window_max, after.window_max as u16,
                     "vector {}: {} — window_max mismatch after timeout",
-                    v.index,
-                    v.description
+                    v.index, v.description
                 );
             }
             other => panic!("unexpected event type: {other}"),
@@ -327,14 +319,12 @@ fn window_adaptation_sequence_all_vectors() {
         // Validate final state
         let final_state = &v.final_state;
         assert_eq!(
-            state.window,
-            final_state.window as u16,
+            state.window, final_state.window as u16,
             "vector {}: final window mismatch",
             v.index
         );
         assert_eq!(
-            state.window_max,
-            final_state.window_max as u16,
+            state.window_max, final_state.window_max as u16,
             "vector {}: final window_max mismatch",
             v.index
         );
@@ -422,7 +412,10 @@ fn retry_sequence_all_vectors() {
                                 assert!(
                                     diff < 1e-10,
                                     "vector {} step {}: timeout mismatch — expected={}, got={}",
-                                    v.index, step_num, expected_timeout, computed
+                                    v.index,
+                                    step_num,
+                                    expected_timeout,
+                                    computed
                                 );
                             }
                         }
@@ -437,13 +430,15 @@ fn retry_sequence_all_vectors() {
                         state.window,
                         step.window_after.unwrap() as u16,
                         "vector {} step {}: window mismatch",
-                        v.index, step_num
+                        v.index,
+                        step_num
                     );
                     assert_eq!(
                         state.window_max,
                         step.window_max_after.unwrap() as u16,
                         "vector {} step {}: window_max mismatch",
-                        v.index, step_num
+                        v.index,
+                        step_num
                     );
                 }
                 "delivery" => {
@@ -453,7 +448,8 @@ fn retry_sequence_all_vectors() {
                         state.window,
                         step.window_after.unwrap() as u16,
                         "vector {} step {}: window mismatch after delivery",
-                        v.index, step_num
+                        v.index,
+                        step_num
                     );
 
                     if let Some(frr) = step.fast_rate_rounds_after {
@@ -478,14 +474,12 @@ fn retry_sequence_all_vectors() {
         // Validate final state
         let final_state = &v.final_state;
         assert_eq!(
-            state.window,
-            final_state.window as u16,
+            state.window, final_state.window as u16,
             "vector {}: final window mismatch",
             v.index
         );
         assert_eq!(
-            state.window_max,
-            final_state.window_max as u16,
+            state.window_max, final_state.window_max as u16,
             "vector {}: final window_max mismatch",
             v.index
         );
@@ -640,14 +634,12 @@ fn packet_loss_scenario_all_vectors() {
         // Validate final state
         let final_state = &v.final_state;
         assert_eq!(
-            state.window,
-            final_state.window as u16,
+            state.window, final_state.window as u16,
             "vector {}: final window mismatch",
             v.index
         );
         assert_eq!(
-            state.window_max,
-            final_state.window_max as u16,
+            state.window_max, final_state.window_max as u16,
             "vector {}: final window_max mismatch",
             v.index
         );

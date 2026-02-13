@@ -8,6 +8,10 @@ license-file.workspace = true
 homepage.workspace = true
 repository.workspace = true
 
+[[bin]]
+name = "reticulum-node"
+path = "src/main.rs"
+
 [dependencies]
 reticulum-crypto = { workspace = true, features = ["std"] }
 reticulum-core = { workspace = true, features = ["std"] }

@@ -34,6 +34,19 @@ use crate::error::NodeError;
 use crate::interface_enum::AnyInterface;
 use crate::storage::Storage;
 
+/// A handle that can trigger node shutdown from another task or signal handler.
+#[derive(Clone)]
+pub struct ShutdownHandle {
+    tx: watch::Sender<bool>,
+}
+
+impl ShutdownHandle {
+    /// Signal the node to shut down.
+    pub fn shutdown(&self) {
+        let _ = self.tx.send(true);
+    }
+}
+
 /// Events delivered to the central event loop from interface receive bridges.
 #[derive(Debug)]
 enum NodeEvent {
@@ -196,9 +209,8 @@ impl Node {
         // TCP clients
         for entry in &self.config.interfaces.tcp_client {
             let id = next_id();
-            let addr = parse_socket_addr(&entry.target)?;
             let mode = parse_mode(&entry.mode)?;
-            let mut cfg = TcpClientConfig::initiator(&entry.name, addr);
+            let mut cfg = TcpClientConfig::initiator(&entry.name, &entry.target);
             cfg.mode = mode;
             built.push((
                 id,
@@ -417,6 +429,13 @@ impl Node {
                     break;
                 }
             }
+        }
+    }
+
+    /// Get a handle that can trigger shutdown from another task.
+    pub fn shutdown_handle(&self) -> ShutdownHandle {
+        ShutdownHandle {
+            tx: self.shutdown_tx.clone(),
         }
     }
 
@@ -643,6 +662,28 @@ bind = "127.0.0.1:0"
     }
 
     #[tokio::test]
+    async fn shutdown_handle_from_spawned_task() {
+        let mut config = NodeConfig::default();
+        config.node.enable_storage = false;
+        let mut node = Node::new(config);
+        node.start().await.unwrap();
+
+        let handle = node.shutdown_handle();
+
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            handle.shutdown();
+        });
+
+        // run() should exit once the spawned task signals shutdown
+        tokio::time::timeout(std::time::Duration::from_secs(2), node.run())
+            .await
+            .expect("run should exit after ShutdownHandle signal");
+
+        node.shutdown().await;
+    }
+
+    #[tokio::test]
     async fn udp_loopback_flooding() {
         use reticulum_core::constants::{DestinationType, HeaderType, PacketType, TransportType};
         use reticulum_core::packet::context::ContextType;
@@ -749,6 +790,122 @@ bind = "127.0.0.1:0"
             }
             Ok(Err(e)) => panic!("recv_from failed: {e}"),
             Err(_) => panic!("timed out waiting for flooded packet"),
+        }
+
+        // Clean up
+        if let Ok(node) = node_handle.await {
+            node.shutdown().await;
+        }
+    }
+
+    #[tokio::test]
+    async fn tcp_node_receives_and_floods() {
+        use reticulum_core::constants::{DestinationType, HeaderType, PacketType, TransportType};
+        use reticulum_core::framing::hdlc::hdlc_frame;
+        use reticulum_core::packet::context::ContextType;
+        use reticulum_core::packet::flags::PacketFlags;
+        use reticulum_core::types::DestinationHash;
+        use reticulum_interfaces::Interface;
+        use tokio::io::AsyncWriteExt;
+        use tokio::net::{TcpListener, UdpSocket};
+
+        // Set up a raw TCP listener to act as the remote peer for our TCP client
+        let tcp_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let tcp_addr = tcp_listener.local_addr().unwrap();
+
+        // Set up a UDP sink socket to receive flooded packets
+        let sink_sock = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let sink_addr = sink_sock.local_addr().unwrap();
+
+        // Build node with no config-based interfaces
+        let mut config = NodeConfig::default();
+        config.node.enable_storage = false;
+        let mut node = Node::new(config);
+
+        // Create a TCP client interface pointing at our listener
+        let id_tcp = InterfaceId(100);
+        let tcp_cfg = TcpClientConfig::initiator("tcp-input", tcp_addr.to_string());
+        let tcp_iface = TcpClientInterface::new(tcp_cfg, id_tcp).unwrap();
+        tcp_iface.start().await.unwrap();
+
+        // Accept the connection from the TCP client
+        let (mut peer_stream, _) = tcp_listener.accept().await.unwrap();
+
+        // Wait for the TCP client to be connected
+        for _ in 0..50 {
+            if tcp_iface.is_connected() {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
+        assert!(tcp_iface.is_connected(), "TCP client did not connect");
+
+        // Create a UDP output interface
+        let id_udp = InterfaceId(200);
+        let udp_bind = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let udp_bind_addr = udp_bind.local_addr().unwrap();
+        drop(udp_bind);
+        let udp_cfg =
+            reticulum_interfaces::udp::UdpConfig::unicast("udp-output", udp_bind_addr, sink_addr);
+        let udp_iface = UdpInterface::new(udp_cfg, id_udp);
+        udp_iface.start().await.unwrap();
+
+        // Register interfaces in the node
+        node.interfaces
+            .insert(id_tcp, Arc::new(AnyInterface::TcpClient(tcp_iface)));
+        node.interfaces
+            .insert(id_udp, Arc::new(AnyInterface::Udp(udp_iface)));
+        node.next_id = 300;
+        node.spawn_receive_bridges();
+
+        // Build a valid packet and send it as an HDLC frame over TCP
+        let dest_hash = DestinationHash::new([0xCD; 16]);
+        let packet = RawPacket {
+            flags: PacketFlags {
+                header_type: HeaderType::Header1,
+                context_flag: false,
+                transport_type: TransportType::Broadcast,
+                destination_type: DestinationType::Single,
+                packet_type: PacketType::Data,
+            },
+            hops: 0,
+            transport_id: None,
+            destination: dest_hash,
+            context: ContextType::None,
+            data: b"tcp-test".to_vec(),
+        };
+        let raw = packet.serialize();
+        let framed = hdlc_frame(&raw);
+        peer_stream.write_all(&framed).await.unwrap();
+
+        // Run the node event loop briefly
+        let node_handle = {
+            let (tx, rx) = tokio::sync::oneshot::channel::<Node>();
+            tokio::spawn(async move {
+                tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+                node.trigger_shutdown();
+                node.run().await;
+                let _ = tx.send(node);
+            });
+            rx
+        };
+
+        // Check if the flooded packet arrives at the UDP sink
+        let mut buf = [0u8; 2048];
+        let result = tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            sink_sock.recv_from(&mut buf),
+        )
+        .await;
+
+        match result {
+            Ok(Ok((len, _addr))) => {
+                let received = RawPacket::parse(&buf[..len]).unwrap();
+                assert_eq!(received.hops, 1, "hops should be incremented");
+                assert_eq!(received.data, b"tcp-test");
+            }
+            Ok(Err(e)) => panic!("recv_from failed: {e}"),
+            Err(_) => panic!("timed out waiting for flooded packet from TCP→UDP"),
         }
 
         // Clean up

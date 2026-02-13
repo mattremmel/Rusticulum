@@ -1,0 +1,10 @@
+[reticulum]
+  share_instance = no
+  enable_transport = yes
+
+[interfaces]
+  [[TCP Server Interface]]
+    type = TCPServerInterface
+    interface_enabled = true
+    listen_ip = 0.0.0.0
+    listen_port = 4242

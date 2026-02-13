@@ -1,0 +1,9 @@
+target/
+.reference/
+.git/
+.test-vectors/
+.claude/
+.github/
+docker/
+*.md
+LICENSE

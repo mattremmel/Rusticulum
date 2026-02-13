@@ -13,5 +13,5 @@ pub mod storage;
 pub use config::NodeConfig;
 pub use error::NodeError;
 pub use interface_enum::AnyInterface;
-pub use node::Node;
+pub use node::{Node, ShutdownHandle};
 pub use storage::Storage;

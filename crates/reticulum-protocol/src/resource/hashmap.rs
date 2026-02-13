@@ -602,9 +602,7 @@ mod tests {
         let rep_parts = v.representative_parts.as_ref().unwrap();
         for part in rep_parts {
             let idx = part.part_index as usize;
-            let expected_hash: MapHash = hex_to_bytes(&part.map_hash_hex)
-                .try_into()
-                .unwrap();
+            let expected_hash: MapHash = hex_to_bytes(&part.map_hash_hex).try_into().unwrap();
 
             if idx < 74 {
                 // In segment 0.
