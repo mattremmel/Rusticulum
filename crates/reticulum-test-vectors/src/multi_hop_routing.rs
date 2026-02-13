@@ -6,6 +6,37 @@
 use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
+pub struct LinkTableEntryFields {
+    #[serde(rename = "IDX_LT_NH_TRID")]
+    pub next_hop_transport_id: serde_json::Value,
+    #[serde(rename = "IDX_LT_REM_HOPS")]
+    pub remaining_hops: u64,
+    #[serde(rename = "IDX_LT_HOPS")]
+    pub taken_hops: u64,
+    #[serde(rename = "IDX_LT_VALIDATED")]
+    pub validated: bool,
+    #[serde(rename = "IDX_LT_TIMESTAMP")]
+    pub timestamp: u64,
+    #[serde(rename = "IDX_LT_PROOF_TMO")]
+    pub proof_timeout: f64,
+    #[serde(rename = "IDX_LT_NH_IF")]
+    pub next_hop_interface: serde_json::Value,
+    #[serde(rename = "IDX_LT_RCVD_IF")]
+    pub received_interface: serde_json::Value,
+    #[serde(rename = "IDX_LT_DSTHASH")]
+    pub destination_hash: serde_json::Value,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct LinkRoutingEntry {
+    #[serde(rename = "IDX_LT_REM_HOPS")]
+    pub remaining_hops: u64,
+    #[serde(rename = "IDX_LT_HOPS")]
+    pub hops: u64,
+    pub interfaces_same: bool,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct HeaderTransformationVector {
     pub description: String,
     pub scenario: String,
@@ -168,7 +199,7 @@ pub struct LinkTableEntryVector {
     #[serde(default)]
     pub link_id_derivation: Option<serde_json::Value>,
     #[serde(default)]
-    pub entry_fields: Option<serde_json::Value>,
+    pub entry_fields: Option<LinkTableEntryFields>,
     #[serde(default)]
     pub proof_timeout_calculation: Option<serde_json::Value>,
     pub raw_packet: String,
@@ -295,7 +326,7 @@ pub struct LinkTableRoutingVector {
     pub description: String,
     pub link_id: String,
     #[serde(default)]
-    pub link_entry: Option<serde_json::Value>,
+    pub link_entry: Option<LinkRoutingEntry>,
     #[serde(default)]
     pub received_on: Option<String>,
     #[serde(default)]

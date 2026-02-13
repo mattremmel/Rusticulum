@@ -122,6 +122,12 @@ pub struct SmallResponseWireVector {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct ResourceParams {
+    pub is_response: bool,
+    pub request_id: String,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct LargeRequestResourceVector {
     pub index: u64,
     pub description: String,
@@ -145,7 +151,7 @@ pub struct LargeRequestResourceVector {
     pub request_id: String,
     #[serde(default)]
     pub request_id_algorithm: Option<String>,
-    pub resource_params: serde_json::Value,
+    pub resource_params: ResourceParams,
     pub receiver_side: serde_json::Value,
 }
 

@@ -5,6 +5,19 @@
 use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
+pub struct PacketConstants {
+    pub mtu_bytes: u64,
+    pub header_1_size_bytes: u64,
+    pub header_2_size_bytes: u64,
+    pub truncated_hash_length_bytes: u64,
+    #[serde(default)]
+    pub max_data_unit_bytes: Option<u64>,
+    pub encrypted_mdu_bytes: u64,
+    pub plain_mdu_bytes: u64,
+    pub header_maxsize_bytes: u64,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct FlagPackingVector {
     pub description: String,
     pub header_type: u64,
@@ -64,7 +77,7 @@ pub struct HeaderVector {
 pub struct PacketHeadersVectors {
     pub description: String,
     pub source: String,
-    pub constants: serde_json::Value,
+    pub constants: PacketConstants,
     pub flag_byte_layout: serde_json::Value,
     pub packet_type_values: serde_json::Value,
     pub destination_type_values: serde_json::Value,

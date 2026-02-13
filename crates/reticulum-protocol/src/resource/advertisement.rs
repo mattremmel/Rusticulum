@@ -318,27 +318,17 @@ mod tests {
     ) -> ResourceAdvertisement {
         let dict = &v.advertisement_dict;
         ResourceAdvertisement {
-            transfer_size: dict["t"].as_u64().unwrap(),
-            data_size: dict["d"].as_u64().unwrap(),
-            num_parts: dict["n"].as_u64().unwrap(),
-            resource_hash: hex_to_bytes(dict["h"].as_str().unwrap())
-                .try_into()
-                .unwrap(),
-            random_hash: hex_to_bytes(dict["r"].as_str().unwrap())
-                .try_into()
-                .unwrap(),
-            original_hash: hex_to_bytes(dict["o"].as_str().unwrap())
-                .try_into()
-                .unwrap(),
-            segment_index: dict["i"].as_u64().unwrap(),
-            total_segments: dict["l"].as_u64().unwrap(),
-            request_id: if dict["q"].is_null() {
-                None
-            } else {
-                Some(hex_to_bytes(dict["q"].as_str().unwrap()))
-            },
-            flags: dict["f"].as_u64().unwrap() as u8,
-            hashmap: hex_to_bytes(dict["m"].as_str().unwrap()),
+            transfer_size: dict.t,
+            data_size: dict.d,
+            num_parts: dict.n,
+            resource_hash: hex_to_bytes(&dict.h).try_into().unwrap(),
+            random_hash: hex_to_bytes(&dict.r).try_into().unwrap(),
+            original_hash: hex_to_bytes(&dict.o).try_into().unwrap(),
+            segment_index: dict.i,
+            total_segments: dict.l,
+            request_id: dict.q.as_ref().map(|q| hex_to_bytes(q)),
+            flags: dict.f as u8,
+            hashmap: hex_to_bytes(&dict.m),
         }
     }
 
@@ -405,38 +395,32 @@ mod tests {
             let breakdown = &v.flags_breakdown;
 
             assert_eq!(
-                flags.encrypted,
-                breakdown["encrypted"].as_bool().unwrap(),
+                flags.encrypted, breakdown.encrypted,
                 "vector {}: encrypted mismatch",
                 v.index
             );
             assert_eq!(
-                flags.compressed,
-                breakdown["compressed"].as_bool().unwrap(),
+                flags.compressed, breakdown.compressed,
                 "vector {}: compressed mismatch",
                 v.index
             );
             assert_eq!(
-                flags.split,
-                breakdown["split"].as_bool().unwrap(),
+                flags.split, breakdown.split,
                 "vector {}: split mismatch",
                 v.index
             );
             assert_eq!(
-                flags.is_request,
-                breakdown["is_request"].as_bool().unwrap(),
+                flags.is_request, breakdown.is_request,
                 "vector {}: is_request mismatch",
                 v.index
             );
             assert_eq!(
-                flags.is_response,
-                breakdown["is_response"].as_bool().unwrap(),
+                flags.is_response, breakdown.is_response,
                 "vector {}: is_response mismatch",
                 v.index
             );
             assert_eq!(
-                flags.has_metadata,
-                breakdown["has_metadata"].as_bool().unwrap(),
+                flags.has_metadata, breakdown.has_metadata,
                 "vector {}: has_metadata mismatch",
                 v.index
             );

@@ -425,33 +425,16 @@ mod tests {
 
     #[test]
     fn test_link_table_routing() {
-        use crate::router::constants::lt_field;
-
         let vectors = reticulum_test_vectors::multi_hop_routing::load();
 
         for tv in &vectors.link_table_routing_vectors {
             let link_id_bytes = hex::decode(&tv.link_id).unwrap();
             let link_id = LinkId::try_from(link_id_bytes.as_slice()).unwrap();
 
-            if let Some(ref entry_json) = tv.link_entry {
-                // The link_entry in these vectors has only logical fields:
-                // IDX_LT_REM_HOPS, IDX_LT_HOPS, interfaces_same
-                let rem_hops = entry_json
-                    .get(lt_field::REMAINING_HOPS)
-                    .and_then(|v| v.as_u64());
-                let taken_hops = entry_json
-                    .get(lt_field::TAKEN_HOPS)
-                    .and_then(|v| v.as_u64());
-                let interfaces_same = entry_json
-                    .get(lt_field::INTERFACES_SAME)
-                    .and_then(|v| v.as_bool());
-
-                // Skip vector 6 (wire format only, no routing fields)
-                let (Some(rem_hops), Some(taken_hops), Some(interfaces_same)) =
-                    (rem_hops, taken_hops, interfaces_same)
-                else {
-                    continue;
-                };
+            if let Some(ref entry) = tv.link_entry {
+                let rem_hops = entry.remaining_hops;
+                let taken_hops = entry.hops;
+                let interfaces_same = entry.interfaces_same;
 
                 // Construct a minimal link entry for testing
                 let rcvd_if = InterfaceId(1);

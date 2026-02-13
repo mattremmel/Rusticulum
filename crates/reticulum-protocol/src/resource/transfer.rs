@@ -662,17 +662,14 @@ mod tests {
             // Get resource hash from the advertisement step
             let resource_hash_hex = steps
                 .iter()
-                .find(|s| {
-                    s.get("name").and_then(|n| n.as_str()) == Some("sender_prepare_advertisement")
-                })
-                .and_then(|s| s.get("resource_hash_hex"))
-                .and_then(|v| v.as_str());
+                .find(|s| s.name.as_deref() == Some("sender_prepare_advertisement"))
+                .and_then(|s| s.resource_hash_hex.as_deref());
 
             for step in steps {
-                if step.get("name").and_then(|n| n.as_str()) != Some("receiver_request_parts") {
+                if step.name.as_deref() != Some("receiver_request_parts") {
                     continue;
                 }
-                let payload_hex = step["request_payload_hex"].as_str().unwrap();
+                let payload_hex = step.request_payload_hex.as_deref().unwrap();
                 let payload = hex(payload_hex);
 
                 // Decode
@@ -963,11 +960,11 @@ mod tests {
                 None => continue,
             };
             for step in steps {
-                let name = step.get("name").and_then(|n| n.as_str()).unwrap_or("");
+                let name = step.name.as_deref().unwrap_or("");
                 if name != "receiver_assemble_and_prove" && name != "receiver_prove" {
                     continue;
                 }
-                let payload_hex = step["proof_payload_hex"].as_str().unwrap();
+                let payload_hex = step.proof_payload_hex.as_deref().unwrap();
                 let payload = hex(payload_hex);
                 assert_eq!(
                     payload.len(),
@@ -989,7 +986,7 @@ mod tests {
                 }
 
                 // Verify the proof_breakdown if present
-                if let Some(breakdown) = step.get("proof_breakdown") {
+                if let Some(breakdown) = step.proof_breakdown.as_ref() {
                     let expected_proof_hex = breakdown["proof_hex"].as_str().unwrap();
                     assert_eq!(
                         hex::encode(proof),
@@ -1020,11 +1017,10 @@ mod tests {
                 None => continue,
             };
             for step in steps {
-                if step.get("name").and_then(|n| n.as_str()) != Some("sender_prepare_advertisement")
-                {
+                if step.name.as_deref() != Some("sender_prepare_advertisement") {
                     continue;
                 }
-                let adv_hex = step["advertisement_packed_hex"].as_str().unwrap();
+                let adv_hex = step.advertisement_packed_hex.as_deref().unwrap();
                 let adv_bytes = hex(adv_hex);
 
                 // Verify we can decode it

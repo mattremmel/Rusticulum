@@ -62,8 +62,7 @@ fn parse_handshake_ref(reference: &str) -> usize {
 fn derived_key_from_handshake(links_vecs: &links::LinksVectors, hs_index: usize) -> DerivedKey {
     let hs = &links_vecs.handshake_vectors[hs_index];
     let step2 = &hs.step_2_lrproof;
-    let dk_hex = step2["derived_key"].as_str().unwrap();
-    let dk_bytes: [u8; 64] = hex_to_bytes(dk_hex).try_into().unwrap();
+    let dk_bytes: [u8; 64] = hex_to_bytes(&step2.derived_key).try_into().unwrap();
     DerivedKey::new(dk_bytes)
 }
 

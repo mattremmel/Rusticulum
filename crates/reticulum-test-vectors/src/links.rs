@@ -75,6 +75,74 @@ pub struct LinkIdVector {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct Step1LinkRequest {
+    pub initiator_eph_x25519_public: String,
+    pub initiator_eph_ed25519_public: String,
+    pub signalling_bytes: Option<String>,
+    pub request_data: String,
+    pub request_data_length: u64,
+    pub responder_destination_hash: String,
+    pub flags_byte: String,
+    pub context_byte: String,
+    pub raw_packet: String,
+    pub raw_packet_length: u64,
+    pub hashable_part: String,
+    pub signalling_diff: u64,
+    pub hashable_stripped: String,
+    pub link_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct Step2LrProof {
+    pub responder_eph_x25519_public: String,
+    pub responder_identity_ed25519_public: String,
+    pub shared_key: String,
+    pub shared_key_length: u64,
+    pub hkdf_salt: String,
+    pub hkdf_context: Option<String>,
+    pub hkdf_length: u64,
+    pub derived_key: String,
+    pub signing_key: String,
+    pub encryption_key: String,
+    pub signalling_bytes: Option<String>,
+    pub signed_data: String,
+    pub signed_data_layout: String,
+    pub signature: String,
+    pub proof_data: String,
+    pub proof_data_layout: String,
+    pub proof_data_length: u64,
+    pub flags_byte: String,
+    pub context_byte: String,
+    pub header_destination: String,
+    pub header_destination_note: String,
+    pub raw_packet: String,
+    pub raw_packet_length: u64,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct Step3Verify {
+    pub initiator_shared_key: String,
+    pub ecdh_symmetric: bool,
+    pub initiator_derived_key: String,
+    pub derived_keys_match: bool,
+    pub signature_valid: bool,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct Step4LrRtt {
+    pub rtt_value: f64,
+    pub rtt_msgpack: String,
+    pub fixed_iv: String,
+    pub padded_plaintext: String,
+    pub ciphertext: String,
+    pub hmac: String,
+    pub encrypted_rtt_token: String,
+    pub encrypted_rtt_token_length: u64,
+    pub context_byte: String,
+    pub note: String,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct HandshakeVector {
     pub description: String,
     pub initiator_keypair_index: u64,
@@ -85,10 +153,10 @@ pub struct HandshakeVector {
     pub mode: u64,
     pub mode_name: String,
     pub use_signalling: bool,
-    pub step_1_linkrequest: serde_json::Value,
-    pub step_2_lrproof: serde_json::Value,
-    pub step_3_verify: serde_json::Value,
-    pub step_4_lrrtt: serde_json::Value,
+    pub step_1_linkrequest: Step1LinkRequest,
+    pub step_2_lrproof: Step2LrProof,
+    pub step_3_verify: Step3Verify,
+    pub step_4_lrrtt: Step4LrRtt,
 }
 
 #[derive(Debug, Deserialize)]

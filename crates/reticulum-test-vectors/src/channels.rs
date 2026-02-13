@@ -116,14 +116,40 @@ pub struct WindowInitVector {
     pub condition: String,
 }
 
+/// Reusable channel window state snapshot.
+/// Used for `before`/`after` in single-event vectors and `initial_state`/`final_state`
+/// in multi-step vectors. Fields are optional because different vector types include
+/// different subsets.
+#[derive(Debug, Deserialize)]
+pub struct ChannelWindowState {
+    pub window: u64,
+    pub window_max: u64,
+    #[serde(default)]
+    pub window_min: Option<u64>,
+    #[serde(default)]
+    pub window_flexibility: Option<u64>,
+    #[serde(default)]
+    pub fast_rate_rounds: Option<u64>,
+    #[serde(default)]
+    pub medium_rate_rounds: Option<u64>,
+    #[serde(default)]
+    pub rtt: Option<f64>,
+    #[serde(default)]
+    pub tx_ring_length: Option<u64>,
+    #[serde(default)]
+    pub tries: Option<u64>,
+    #[serde(default)]
+    pub tx_ring: Option<Vec<u64>>,
+}
+
 #[derive(Debug, Deserialize)]
 pub struct WindowAdaptationVector {
     pub index: u64,
     pub description: String,
     pub event: String,
-    pub before: serde_json::Value,
+    pub before: ChannelWindowState,
     pub rtt: Option<f64>,
-    pub after: serde_json::Value,
+    pub after: ChannelWindowState,
     pub note: String,
 }
 
@@ -277,35 +303,115 @@ pub struct SequenceDedupVector {
     pub final_tx_sequence: Option<u64>,
 }
 
+/// Union type for retry sequence and window adaptation sequence steps.
+/// Fields are optional because different event types (timeout vs delivery) have
+/// different field sets.
+#[derive(Debug, Deserialize)]
+pub struct ChannelStep {
+    #[serde(default)]
+    pub step: Option<u64>,
+    pub event: String,
+    #[serde(default)]
+    pub rtt: Option<f64>,
+    #[serde(default)]
+    pub tries_before: Option<u64>,
+    #[serde(default)]
+    pub tries_after: Option<u64>,
+    #[serde(default)]
+    pub window_before: Option<u64>,
+    #[serde(default)]
+    pub window_after: Option<u64>,
+    #[serde(default)]
+    pub window_max_before: Option<u64>,
+    #[serde(default)]
+    pub window_max_after: Option<u64>,
+    #[serde(default)]
+    pub window_min_before: Option<u64>,
+    #[serde(default)]
+    pub window_min_after: Option<u64>,
+    #[serde(default)]
+    pub fast_rate_rounds_before: Option<u64>,
+    #[serde(default)]
+    pub fast_rate_rounds_after: Option<u64>,
+    #[serde(default)]
+    pub medium_rate_rounds_before: Option<u64>,
+    #[serde(default)]
+    pub medium_rate_rounds_after: Option<u64>,
+    #[serde(default)]
+    pub tx_ring_length: Option<u64>,
+    #[serde(default)]
+    pub outcome: Option<String>,
+    #[serde(default)]
+    pub timeout: Option<f64>,
+    #[serde(default)]
+    pub timeout_breakdown: Option<serde_json::Value>,
+    #[serde(default)]
+    pub upgrade_triggered: Option<serde_json::Value>,
+}
+
+/// Union type for packet loss scenario events (send, delivery, timeout).
+#[derive(Debug, Deserialize)]
+pub struct PacketLossEvent {
+    pub event: String,
+    #[serde(default)]
+    pub sequence: Option<u64>,
+    #[serde(default)]
+    pub tx_ring: Option<Vec<u64>>,
+    #[serde(default)]
+    pub tx_ring_length: Option<u64>,
+    #[serde(default)]
+    pub window: Option<u64>,
+    #[serde(default)]
+    pub window_max: Option<u64>,
+    #[serde(default)]
+    pub window_before: Option<u64>,
+    #[serde(default)]
+    pub window_after: Option<u64>,
+    #[serde(default)]
+    pub window_max_before: Option<u64>,
+    #[serde(default)]
+    pub window_max_after: Option<u64>,
+    #[serde(default)]
+    pub tries_before: Option<u64>,
+    #[serde(default)]
+    pub tries_after: Option<u64>,
+    #[serde(default)]
+    pub timeout: Option<f64>,
+    #[serde(default)]
+    pub outcome: Option<String>,
+    #[serde(default)]
+    pub upgrade_triggered: Option<serde_json::Value>,
+}
+
 #[derive(Debug, Deserialize)]
 pub struct RetrySequenceVector {
     pub index: u64,
     pub description: String,
-    pub initial_state: serde_json::Value,
-    pub steps: Vec<serde_json::Value>,
-    pub final_state: serde_json::Value,
+    pub initial_state: ChannelWindowState,
+    pub steps: Vec<ChannelStep>,
+    pub final_state: ChannelWindowState,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct WindowAdaptationSequenceVector {
     pub index: u64,
     pub description: String,
-    pub initial_state: serde_json::Value,
+    pub initial_state: ChannelWindowState,
     #[serde(default)]
     pub rtt: Option<f64>,
     #[serde(default)]
     pub rtt_sequence: Option<Vec<f64>>,
-    pub steps: Vec<serde_json::Value>,
-    pub final_state: serde_json::Value,
+    pub steps: Vec<ChannelStep>,
+    pub final_state: ChannelWindowState,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct PacketLossScenarioVector {
     pub index: u64,
     pub description: String,
-    pub initial_state: serde_json::Value,
-    pub events: Vec<serde_json::Value>,
-    pub final_state: serde_json::Value,
+    pub initial_state: ChannelWindowState,
+    pub events: Vec<PacketLossEvent>,
+    pub final_state: ChannelWindowState,
 }
 
 #[derive(Debug, Deserialize)]

@@ -202,127 +202,110 @@ mod tests {
     fn test_key_derivation_netname_only() {
         let vectors = reticulum_test_vectors::interface_framing::load();
         let kd = &vectors.ifac.key_derivation;
-        let kd_vectors: Vec<serde_json::Value> = serde_json::from_value(kd["vectors"].clone())
-            .expect("key_derivation.vectors should be array");
 
-        let v = &kd_vectors[0]; // netname only
-        let netname = v["ifac_netname"].as_str().unwrap();
-        let expected_origin = v["ifac_origin"].as_str().unwrap();
-        let expected_origin_hash = v["ifac_origin_hash"].as_str().unwrap();
-        let expected_key = v["ifac_key"].as_str().unwrap();
-        let expected_pubkey = v["identity_public_key"].as_str().unwrap();
+        let v = &kd.vectors[0]; // netname only
+        let netname = v.ifac_netname.as_deref().unwrap();
+        let expected_origin = &v.ifac_origin;
+        let expected_origin_hash = &v.ifac_origin_hash;
+        let expected_key = &v.ifac_key;
+        let expected_pubkey = &v.identity_public_key;
 
         // Verify origin
         let origin = sha256(netname.as_bytes());
-        assert_eq!(hex::encode(origin), expected_origin);
+        assert_eq!(hex::encode(origin), *expected_origin);
 
         // Verify origin_hash
         let origin_hash = sha256(&origin);
-        assert_eq!(hex::encode(origin_hash), expected_origin_hash);
+        assert_eq!(hex::encode(origin_hash), *expected_origin_hash);
 
         // Verify key
         let key_vec = hkdf(64, &origin_hash, Some(&IFAC_SALT), None);
-        assert_eq!(hex::encode(&key_vec), expected_key);
+        assert_eq!(hex::encode(&key_vec), *expected_key);
 
         // Verify identity public key
         let key: [u8; 64] = key_vec.try_into().unwrap();
         let identity = Identity::from_private_bytes(&key);
-        assert_eq!(hex::encode(identity.public_key_bytes()), expected_pubkey);
+        assert_eq!(hex::encode(identity.public_key_bytes()), *expected_pubkey);
     }
 
     #[test]
     fn test_key_derivation_netkey_only() {
         let vectors = reticulum_test_vectors::interface_framing::load();
         let kd = &vectors.ifac.key_derivation;
-        let kd_vectors: Vec<serde_json::Value> = serde_json::from_value(kd["vectors"].clone())
-            .expect("key_derivation.vectors should be array");
 
-        let v = &kd_vectors[1]; // netkey only
-        let netkey = v["ifac_netkey"].as_str().unwrap();
-        let expected_origin = v["ifac_origin"].as_str().unwrap();
-        let expected_origin_hash = v["ifac_origin_hash"].as_str().unwrap();
-        let expected_key = v["ifac_key"].as_str().unwrap();
-        let expected_pubkey = v["identity_public_key"].as_str().unwrap();
+        let v = &kd.vectors[1]; // netkey only
+        let netkey = v.ifac_netkey.as_deref().unwrap();
+        let expected_origin = &v.ifac_origin;
+        let expected_origin_hash = &v.ifac_origin_hash;
+        let expected_key = &v.ifac_key;
+        let expected_pubkey = &v.identity_public_key;
 
         let origin = sha256(netkey.as_bytes());
-        assert_eq!(hex::encode(origin), expected_origin);
+        assert_eq!(hex::encode(origin), *expected_origin);
 
         let origin_hash = sha256(&origin);
-        assert_eq!(hex::encode(origin_hash), expected_origin_hash);
+        assert_eq!(hex::encode(origin_hash), *expected_origin_hash);
 
         let key_vec = hkdf(64, &origin_hash, Some(&IFAC_SALT), None);
-        assert_eq!(hex::encode(&key_vec), expected_key);
+        assert_eq!(hex::encode(&key_vec), *expected_key);
 
         let key: [u8; 64] = key_vec.try_into().unwrap();
         let identity = Identity::from_private_bytes(&key);
-        assert_eq!(hex::encode(identity.public_key_bytes()), expected_pubkey);
+        assert_eq!(hex::encode(identity.public_key_bytes()), *expected_pubkey);
     }
 
     #[test]
     fn test_key_derivation_both() {
         let vectors = reticulum_test_vectors::interface_framing::load();
         let kd = &vectors.ifac.key_derivation;
-        let kd_vectors: Vec<serde_json::Value> = serde_json::from_value(kd["vectors"].clone())
-            .expect("key_derivation.vectors should be array");
 
-        let v = &kd_vectors[2]; // both netname and netkey
-        let netname = v["ifac_netname"].as_str().unwrap();
-        let netkey = v["ifac_netkey"].as_str().unwrap();
-        let expected_origin = v["ifac_origin"].as_str().unwrap();
-        let expected_origin_hash = v["ifac_origin_hash"].as_str().unwrap();
-        let expected_key = v["ifac_key"].as_str().unwrap();
-        let expected_pubkey = v["identity_public_key"].as_str().unwrap();
+        let v = &kd.vectors[2]; // both netname and netkey
+        let netname = v.ifac_netname.as_deref().unwrap();
+        let netkey = v.ifac_netkey.as_deref().unwrap();
+        let expected_origin = &v.ifac_origin;
+        let expected_origin_hash = &v.ifac_origin_hash;
+        let expected_key = &v.ifac_key;
+        let expected_pubkey = &v.identity_public_key;
 
         let mut origin = Vec::new();
         origin.extend_from_slice(&sha256(netname.as_bytes()));
         origin.extend_from_slice(&sha256(netkey.as_bytes()));
-        assert_eq!(hex::encode(&origin), expected_origin);
+        assert_eq!(hex::encode(&origin), *expected_origin);
 
         let origin_hash = sha256(&origin);
-        assert_eq!(hex::encode(origin_hash), expected_origin_hash);
+        assert_eq!(hex::encode(origin_hash), *expected_origin_hash);
 
         let key_vec = hkdf(64, &origin_hash, Some(&IFAC_SALT), None);
-        assert_eq!(hex::encode(&key_vec), expected_key);
+        assert_eq!(hex::encode(&key_vec), *expected_key);
 
         let key: [u8; 64] = key_vec.try_into().unwrap();
         let identity = Identity::from_private_bytes(&key);
-        assert_eq!(hex::encode(identity.public_key_bytes()), expected_pubkey);
+        assert_eq!(hex::encode(identity.public_key_bytes()), *expected_pubkey);
     }
 
     #[test]
     fn test_ifac_config_new() {
         let vectors = reticulum_test_vectors::interface_framing::load();
         let kd = &vectors.ifac.key_derivation;
-        let kd_vectors: Vec<serde_json::Value> = serde_json::from_value(kd["vectors"].clone())
-            .expect("key_derivation.vectors should be array");
 
         // Test with netname only
-        let v = &kd_vectors[0];
-        let config = IfacConfig::new(Some(v["ifac_netname"].as_str().unwrap()), None, 16);
-        assert_eq!(
-            hex::encode(config.ifac_key),
-            v["ifac_key"].as_str().unwrap()
-        );
+        let v = &kd.vectors[0];
+        let config = IfacConfig::new(Some(v.ifac_netname.as_deref().unwrap()), None, 16);
+        assert_eq!(hex::encode(config.ifac_key), v.ifac_key);
 
         // Test with netkey only
-        let v = &kd_vectors[1];
-        let config = IfacConfig::new(None, Some(v["ifac_netkey"].as_str().unwrap()), 16);
-        assert_eq!(
-            hex::encode(config.ifac_key),
-            v["ifac_key"].as_str().unwrap()
-        );
+        let v = &kd.vectors[1];
+        let config = IfacConfig::new(None, Some(v.ifac_netkey.as_deref().unwrap()), 16);
+        assert_eq!(hex::encode(config.ifac_key), v.ifac_key);
 
         // Test with both
-        let v = &kd_vectors[2];
+        let v = &kd.vectors[2];
         let config = IfacConfig::new(
-            Some(v["ifac_netname"].as_str().unwrap()),
-            Some(v["ifac_netkey"].as_str().unwrap()),
+            Some(v.ifac_netname.as_deref().unwrap()),
+            Some(v.ifac_netkey.as_deref().unwrap()),
             16,
         );
-        assert_eq!(
-            hex::encode(config.ifac_key),
-            v["ifac_key"].as_str().unwrap()
-        );
+        assert_eq!(hex::encode(config.ifac_key), v.ifac_key);
     }
 
     #[test]

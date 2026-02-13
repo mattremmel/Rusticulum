@@ -6,6 +6,15 @@ use serde::Deserialize;
 use std::collections::HashMap;
 
 #[derive(Debug, Deserialize)]
+pub struct KeypairConstants {
+    pub truncated_hash_length_bytes: u64,
+    pub name_hash_length_bytes: u64,
+    pub key_size_bytes: u64,
+    pub signature_length_bytes: u64,
+    pub token_overhead_bytes: u64,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct Keypair {
     pub index: u64,
     pub private_key: String,
@@ -58,7 +67,7 @@ pub struct EncryptionTest {
 pub struct KeypairsVectors {
     pub description: String,
     pub source: String,
-    pub constants: serde_json::Value,
+    pub constants: KeypairConstants,
     pub keypairs: Vec<Keypair>,
     pub signature_test: SignatureTest,
     pub signature_vectors: Vec<SignatureVector>,

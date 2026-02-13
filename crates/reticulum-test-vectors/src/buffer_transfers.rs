@@ -6,6 +6,49 @@
 use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
+pub struct WriteResult {
+    pub processed_length: u64,
+    pub compressed: bool,
+    pub chunk_hex: String,
+    #[serde(default)]
+    pub chunk_length: Option<u64>,
+    pub stream_packed_hex: String,
+    #[serde(default)]
+    pub stream_packed_length: Option<u64>,
+    #[serde(default)]
+    pub envelope_packed_hex: Option<String>,
+    #[serde(default)]
+    pub envelope_packed_length: Option<u64>,
+    #[serde(default)]
+    pub compression_attempts: Option<Vec<serde_json::Value>>,
+    #[serde(default)]
+    pub compression_skipped: Option<bool>,
+    #[serde(default)]
+    pub offset: Option<u64>,
+    #[serde(default)]
+    pub sequence: Option<u64>,
+    #[serde(default)]
+    pub is_eof: Option<bool>,
+    #[serde(default)]
+    pub note: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct EofMessage {
+    pub stream_packed_hex: String,
+    #[serde(default)]
+    pub stream_packed_length: Option<u64>,
+    #[serde(default)]
+    pub envelope_packed_hex: Option<String>,
+    #[serde(default)]
+    pub envelope_packed_length: Option<u64>,
+    #[serde(default)]
+    pub is_eof: Option<bool>,
+    #[serde(default)]
+    pub note: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct SmallTransferMessage {
     pub processed_length: u64,
     pub compressed: bool,
@@ -63,7 +106,7 @@ pub struct CompressionVector {
     pub stream_id: u64,
     #[serde(default)]
     pub data_seed: Option<String>,
-    pub write_result: serde_json::Value,
+    pub write_result: WriteResult,
 }
 
 #[derive(Debug, Deserialize)]
@@ -77,7 +120,7 @@ pub struct EofVector {
     pub stream_id: u64,
     #[serde(default)]
     pub total_messages: Option<u64>,
-    pub eof_message: serde_json::Value,
+    pub eof_message: EofMessage,
     #[serde(default)]
     pub envelope_packed_hex: Option<String>,
     #[serde(default)]

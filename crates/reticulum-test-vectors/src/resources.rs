@@ -5,6 +5,42 @@
 use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
+pub struct FlagsBreakdown {
+    pub encrypted: bool,
+    pub compressed: bool,
+    pub split: bool,
+    pub is_request: bool,
+    pub is_response: bool,
+    pub has_metadata: bool,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct AdvertisementDict {
+    pub t: u64,
+    pub d: u64,
+    pub n: u64,
+    pub h: String,
+    pub r: String,
+    pub o: String,
+    pub i: u64,
+    pub l: u64,
+    #[serde(default)]
+    pub q: Option<String>,
+    pub f: u64,
+    pub m: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ResourcePart {
+    #[serde(default)]
+    pub index: Option<u64>,
+    pub offset: u64,
+    pub length: u64,
+    pub data_hex: String,
+    pub map_hash_hex: String,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct MetadataVector {
     pub index: u64,
     pub description: String,
@@ -46,7 +82,7 @@ pub struct ResourceAdvertisementVector {
     pub encryption_layout: String,
     pub sdu: u64,
     pub num_parts: u64,
-    pub parts: Vec<serde_json::Value>,
+    pub parts: Vec<ResourcePart>,
     pub hashmap_hex: String,
     pub hashmap_length: u64,
     pub resource_hash_hex: String,
@@ -56,8 +92,8 @@ pub struct ResourceAdvertisementVector {
     pub expected_proof_note: String,
     pub flags: u64,
     pub flags_hex: String,
-    pub flags_breakdown: serde_json::Value,
-    pub advertisement_dict: serde_json::Value,
+    pub flags_breakdown: FlagsBreakdown,
+    pub advertisement_dict: AdvertisementDict,
     pub advertisement_packed_hex: String,
     pub advertisement_packed_length: u64,
 }

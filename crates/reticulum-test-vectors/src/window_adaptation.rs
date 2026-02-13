@@ -5,18 +5,38 @@
 use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
+pub struct ResourceWindowState {
+    pub window: u64,
+    pub window_max: u64,
+    pub window_min: u64,
+    pub fast_rate_rounds: u64,
+    pub very_slow_rate_rounds: u64,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ResourceWindowStep {
+    pub step: u64,
+    pub event: String,
+    #[serde(default)]
+    pub rate: Option<f64>,
+    pub state: ResourceWindowState,
+    #[serde(default)]
+    pub note: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct ResourceGrowthVector {
     pub description: String,
     pub rate_bytes_per_sec: f64,
     pub rate_is_above_fast: bool,
     pub rate_is_below_very_slow: bool,
-    pub steps: Vec<serde_json::Value>,
+    pub steps: Vec<ResourceWindowStep>,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct ResourceShrinkVector {
     pub description: String,
-    pub steps: Vec<serde_json::Value>,
+    pub steps: Vec<ResourceWindowStep>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -26,7 +46,7 @@ pub struct ResourceRateTransitionVector {
     pub fast_rate_threshold: Option<u64>,
     #[serde(default)]
     pub very_slow_rate_threshold: Option<u64>,
-    pub steps: Vec<serde_json::Value>,
+    pub steps: Vec<ResourceWindowStep>,
 }
 
 #[derive(Debug, Deserialize)]

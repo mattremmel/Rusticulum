@@ -150,16 +150,6 @@ mod tests {
         }
     }
 
-    /// JSON field names used in path entry test vectors.
-    mod tv_field {
-        pub const NEXT_HOP: &str = "next_hop";
-        pub const PACKET_HASH: &str = "packet_hash";
-        pub const TIMESTAMP: &str = "timestamp";
-        pub const HOPS: &str = "hops";
-        pub const EXPIRES: &str = "expires";
-        pub const ATTACHED_INTERFACE: &str = "attached_interface";
-    }
-
     fn make_dest(seed: u8) -> DestinationHash {
         DestinationHash::new([seed; 16])
     }
@@ -330,17 +320,16 @@ mod tests {
 
             // Create initial entry
             let initial = &tv.path_entry_initial;
-            let next_hop_bytes =
-                hex::decode(initial[tv_field::NEXT_HOP].as_str().unwrap()).unwrap();
+            let next_hop_bytes = hex::decode(&initial.next_hop).unwrap();
 
             let mut entry = PathEntry {
-                timestamp: initial[tv_field::TIMESTAMP].as_u64().unwrap(),
+                timestamp: initial.timestamp,
                 next_hop: TruncatedHash::try_from(next_hop_bytes.as_slice()).unwrap(),
-                hops: initial[tv_field::HOPS].as_u64().unwrap() as u8,
-                expires: initial[tv_field::EXPIRES].as_u64().unwrap(),
+                hops: initial.hops as u8,
+                expires: initial.expires,
                 random_blobs: vec![],
                 receiving_interface: InterfaceId(0),
-                packet_hash: packet_hash_from_hex(initial[tv_field::PACKET_HASH].as_str().unwrap()),
+                packet_hash: packet_hash_from_hex(&initial.packet_hash),
                 unresponsive: false,
             };
 
@@ -356,7 +345,7 @@ mod tests {
 
             // Check validity at test time
             let without_refresh = !PathEntry {
-                timestamp: initial[tv_field::TIMESTAMP].as_u64().unwrap(),
+                timestamp: initial.timestamp,
                 next_hop: entry.next_hop,
                 hops: entry.hops,
                 expires: tv.original_expiry,
@@ -400,19 +389,19 @@ mod tests {
             let dest = DestinationHash::try_from(dest_bytes.as_slice()).unwrap();
 
             let pe = &tv.path_entry;
-            let iface_name = pe[tv_field::ATTACHED_INTERFACE].as_str().unwrap();
+            let iface_name = pe.attached_interface.as_deref().unwrap();
             let iface_id = iface_name_to_id(iface_name);
 
-            let next_hop_bytes = hex::decode(pe[tv_field::NEXT_HOP].as_str().unwrap()).unwrap();
+            let next_hop_bytes = hex::decode(&pe.next_hop).unwrap();
 
             let entry = PathEntry {
-                timestamp: pe[tv_field::TIMESTAMP].as_u64().unwrap(),
+                timestamp: pe.timestamp,
                 next_hop: TruncatedHash::try_from(next_hop_bytes.as_slice()).unwrap(),
-                hops: pe[tv_field::HOPS].as_u64().unwrap() as u8,
-                expires: pe[tv_field::EXPIRES].as_u64().unwrap(),
+                hops: pe.hops as u8,
+                expires: pe.expires,
                 random_blobs: vec![],
                 receiving_interface: iface_id,
-                packet_hash: packet_hash_from_hex(pe[tv_field::PACKET_HASH].as_str().unwrap()),
+                packet_hash: packet_hash_from_hex(&pe.packet_hash),
                 unresponsive: false,
             };
 

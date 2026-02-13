@@ -92,10 +92,30 @@ pub struct IfacVector {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct IfacKeyDerivationVector {
+    pub description: String,
+    #[serde(default)]
+    pub ifac_netname: Option<String>,
+    #[serde(default)]
+    pub ifac_netkey: Option<String>,
+    pub ifac_origin: String,
+    pub ifac_origin_hash: String,
+    pub ifac_key: String,
+    pub identity_public_key: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct IfacKeyDerivation {
+    pub description: String,
+    pub algorithm: serde_json::Value,
+    pub vectors: Vec<IfacKeyDerivationVector>,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct Ifac {
     pub description: String,
     pub constants: serde_json::Value,
-    pub key_derivation: serde_json::Value,
+    pub key_derivation: IfacKeyDerivation,
     pub transmit_apply: serde_json::Value,
     pub receive_verify: serde_json::Value,
     pub vectors: Vec<IfacVector>,

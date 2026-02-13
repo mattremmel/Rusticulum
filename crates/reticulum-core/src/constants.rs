@@ -109,31 +109,16 @@ mod tests {
         let v = reticulum_test_vectors::packet_headers::load();
         let constants = &v.constants;
 
-        assert_eq!(MTU, constants["mtu_bytes"].as_u64().unwrap() as usize);
-        assert_eq!(
-            HEADER_1_SIZE,
-            constants["header_1_size_bytes"].as_u64().unwrap() as usize
-        );
-        assert_eq!(
-            HEADER_2_SIZE,
-            constants["header_2_size_bytes"].as_u64().unwrap() as usize
-        );
+        assert_eq!(MTU, constants.mtu_bytes as usize);
+        assert_eq!(HEADER_1_SIZE, constants.header_1_size_bytes as usize);
+        assert_eq!(HEADER_2_SIZE, constants.header_2_size_bytes as usize);
         assert_eq!(
             TRUNCATED_HASHLENGTH,
-            constants["truncated_hash_length_bytes"].as_u64().unwrap() as usize
+            constants.truncated_hash_length_bytes as usize
         );
-        assert_eq!(
-            PLAIN_MDU,
-            constants["plain_mdu_bytes"].as_u64().unwrap() as usize
-        );
-        assert_eq!(
-            ENCRYPTED_MDU,
-            constants["encrypted_mdu_bytes"].as_u64().unwrap() as usize
-        );
-        assert_eq!(
-            HEADER_MAXSIZE,
-            constants["header_maxsize_bytes"].as_u64().unwrap() as usize
-        );
+        assert_eq!(PLAIN_MDU, constants.plain_mdu_bytes as usize);
+        assert_eq!(ENCRYPTED_MDU, constants.encrypted_mdu_bytes as usize);
+        assert_eq!(HEADER_MAXSIZE, constants.header_maxsize_bytes as usize);
     }
 
     #[test]
@@ -143,24 +128,12 @@ mod tests {
 
         assert_eq!(
             TRUNCATED_HASHLENGTH,
-            constants["truncated_hash_length_bytes"].as_u64().unwrap() as usize
+            constants.truncated_hash_length_bytes as usize
         );
-        assert_eq!(
-            NAME_HASH_LENGTH,
-            constants["name_hash_length_bytes"].as_u64().unwrap() as usize
-        );
-        assert_eq!(
-            KEYSIZE,
-            constants["key_size_bytes"].as_u64().unwrap() as usize
-        );
-        assert_eq!(
-            SIGLENGTH,
-            constants["signature_length_bytes"].as_u64().unwrap() as usize
-        );
-        assert_eq!(
-            TOKEN_OVERHEAD,
-            constants["token_overhead_bytes"].as_u64().unwrap() as usize
-        );
+        assert_eq!(NAME_HASH_LENGTH, constants.name_hash_length_bytes as usize);
+        assert_eq!(KEYSIZE, constants.key_size_bytes as usize);
+        assert_eq!(SIGLENGTH, constants.signature_length_bytes as usize);
+        assert_eq!(TOKEN_OVERHEAD, constants.token_overhead_bytes as usize);
     }
 
     #[test]
@@ -170,15 +143,12 @@ mod tests {
 
         assert_eq!(
             ANNOUNCE_MIN_PAYLOAD,
-            constants["announce_min_payload_bytes"].as_u64().unwrap() as usize
+            constants.announce_min_payload_bytes as usize
         );
-        assert_eq!(
-            RATCHETSIZE,
-            constants["ratchetsize_bytes"].as_u64().unwrap() as usize
-        );
+        assert_eq!(RATCHETSIZE, constants.ratchetsize_bytes as usize);
         assert_eq!(
             RANDOM_HASH_LENGTH,
-            constants["random_hash_length_bytes"].as_u64().unwrap() as usize
+            constants.random_hash_length_bytes as usize
         );
     }
 

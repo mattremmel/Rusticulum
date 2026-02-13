@@ -64,12 +64,11 @@ fn handshake_step1_request_data_all_vectors() {
         let step1 = &hs.step_1_linkrequest;
         let keys = load_handshake_keys(&links_vecs, &kp_vecs, hs);
 
-        let expected_request_data = hex::decode(step1["request_data"].as_str().unwrap()).unwrap();
-        let expected_link_id = hex::decode(step1["link_id"].as_str().unwrap()).unwrap();
-        let hashable_part = hex::decode(step1["hashable_part"].as_str().unwrap()).unwrap();
-        let data_len = step1["request_data_length"].as_u64().unwrap() as usize;
-        let dest_hash_hex = step1["responder_destination_hash"].as_str().unwrap();
-        let dest_hash_bytes = hex::decode(dest_hash_hex).unwrap();
+        let expected_request_data = hex::decode(&step1.request_data).unwrap();
+        let expected_link_id = hex::decode(&step1.link_id).unwrap();
+        let hashable_part = hex::decode(&step1.hashable_part).unwrap();
+        let data_len = step1.request_data_length as usize;
+        let dest_hash_bytes = hex::decode(&step1.responder_destination_hash).unwrap();
         let dest_hash =
             reticulum_core::types::DestinationHash::new(dest_hash_bytes.try_into().unwrap());
 
@@ -124,14 +123,14 @@ fn handshake_step2_derived_key_all_vectors() {
         let step2 = &hs.step_2_lrproof;
         let keys = load_handshake_keys(&links_vecs, &kp_vecs, hs);
 
-        let request_data = hex::decode(step1["request_data"].as_str().unwrap()).unwrap();
-        let hashable_part = hex::decode(step1["hashable_part"].as_str().unwrap()).unwrap();
-        let data_len = step1["request_data_length"].as_u64().unwrap() as usize;
+        let request_data = hex::decode(&step1.request_data).unwrap();
+        let hashable_part = hex::decode(&step1.hashable_part).unwrap();
+        let data_len = step1.request_data_length as usize;
 
-        let expected_derived_key = hex::decode(step2["derived_key"].as_str().unwrap()).unwrap();
-        let expected_proof_data = hex::decode(step2["proof_data"].as_str().unwrap()).unwrap();
-        let expected_signed_data = hex::decode(step2["signed_data"].as_str().unwrap()).unwrap();
-        let expected_signature = hex::decode(step2["signature"].as_str().unwrap()).unwrap();
+        let expected_derived_key = hex::decode(&step2.derived_key).unwrap();
+        let expected_proof_data = hex::decode(&step2.proof_data).unwrap();
+        let expected_signed_data = hex::decode(&step2.signed_data).unwrap();
+        let expected_signature = hex::decode(&step2.signature).unwrap();
 
         let mode = LinkMode::from_u8(hs.mode as u8).unwrap();
 
@@ -156,9 +155,8 @@ fn handshake_step2_derived_key_all_vectors() {
         );
 
         // Verify signing key split
-        let expected_signing_key = hex::decode(step2["signing_key"].as_str().unwrap()).unwrap();
-        let expected_encryption_key =
-            hex::decode(step2["encryption_key"].as_str().unwrap()).unwrap();
+        let expected_signing_key = hex::decode(&step2.signing_key).unwrap();
+        let expected_encryption_key = hex::decode(&step2.encryption_key).unwrap();
         assert_eq!(
             handshake.derived_key.signing_key().as_slice(),
             expected_signing_key.as_slice(),
@@ -184,7 +182,7 @@ fn handshake_step2_derived_key_all_vectors() {
         );
 
         // Verify link_id matches
-        let expected_link_id = hex::decode(step1["link_id"].as_str().unwrap()).unwrap();
+        let expected_link_id = hex::decode(&step1.link_id).unwrap();
         assert_eq!(
             handshake.link_id.as_ref(),
             expected_link_id.as_slice(),
@@ -219,10 +217,9 @@ fn handshake_step3_initiator_verify_all_vectors() {
         let step4 = &hs.step_4_lrrtt;
         let keys = load_handshake_keys(&links_vecs, &kp_vecs, hs);
 
-        let hashable_part = hex::decode(step1["hashable_part"].as_str().unwrap()).unwrap();
-        let data_len = step1["request_data_length"].as_u64().unwrap() as usize;
-        let dest_hash_hex = step1["responder_destination_hash"].as_str().unwrap();
-        let dest_hash_bytes = hex::decode(dest_hash_hex).unwrap();
+        let hashable_part = hex::decode(&step1.hashable_part).unwrap();
+        let data_len = step1.request_data_length as usize;
+        let dest_hash_bytes = hex::decode(&step1.responder_destination_hash).unwrap();
         let dest_hash =
             reticulum_core::types::DestinationHash::new(dest_hash_bytes.try_into().unwrap());
 
@@ -242,13 +239,12 @@ fn handshake_step3_initiator_verify_all_vectors() {
         .unwrap();
 
         // Get proof_data from test vector
-        let proof_data = hex::decode(step2["proof_data"].as_str().unwrap()).unwrap();
+        let proof_data = hex::decode(&step2.proof_data).unwrap();
 
         // Get RTT and IV from step4 for deterministic encryption
-        let rtt = step4["rtt_value"].as_f64().unwrap();
-        let fixed_iv = hex_to_16(step4["fixed_iv"].as_str().unwrap());
-        let expected_encrypted_rtt =
-            hex::decode(step4["encrypted_rtt_token"].as_str().unwrap()).unwrap();
+        let rtt = step4.rtt_value;
+        let fixed_iv = hex_to_16(&step4.fixed_iv);
+        let expected_encrypted_rtt = hex::decode(&step4.encrypted_rtt_token).unwrap();
 
         // Initiator receives proof and transitions to active
         let (active, encrypted_rtt) = pending
@@ -261,8 +257,7 @@ fn handshake_step3_initiator_verify_all_vectors() {
             .unwrap_or_else(|e| panic!("vector {i}: receive_proof failed: {e}"));
 
         // Verify derived keys match (step3)
-        let expected_derived_key =
-            hex::decode(step3["initiator_derived_key"].as_str().unwrap()).unwrap();
+        let expected_derived_key = hex::decode(&step3.initiator_derived_key).unwrap();
         assert_eq!(
             active.derived_key.as_bytes().as_slice(),
             expected_derived_key.as_slice(),
@@ -271,11 +266,11 @@ fn handshake_step3_initiator_verify_all_vectors() {
 
         // Verify the derived keys match between initiator and responder
         assert!(
-            step3["derived_keys_match"].as_bool().unwrap(),
+            step3.derived_keys_match,
             "vector {i}: test vector says keys should match"
         );
         assert!(
-            step3["signature_valid"].as_bool().unwrap(),
+            step3.signature_valid,
             "vector {i}: test vector says signature should be valid"
         );
 
@@ -309,10 +304,9 @@ fn handshake_full_roundtrip_all_vectors() {
         let resp_eph = &links_vecs.ephemeral_keys[hs.responder_ephemeral_index as usize];
         let resp_kp = &kp_vecs.keypairs[hs.responder_keypair_index as usize];
 
-        let hashable_part = hex::decode(step1["hashable_part"].as_str().unwrap()).unwrap();
-        let data_len = step1["request_data_length"].as_u64().unwrap() as usize;
-        let dest_hash_hex = step1["responder_destination_hash"].as_str().unwrap();
-        let dest_hash_bytes = hex::decode(dest_hash_hex).unwrap();
+        let hashable_part = hex::decode(&step1.hashable_part).unwrap();
+        let data_len = step1.request_data_length as usize;
+        let dest_hash_bytes = hex::decode(&step1.responder_destination_hash).unwrap();
         let dest_hash =
             reticulum_core::types::DestinationHash::new(dest_hash_bytes.try_into().unwrap());
         let mode = LinkMode::from_u8(hs.mode as u8).unwrap();
@@ -349,8 +343,8 @@ fn handshake_full_roundtrip_all_vectors() {
         .unwrap();
 
         // Step 3: Initiator validates proof and produces encrypted RTT
-        let rtt = step4["rtt_value"].as_f64().unwrap();
-        let fixed_iv = hex_to_16(step4["fixed_iv"].as_str().unwrap());
+        let rtt = step4.rtt_value;
+        let fixed_iv = hex_to_16(&step4.fixed_iv);
 
         let (initiator_active, encrypted_rtt) = pending
             .receive_proof_deterministic(&proof_data, &resp_ed25519_pub, rtt, &fixed_iv)
@@ -446,12 +440,12 @@ fn handshake_token_encrypt_matches_vectors() {
         let step2 = &hs.step_2_lrproof;
         let step4 = &hs.step_4_lrrtt;
 
-        let derived_key_bytes = hex::decode(step2["derived_key"].as_str().unwrap()).unwrap();
+        let derived_key_bytes = hex::decode(&step2.derived_key).unwrap();
         let dk_arr: [u8; 64] = derived_key_bytes.try_into().unwrap();
 
-        let rtt_msgpack = hex::decode(step4["rtt_msgpack"].as_str().unwrap()).unwrap();
-        let fixed_iv = hex_to_16(step4["fixed_iv"].as_str().unwrap());
-        let expected_token = hex::decode(step4["encrypted_rtt_token"].as_str().unwrap()).unwrap();
+        let rtt_msgpack = hex::decode(&step4.rtt_msgpack).unwrap();
+        let fixed_iv = hex_to_16(&step4.fixed_iv);
+        let expected_token = hex::decode(&step4.encrypted_rtt_token).unwrap();
 
         let token = reticulum_crypto::token::Token::new(&dk_arr);
         let encrypted = token.encrypt_with_iv(&rtt_msgpack, &fixed_iv);
@@ -485,10 +479,9 @@ fn handshake_invalid_proof_rejected() {
     let init_eph = &links_vecs.ephemeral_keys[hs.initiator_ephemeral_index as usize];
     let resp_kp = &kp_vecs.keypairs[hs.responder_keypair_index as usize];
 
-    let hashable_part = hex::decode(step1["hashable_part"].as_str().unwrap()).unwrap();
-    let data_len = step1["request_data_length"].as_u64().unwrap() as usize;
-    let dest_hash_bytes =
-        hex::decode(step1["responder_destination_hash"].as_str().unwrap()).unwrap();
+    let hashable_part = hex::decode(&step1.hashable_part).unwrap();
+    let data_len = step1.request_data_length as usize;
+    let dest_hash_bytes = hex::decode(&step1.responder_destination_hash).unwrap();
     let dest_hash =
         reticulum_core::types::DestinationHash::new(dest_hash_bytes.try_into().unwrap());
     let mode = LinkMode::from_u8(hs.mode as u8).unwrap();
@@ -509,7 +502,7 @@ fn handshake_invalid_proof_rejected() {
         Ed25519PublicKey::from_bytes(hex_to_32(&resp_kp.ed25519_public)).unwrap();
 
     // Tamper with the proof data (flip a byte in the signature)
-    let mut bad_proof = hex::decode(step2["proof_data"].as_str().unwrap()).unwrap();
+    let mut bad_proof = hex::decode(&step2.proof_data).unwrap();
     bad_proof[10] ^= 0xFF;
 
     let result = pending.receive_proof_deterministic(&bad_proof, &resp_ed25519_pub, 0.1, &[0; 16]);

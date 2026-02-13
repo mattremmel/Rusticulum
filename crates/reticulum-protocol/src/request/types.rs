@@ -428,8 +428,8 @@ mod tests {
         for tv in &vectors.large_request_resource_vectors {
             // Verify resource_params structure
             let params = &tv.resource_params;
-            let is_response = params["is_response"].as_bool().unwrap();
-            let param_request_id = params["request_id"].as_str().unwrap();
+            let is_response = params.is_response;
+            let param_request_id = params.request_id.as_str();
 
             assert_eq!(
                 param_request_id, tv.request_id,

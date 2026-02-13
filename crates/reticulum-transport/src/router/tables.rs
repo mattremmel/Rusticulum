@@ -261,8 +261,6 @@ mod tests {
     fn test_link_table_entry_from_vectors() {
         let vectors = reticulum_test_vectors::multi_hop_routing::load();
 
-        use crate::router::constants::lt_field;
-
         for tv in &vectors.link_table_entry_vectors {
             let link_id_bytes = hex::decode(&tv.link_id).unwrap();
             let link_id = LinkId::try_from(link_id_bytes.as_slice()).unwrap();
@@ -271,19 +269,22 @@ mod tests {
             let dest = DestinationHash::try_from(dest_bytes.as_slice()).unwrap();
 
             if let Some(ref fields) = tv.entry_fields {
-                let next_hop_hex = fields[lt_field::NEXT_HOP_TRANSPORT_ID].as_str().unwrap();
-                // Some vectors have descriptive strings instead of hex — skip those
+                // next_hop_transport_id can be descriptive text instead of hex — skip those
+                let next_hop_hex = match fields.next_hop_transport_id.as_str() {
+                    Some(s) => s,
+                    None => continue,
+                };
                 let Ok(next_hop_bytes) = hex::decode(next_hop_hex) else {
                     continue;
                 };
                 let next_hop = TruncatedHash::try_from(next_hop_bytes.as_slice()).unwrap();
 
-                let remaining = fields[lt_field::REMAINING_HOPS].as_u64().unwrap() as u8;
-                let taken = fields[lt_field::TAKEN_HOPS].as_u64().unwrap() as u8;
-                let validated = fields[lt_field::VALIDATED].as_bool().unwrap();
+                let remaining = fields.remaining_hops as u8;
+                let taken = fields.taken_hops as u8;
+                let validated = fields.validated;
 
                 let entry = LinkTableEntry {
-                    timestamp: fields[lt_field::TIMESTAMP].as_u64().unwrap(),
+                    timestamp: fields.timestamp,
                     next_hop_transport_id: next_hop,
                     next_hop_interface: InterfaceId(1),
                     remaining_hops: remaining,
@@ -291,7 +292,7 @@ mod tests {
                     taken_hops: taken,
                     dest_hash: dest,
                     validated,
-                    proof_timeout: fields[lt_field::PROOF_TIMEOUT].as_f64().unwrap() as u64,
+                    proof_timeout: fields.proof_timeout as u64,
                 };
 
                 let mut table = LinkTable::new();

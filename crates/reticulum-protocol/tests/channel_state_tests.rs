@@ -1,7 +1,19 @@
 //! Tests for channel sequencing and window control.
 
 use reticulum_protocol::channel::{ChannelState, MAX_TRIES, TimeoutOutcome};
-use reticulum_test_vectors::channels;
+use reticulum_test_vectors::channels::{self, ChannelWindowState};
+
+/// Build a ChannelState from a ChannelWindowState snapshot.
+fn state_from_snapshot(s: &ChannelWindowState) -> ChannelState {
+    ChannelState::from_parts(
+        s.window as u16,
+        s.window_max as u16,
+        s.window_min.unwrap_or(2) as u16,
+        s.window_flexibility.unwrap_or(4) as u16,
+        s.fast_rate_rounds.unwrap_or(0) as u16,
+        s.medium_rate_rounds.unwrap_or(0) as u16,
+    )
+}
 
 // ---------------------------------------------------------------------------
 // Sequence number vectors (indices 0–2)
@@ -126,58 +138,39 @@ fn window_adaptation_all_vectors() {
                 let after = &v.after;
                 let rtt = v.rtt.unwrap_or(0.0);
 
-                let mut state = ChannelState::from_parts(
-                    before["window"].as_u64().unwrap() as u16,
-                    before["window_max"].as_u64().unwrap() as u16,
-                    before
-                        .get("window_min")
-                        .and_then(|v| v.as_u64())
-                        .unwrap_or(2) as u16,
-                    before
-                        .get("window_flexibility")
-                        .and_then(|v| v.as_u64())
-                        .unwrap_or(4) as u16,
-                    before
-                        .get("fast_rate_rounds")
-                        .and_then(|v| v.as_u64())
-                        .unwrap_or(0) as u16,
-                    before
-                        .get("medium_rate_rounds")
-                        .and_then(|v| v.as_u64())
-                        .unwrap_or(0) as u16,
-                );
+                let mut state = state_from_snapshot(before);
 
                 state.on_delivery(rtt);
 
                 assert_eq!(
                     state.window,
-                    after["window"].as_u64().unwrap() as u16,
+                    after.window as u16,
                     "vector {}: {} — window mismatch",
                     v.index,
                     v.description
                 );
                 assert_eq!(
                     state.window_max,
-                    after["window_max"].as_u64().unwrap() as u16,
+                    after.window_max as u16,
                     "vector {}: {} — window_max mismatch",
                     v.index,
                     v.description
                 );
-                if let Some(wmin) = after.get("window_min").and_then(|v| v.as_u64()) {
+                if let Some(wmin) = after.window_min {
                     assert_eq!(
                         state.window_min, wmin as u16,
                         "vector {}: {} — window_min mismatch",
                         v.index, v.description
                     );
                 }
-                if let Some(frr) = after.get("fast_rate_rounds").and_then(|v| v.as_u64()) {
+                if let Some(frr) = after.fast_rate_rounds {
                     assert_eq!(
                         state.fast_rate_rounds, frr as u16,
                         "vector {}: {} — fast_rate_rounds mismatch",
                         v.index, v.description
                     );
                 }
-                if let Some(mrr) = after.get("medium_rate_rounds").and_then(|v| v.as_u64()) {
+                if let Some(mrr) = after.medium_rate_rounds {
                     assert_eq!(
                         state.medium_rate_rounds, mrr as u16,
                         "vector {}: {} — medium_rate_rounds mismatch",
@@ -190,10 +183,10 @@ fn window_adaptation_all_vectors() {
                 let after = &v.after;
 
                 let mut state = ChannelState::from_parts(
-                    before["window"].as_u64().unwrap() as u16,
-                    before["window_max"].as_u64().unwrap() as u16,
-                    before["window_min"].as_u64().unwrap() as u16,
-                    before["window_flexibility"].as_u64().unwrap() as u16,
+                    before.window as u16,
+                    before.window_max as u16,
+                    before.window_min.unwrap() as u16,
+                    before.window_flexibility.unwrap() as u16,
                     0,
                     0,
                 );
@@ -203,14 +196,14 @@ fn window_adaptation_all_vectors() {
 
                 assert_eq!(
                     state.window,
-                    after["window"].as_u64().unwrap() as u16,
+                    after.window as u16,
                     "vector {}: {} — window mismatch after timeout",
                     v.index,
                     v.description
                 );
                 assert_eq!(
                     state.window_max,
-                    after["window_max"].as_u64().unwrap() as u16,
+                    after.window_max as u16,
                     "vector {}: {} — window_max mismatch after timeout",
                     v.index,
                     v.description
@@ -269,30 +262,15 @@ fn mdu_calculation_all_vectors() {
 fn window_adaptation_sequence_all_vectors() {
     let vectors = channels::load();
     for v in &vectors.window_adaptation_sequence_vectors {
-        let init = &v.initial_state;
-        let mut state = ChannelState::from_parts(
-            init["window"].as_u64().unwrap() as u16,
-            init["window_max"].as_u64().unwrap() as u16,
-            init["window_min"].as_u64().unwrap() as u16,
-            init.get("window_flexibility")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(4) as u16,
-            init.get("fast_rate_rounds")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(0) as u16,
-            init.get("medium_rate_rounds")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(0) as u16,
-        );
+        let mut state = state_from_snapshot(&v.initial_state);
 
         // Track tries for timeout steps
         let mut tries: u32 = 0;
 
         for step in &v.steps {
-            let event = step["event"].as_str().unwrap();
-            match event {
+            match step.event.as_str() {
                 "delivery" => {
-                    let rtt = step["rtt"].as_f64().unwrap();
+                    let rtt = step.rtt.unwrap();
                     state.on_delivery(rtt);
                 }
                 "timeout" => {
@@ -302,61 +280,46 @@ fn window_adaptation_sequence_all_vectors() {
                 other => panic!("vector {}: unexpected event: {other}", v.index),
             }
 
+            let step_num = step.step.unwrap();
+
             // Validate after-state
-            let expected_window = step.get("window_after").and_then(|v| v.as_u64());
-            if let Some(w) = expected_window {
+            if let Some(w) = step.window_after {
                 assert_eq!(
-                    state.window,
-                    w as u16,
+                    state.window, w as u16,
                     "vector {} step {}: window mismatch",
-                    v.index,
-                    step["step"].as_u64().unwrap()
+                    v.index, step_num
                 );
             }
 
-            let expected_wmax = step.get("window_max_after").and_then(|v| v.as_u64());
-            if let Some(wm) = expected_wmax {
+            if let Some(wm) = step.window_max_after {
                 assert_eq!(
-                    state.window_max,
-                    wm as u16,
+                    state.window_max, wm as u16,
                     "vector {} step {}: window_max mismatch",
-                    v.index,
-                    step["step"].as_u64().unwrap()
+                    v.index, step_num
                 );
             }
 
-            let expected_wmin = step.get("window_min_after").and_then(|v| v.as_u64());
-            if let Some(wmin) = expected_wmin {
+            if let Some(wmin) = step.window_min_after {
                 assert_eq!(
-                    state.window_min,
-                    wmin as u16,
+                    state.window_min, wmin as u16,
                     "vector {} step {}: window_min mismatch",
-                    v.index,
-                    step["step"].as_u64().unwrap()
+                    v.index, step_num
                 );
             }
 
-            let expected_frr = step.get("fast_rate_rounds_after").and_then(|v| v.as_u64());
-            if let Some(frr) = expected_frr {
+            if let Some(frr) = step.fast_rate_rounds_after {
                 assert_eq!(
-                    state.fast_rate_rounds,
-                    frr as u16,
+                    state.fast_rate_rounds, frr as u16,
                     "vector {} step {}: fast_rate_rounds mismatch",
-                    v.index,
-                    step["step"].as_u64().unwrap()
+                    v.index, step_num
                 );
             }
 
-            let expected_mrr = step
-                .get("medium_rate_rounds_after")
-                .and_then(|v| v.as_u64());
-            if let Some(mrr) = expected_mrr {
+            if let Some(mrr) = step.medium_rate_rounds_after {
                 assert_eq!(
-                    state.medium_rate_rounds,
-                    mrr as u16,
+                    state.medium_rate_rounds, mrr as u16,
                     "vector {} step {}: medium_rate_rounds mismatch",
-                    v.index,
-                    step["step"].as_u64().unwrap()
+                    v.index, step_num
                 );
             }
         }
@@ -365,34 +328,31 @@ fn window_adaptation_sequence_all_vectors() {
         let final_state = &v.final_state;
         assert_eq!(
             state.window,
-            final_state["window"].as_u64().unwrap() as u16,
+            final_state.window as u16,
             "vector {}: final window mismatch",
             v.index
         );
         assert_eq!(
             state.window_max,
-            final_state["window_max"].as_u64().unwrap() as u16,
+            final_state.window_max as u16,
             "vector {}: final window_max mismatch",
             v.index
         );
-        if let Some(wmin) = final_state.get("window_min").and_then(|v| v.as_u64()) {
+        if let Some(wmin) = final_state.window_min {
             assert_eq!(
                 state.window_min, wmin as u16,
                 "vector {}: final window_min mismatch",
                 v.index
             );
         }
-        if let Some(frr) = final_state.get("fast_rate_rounds").and_then(|v| v.as_u64()) {
+        if let Some(frr) = final_state.fast_rate_rounds {
             assert_eq!(
                 state.fast_rate_rounds, frr as u16,
                 "vector {}: final fast_rate_rounds mismatch",
                 v.index
             );
         }
-        if let Some(mrr) = final_state
-            .get("medium_rate_rounds")
-            .and_then(|v| v.as_u64())
-        {
+        if let Some(mrr) = final_state.medium_rate_rounds {
             assert_eq!(
                 state.medium_rate_rounds, mrr as u16,
                 "vector {}: final medium_rate_rounds mismatch",
@@ -411,48 +371,31 @@ fn retry_sequence_all_vectors() {
     let vectors = channels::load();
     for v in &vectors.retry_sequence_vectors {
         let init = &v.initial_state;
-        let mut state = ChannelState::from_parts(
-            init["window"].as_u64().unwrap() as u16,
-            init["window_max"].as_u64().unwrap() as u16,
-            init["window_min"].as_u64().unwrap() as u16,
-            init.get("window_flexibility")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(4) as u16,
-            init.get("fast_rate_rounds")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(0) as u16,
-            init.get("medium_rate_rounds")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(0) as u16,
-        );
-        let rtt = init["rtt"].as_f64().unwrap();
-        let tx_ring_length = init["tx_ring_length"].as_u64().unwrap() as usize;
+        let mut state = state_from_snapshot(init);
+        let rtt = init.rtt.unwrap();
+        let tx_ring_length = init.tx_ring_length.unwrap() as usize;
 
-        let mut tries: u32 = init.get("tries").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+        let mut tries: u32 = init.tries.unwrap_or(0) as u32;
 
         for step in &v.steps {
-            let event = step["event"].as_str().unwrap();
-            let expected_outcome = step["outcome"].as_str().unwrap();
+            let expected_outcome = step.outcome.as_deref().unwrap();
+            let step_num = step.step.unwrap();
 
-            match event {
+            match step.event.as_str() {
                 "timeout" => {
-                    let expected_tries_before = step["tries_before"].as_u64().unwrap() as u32;
+                    let expected_tries_before = step.tries_before.unwrap() as u32;
                     assert_eq!(
-                        tries,
-                        expected_tries_before,
+                        tries, expected_tries_before,
                         "vector {} step {}: tries_before mismatch",
-                        v.index,
-                        step["step"].as_u64().unwrap()
+                        v.index, step_num
                     );
 
                     if tries >= MAX_TRIES {
                         // Exhausted
                         assert_eq!(
-                            expected_outcome,
-                            "fail",
+                            expected_outcome, "fail",
                             "vector {} step {}: expected fail for exhausted tries",
-                            v.index,
-                            step["step"].as_u64().unwrap()
+                            v.index, step_num
                         );
                         continue;
                     }
@@ -460,13 +403,11 @@ fn retry_sequence_all_vectors() {
                     let (new_tries, outcome) = state.on_timeout(tries);
                     tries = new_tries;
 
-                    let expected_tries_after = step["tries_after"].as_u64().unwrap() as u32;
+                    let expected_tries_after = step.tries_after.unwrap() as u32;
                     assert_eq!(
-                        tries,
-                        expected_tries_after,
+                        tries, expected_tries_after,
                         "vector {} step {}: tries_after mismatch",
-                        v.index,
-                        step["step"].as_u64().unwrap()
+                        v.index, step_num
                     );
 
                     match expected_outcome {
@@ -474,19 +415,14 @@ fn retry_sequence_all_vectors() {
                             assert_eq!(outcome, TimeoutOutcome::Retry);
 
                             // Validate timeout value
-                            if let Some(expected_timeout) =
-                                step.get("timeout").and_then(|v| v.as_f64())
-                            {
+                            if let Some(expected_timeout) = step.timeout {
                                 let computed =
                                     ChannelState::packet_timeout(tries, rtt, tx_ring_length);
                                 let diff = (computed - expected_timeout).abs();
                                 assert!(
                                     diff < 1e-10,
                                     "vector {} step {}: timeout mismatch — expected={}, got={}",
-                                    v.index,
-                                    step["step"].as_u64().unwrap(),
-                                    expected_timeout,
-                                    computed
+                                    v.index, step_num, expected_timeout, computed
                                 );
                             }
                         }
@@ -499,17 +435,15 @@ fn retry_sequence_all_vectors() {
                     // Validate window state
                     assert_eq!(
                         state.window,
-                        step["window_after"].as_u64().unwrap() as u16,
+                        step.window_after.unwrap() as u16,
                         "vector {} step {}: window mismatch",
-                        v.index,
-                        step["step"].as_u64().unwrap()
+                        v.index, step_num
                     );
                     assert_eq!(
                         state.window_max,
-                        step["window_max_after"].as_u64().unwrap() as u16,
+                        step.window_max_after.unwrap() as u16,
                         "vector {} step {}: window_max mismatch",
-                        v.index,
-                        step["step"].as_u64().unwrap()
+                        v.index, step_num
                     );
                 }
                 "delivery" => {
@@ -517,31 +451,23 @@ fn retry_sequence_all_vectors() {
 
                     assert_eq!(
                         state.window,
-                        step["window_after"].as_u64().unwrap() as u16,
+                        step.window_after.unwrap() as u16,
                         "vector {} step {}: window mismatch after delivery",
-                        v.index,
-                        step["step"].as_u64().unwrap()
+                        v.index, step_num
                     );
 
-                    if let Some(frr) = step.get("fast_rate_rounds_after").and_then(|v| v.as_u64()) {
+                    if let Some(frr) = step.fast_rate_rounds_after {
                         assert_eq!(
-                            state.fast_rate_rounds,
-                            frr as u16,
+                            state.fast_rate_rounds, frr as u16,
                             "vector {} step {}: fast_rate_rounds mismatch",
-                            v.index,
-                            step["step"].as_u64().unwrap()
+                            v.index, step_num
                         );
                     }
-                    if let Some(mrr) = step
-                        .get("medium_rate_rounds_after")
-                        .and_then(|v| v.as_u64())
-                    {
+                    if let Some(mrr) = step.medium_rate_rounds_after {
                         assert_eq!(
-                            state.medium_rate_rounds,
-                            mrr as u16,
+                            state.medium_rate_rounds, mrr as u16,
                             "vector {} step {}: medium_rate_rounds mismatch",
-                            v.index,
-                            step["step"].as_u64().unwrap()
+                            v.index, step_num
                         );
                     }
                 }
@@ -553,17 +479,17 @@ fn retry_sequence_all_vectors() {
         let final_state = &v.final_state;
         assert_eq!(
             state.window,
-            final_state["window"].as_u64().unwrap() as u16,
+            final_state.window as u16,
             "vector {}: final window mismatch",
             v.index
         );
         assert_eq!(
             state.window_max,
-            final_state["window_max"].as_u64().unwrap() as u16,
+            final_state.window_max as u16,
             "vector {}: final window_max mismatch",
             v.index
         );
-        if let Some(expected_tries) = final_state.get("tries").and_then(|v| v.as_u64()) {
+        if let Some(expected_tries) = final_state.tries {
             assert_eq!(
                 tries, expected_tries as u32,
                 "vector {}: final tries mismatch",
@@ -582,21 +508,8 @@ fn packet_loss_scenario_all_vectors() {
     let vectors = channels::load();
     for v in &vectors.packet_loss_scenario_vectors {
         let init = &v.initial_state;
-        let rtt = init["rtt"].as_f64().unwrap();
-        let mut state = ChannelState::from_parts(
-            init["window"].as_u64().unwrap() as u16,
-            init["window_max"].as_u64().unwrap() as u16,
-            init["window_min"].as_u64().unwrap() as u16,
-            init.get("window_flexibility")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(4) as u16,
-            init.get("fast_rate_rounds")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(0) as u16,
-            init.get("medium_rate_rounds")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(0) as u16,
-        );
+        let rtt = init.rtt.unwrap();
+        let mut state = state_from_snapshot(init);
 
         // Track per-sequence tries
         let mut envelope_tries: std::collections::HashMap<u16, u32> =
@@ -604,20 +517,19 @@ fn packet_loss_scenario_all_vectors() {
         let mut tx_ring: Vec<u16> = Vec::new();
 
         for event in &v.events {
-            let event_type = event["event"].as_str().unwrap();
-
-            match event_type {
+            match event.event.as_str() {
                 "send" => {
-                    let seq = event["sequence"].as_u64().unwrap() as u16;
+                    let seq = event.sequence.unwrap() as u16;
                     tx_ring.push(seq);
                     envelope_tries.insert(seq, 0);
 
                     // Validate TX ring
-                    let expected_ring: Vec<u16> = event["tx_ring"]
-                        .as_array()
+                    let expected_ring: Vec<u16> = event
+                        .tx_ring
+                        .as_ref()
                         .unwrap()
                         .iter()
-                        .map(|v| v.as_u64().unwrap() as u16)
+                        .map(|&v| v as u16)
                         .collect();
                     assert_eq!(
                         tx_ring, expected_ring,
@@ -628,19 +540,19 @@ fn packet_loss_scenario_all_vectors() {
                     // Validate window (sends don't change window)
                     assert_eq!(
                         state.window,
-                        event["window"].as_u64().unwrap() as u16,
+                        event.window.unwrap() as u16,
                         "vector {}: window mismatch on send seq={}",
                         v.index,
                         seq
                     );
                 }
                 "delivery" => {
-                    let seq = event["sequence"].as_u64().unwrap() as u16;
+                    let seq = event.sequence.unwrap() as u16;
 
                     // Validate before state
                     assert_eq!(
                         state.window,
-                        event["window_before"].as_u64().unwrap() as u16,
+                        event.window_before.unwrap() as u16,
                         "vector {}: window_before mismatch on delivery seq={}",
                         v.index,
                         seq
@@ -654,17 +566,18 @@ fn packet_loss_scenario_all_vectors() {
                     // Validate after state
                     assert_eq!(
                         state.window,
-                        event["window_after"].as_u64().unwrap() as u16,
+                        event.window_after.unwrap() as u16,
                         "vector {}: window_after mismatch on delivery seq={}",
                         v.index,
                         seq
                     );
 
-                    let expected_ring: Vec<u16> = event["tx_ring"]
-                        .as_array()
+                    let expected_ring: Vec<u16> = event
+                        .tx_ring
+                        .as_ref()
                         .unwrap()
                         .iter()
-                        .map(|v| v.as_u64().unwrap() as u16)
+                        .map(|&v| v as u16)
                         .collect();
                     assert_eq!(
                         tx_ring, expected_ring,
@@ -673,8 +586,8 @@ fn packet_loss_scenario_all_vectors() {
                     );
                 }
                 "timeout" => {
-                    let seq = event["sequence"].as_u64().unwrap() as u16;
-                    let expected_tries_before = event["tries_before"].as_u64().unwrap() as u32;
+                    let seq = event.sequence.unwrap() as u16;
+                    let expected_tries_before = event.tries_before.unwrap() as u32;
                     let tries = *envelope_tries.get(&seq).unwrap_or(&0);
                     assert_eq!(
                         tries, expected_tries_before,
@@ -682,7 +595,7 @@ fn packet_loss_scenario_all_vectors() {
                         v.index, seq
                     );
 
-                    let expected_outcome = event["outcome"].as_str().unwrap();
+                    let expected_outcome = event.outcome.as_deref().unwrap();
 
                     if tries >= MAX_TRIES {
                         assert_eq!(expected_outcome, "fail");
@@ -700,14 +613,14 @@ fn packet_loss_scenario_all_vectors() {
 
                     assert_eq!(
                         state.window,
-                        event["window_after"].as_u64().unwrap() as u16,
+                        event.window_after.unwrap() as u16,
                         "vector {}: window mismatch after timeout seq={}",
                         v.index,
                         seq
                     );
 
                     // Validate timeout value
-                    if let Some(expected_timeout) = event.get("timeout").and_then(|v| v.as_f64()) {
+                    if let Some(expected_timeout) = event.timeout {
                         let computed = ChannelState::packet_timeout(new_tries, rtt, tx_ring.len());
                         let diff = (computed - expected_timeout).abs();
                         assert!(
@@ -728,21 +641,22 @@ fn packet_loss_scenario_all_vectors() {
         let final_state = &v.final_state;
         assert_eq!(
             state.window,
-            final_state["window"].as_u64().unwrap() as u16,
+            final_state.window as u16,
             "vector {}: final window mismatch",
             v.index
         );
         assert_eq!(
             state.window_max,
-            final_state["window_max"].as_u64().unwrap() as u16,
+            final_state.window_max as u16,
             "vector {}: final window_max mismatch",
             v.index
         );
-        let expected_final_ring: Vec<u16> = final_state["tx_ring"]
-            .as_array()
+        let expected_final_ring: Vec<u16> = final_state
+            .tx_ring
+            .as_ref()
             .unwrap()
             .iter()
-            .map(|v| v.as_u64().unwrap() as u16)
+            .map(|&v| v as u16)
             .collect();
         assert_eq!(
             tx_ring, expected_final_ring,

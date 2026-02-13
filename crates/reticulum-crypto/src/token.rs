@@ -217,13 +217,13 @@ mod tests {
         // The fixed_token layout is: ephemeral_public_key (32 bytes) || fernet_token (176 bytes)
         // Verify we can extract the structural components from the layout.
         let layout = &decomp.layout;
-        let eph_key_info = &layout["ephemeral_public_key"];
-        let fernet_info = &layout["fernet_token"];
+        let eph_key_info = &layout.ephemeral_public_key;
+        let fernet_info = &layout.fernet_token;
 
-        let eph_offset = eph_key_info["offset"].as_u64().unwrap() as usize;
-        let eph_len = eph_key_info["length"].as_u64().unwrap() as usize;
-        let fernet_offset = fernet_info["offset"].as_u64().unwrap() as usize;
-        let fernet_len = fernet_info["length"].as_u64().unwrap() as usize;
+        let eph_offset = eph_key_info.offset as usize;
+        let eph_len = eph_key_info.length as usize;
+        let fernet_offset = fernet_info.offset as usize;
+        let fernet_len = fernet_info.length as usize;
 
         // Check structural consistency
         assert_eq!(eph_offset, 0);
@@ -232,35 +232,33 @@ mod tests {
         assert_eq!(eph_len + fernet_len, fixed_token_full.len());
 
         // Verify the ephemeral public key hex matches
-        let expected_eph_hex = eph_key_info["value"].as_str().unwrap();
         let actual_eph = &fixed_token_full[eph_offset..eph_offset + eph_len];
         assert_eq!(
             hex::encode(actual_eph),
-            expected_eph_hex,
+            eph_key_info.value,
             "ephemeral public key mismatch"
         );
 
         // Verify the fernet_token hex matches
-        let expected_fernet_hex = fernet_info["value"].as_str().unwrap();
         let actual_fernet = &fixed_token_full[fernet_offset..fernet_offset + fernet_len];
         assert_eq!(
             hex::encode(actual_fernet),
-            expected_fernet_hex,
+            fernet_info.value,
             "fernet token value mismatch"
         );
 
         // Verify the fernet token sub-components (iv, ciphertext, hmac)
-        let components = &fernet_info["components"];
-        let iv_info = &components["iv"];
-        let ct_info = &components["ciphertext"];
-        let hmac_info = &components["hmac"];
+        let components = fernet_info.components.as_ref().unwrap();
+        let iv_info = &components.iv;
+        let ct_info = &components.ciphertext;
+        let hmac_info = &components.hmac;
 
-        let iv_offset = iv_info["offset"].as_u64().unwrap() as usize;
-        let iv_len = iv_info["length"].as_u64().unwrap() as usize;
-        let ct_offset = ct_info["offset"].as_u64().unwrap() as usize;
-        let ct_len = ct_info["length"].as_u64().unwrap() as usize;
-        let hmac_offset = hmac_info["offset"].as_u64().unwrap() as usize;
-        let hmac_len = hmac_info["length"].as_u64().unwrap() as usize;
+        let iv_offset = iv_info.offset as usize;
+        let iv_len = iv_info.length as usize;
+        let ct_offset = ct_info.offset as usize;
+        let ct_len = ct_info.length as usize;
+        let hmac_offset = hmac_info.offset as usize;
+        let hmac_len = hmac_info.length as usize;
 
         // IV + ciphertext + HMAC should equal fernet_len
         assert_eq!(iv_len + ct_len + hmac_len, fernet_len);
@@ -275,15 +273,15 @@ mod tests {
         // Verify sub-component hex values match the fernet token bytes
         assert_eq!(
             hex::encode(&actual_fernet[iv_offset..iv_offset + iv_len]),
-            iv_info["value"].as_str().unwrap(),
+            iv_info.value,
         );
         assert_eq!(
             hex::encode(&actual_fernet[ct_offset..ct_offset + ct_len]),
-            ct_info["value"].as_str().unwrap(),
+            ct_info.value,
         );
         assert_eq!(
             hex::encode(&actual_fernet[hmac_offset..hmac_offset + hmac_len]),
-            hmac_info["value"].as_str().unwrap(),
+            hmac_info.value,
         );
     }
 

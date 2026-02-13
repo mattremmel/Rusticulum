@@ -5,6 +5,31 @@
 
 use serde::Deserialize;
 
+/// Full path entry snapshot used for initial states and complete snapshots.
+#[derive(Debug, Deserialize)]
+pub struct PathEntrySnapshot {
+    pub timestamp: u64,
+    pub next_hop: String,
+    pub hops: u64,
+    pub expires: u64,
+    #[serde(default)]
+    pub random_blobs: Option<Vec<String>>,
+    pub packet_hash: String,
+    #[serde(default)]
+    pub attached_interface: Option<String>,
+    #[serde(default)]
+    pub note: Option<String>,
+}
+
+/// Sparse path entry snapshot used for "after" states (only changed fields).
+#[derive(Debug, Deserialize)]
+pub struct PathEntryAfterSnapshot {
+    #[serde(default)]
+    pub timestamp: Option<u64>,
+    #[serde(default)]
+    pub note: Option<String>,
+}
+
 #[derive(Debug, Deserialize)]
 pub struct PathEntry {
     pub timestamp: u64,
@@ -41,9 +66,9 @@ pub struct ExpirePathVector {
     #[serde(default)]
     pub interface_mode_value: Option<u64>,
     #[serde(default)]
-    pub before: Option<serde_json::Value>,
+    pub before: Option<PathEntrySnapshot>,
     #[serde(default)]
-    pub after: Option<serde_json::Value>,
+    pub after: Option<PathEntryAfterSnapshot>,
     #[serde(default)]
     pub effective_expiry_after_expire: Option<u64>,
     #[serde(default)]
@@ -65,10 +90,10 @@ pub struct TimestampRefreshVector {
     pub interface_mode_value: Option<u64>,
     pub ttl_seconds: u64,
     pub ttl_constant: String,
-    pub path_entry_initial: serde_json::Value,
+    pub path_entry_initial: PathEntrySnapshot,
     pub original_expiry: u64,
     pub packet_forward_time: u64,
-    pub path_entry_after_forward: serde_json::Value,
+    pub path_entry_after_forward: PathEntryAfterSnapshot,
     pub new_effective_expiry: u64,
     pub effective_expiry_formula: String,
     pub check_time: u64,
@@ -189,7 +214,7 @@ pub struct RediscoveryTriggerVector {
 pub struct InterfaceDisappearanceVector {
     pub description: String,
     pub destination_hash: String,
-    pub path_entry: serde_json::Value,
+    pub path_entry: PathEntrySnapshot,
     #[serde(default)]
     pub interface_mode: Option<String>,
     #[serde(default)]

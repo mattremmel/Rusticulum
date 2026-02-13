@@ -294,9 +294,9 @@ mod tests {
             );
 
             // Verify the eof_message stream packing
-            let eof_msg: serde_json::Value = tv.eof_message.clone();
+            let eof_msg = &tv.eof_message;
             let expected_stream_packed =
-                hex::decode(eof_msg["stream_packed_hex"].as_str().unwrap()).unwrap();
+                hex::decode(&eof_msg.stream_packed_hex).unwrap();
 
             let stream_msg = StreamDataMessage {
                 header,
@@ -337,9 +337,9 @@ mod tests {
             assert_eq!(input_data.len(), tv.input_data_length as usize);
 
             let write_result = &tv.write_result;
-            let expected_compressed = write_result["compressed"].as_bool().unwrap();
-            let expected_chunk_hex = write_result["chunk_hex"].as_str().unwrap();
-            let expected_stream_packed_hex = write_result["stream_packed_hex"].as_str().unwrap();
+            let expected_compressed = write_result.compressed;
+            let expected_chunk_hex = &write_result.chunk_hex;
+            let expected_stream_packed_hex = &write_result.stream_packed_hex;
 
             // Run write_chunk
             let (msg, processed_length) = write_chunk(tv.stream_id as u16, &input_data, false);
@@ -351,7 +351,7 @@ mod tests {
             );
             assert_eq!(
                 processed_length,
-                write_result["processed_length"].as_u64().unwrap() as usize,
+                write_result.processed_length as usize,
                 "processed_length mismatch for vector index={}",
                 tv.index
             );
@@ -412,7 +412,7 @@ mod tests {
         let tv = &vectors.compression_vectors[1]; // index 9
         assert_eq!(tv.index, 9);
 
-        let expected_stream_packed_hex = tv.write_result["stream_packed_hex"].as_str().unwrap();
+        let expected_stream_packed_hex = &tv.write_result.stream_packed_hex;
         let packed = hex::decode(expected_stream_packed_hex).unwrap();
 
         let msg = StreamDataMessage::unpack(&packed).unwrap();

@@ -158,54 +158,51 @@ impl Default for WindowState {
 mod tests {
     use super::*;
 
+    use reticulum_test_vectors::window_adaptation::ResourceWindowStep;
+
     // ------------------------------------------------------------------ //
-    // Helper to extract state fields from a serde_json::Value step
+    // Helper to assert window state matches a typed step
     // ------------------------------------------------------------------ //
 
-    fn assert_state(ws: &WindowState, step: &serde_json::Value, step_num: usize) {
-        let state = &step["state"];
+    fn assert_state(ws: &WindowState, step: &ResourceWindowStep) {
+        let state = &step.state;
+        let step_num = step.step;
         assert_eq!(
-            ws.window,
-            state["window"].as_u64().unwrap() as u16,
+            ws.window, state.window as u16,
             "step {step_num}: window mismatch"
         );
         assert_eq!(
-            ws.window_max,
-            state["window_max"].as_u64().unwrap() as u16,
+            ws.window_max, state.window_max as u16,
             "step {step_num}: window_max mismatch"
         );
         assert_eq!(
-            ws.window_min,
-            state["window_min"].as_u64().unwrap() as u16,
+            ws.window_min, state.window_min as u16,
             "step {step_num}: window_min mismatch"
         );
         assert_eq!(
-            ws.fast_rate_rounds,
-            state["fast_rate_rounds"].as_u64().unwrap() as u16,
+            ws.fast_rate_rounds, state.fast_rate_rounds as u16,
             "step {step_num}: fast_rate_rounds mismatch"
         );
         assert_eq!(
-            ws.very_slow_rate_rounds,
-            state["very_slow_rate_rounds"].as_u64().unwrap() as u16,
+            ws.very_slow_rate_rounds, state.very_slow_rate_rounds as u16,
             "step {step_num}: very_slow_rate_rounds mismatch"
         );
     }
 
-    fn run_steps(steps: &[serde_json::Value]) {
+    fn run_steps(steps: &[ResourceWindowStep]) {
         let mut ws = WindowState::new();
 
         for step in steps {
-            let step_num = step["step"].as_u64().unwrap() as usize;
-            let event = step["event"].as_str().unwrap();
+            let event = step.event.as_str();
 
             if event == "initial" || event.starts_with("initial ") {
-                assert_state(&ws, step, step_num);
+                assert_state(&ws, step);
                 continue;
             }
 
             match event {
                 "window_complete" => {
-                    let rate = step["rate"].as_f64().unwrap();
+                    let rate = step.rate.unwrap();
                     ws.on_window_complete(rate);
                 }
                 "timeout" => {
@@ -213,7 +210,7 @@ mod tests {
                 }
                 other => panic!("unknown event: {other}"),
             }
-            assert_state(&ws, step, step_num);
+            assert_state(&ws, step);
         }
     }
 

@@ -5,6 +5,27 @@
 use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
+pub struct AnnounceConstants {
+    pub mtu_bytes: u64,
+    #[serde(default)]
+    pub header_minsize_bytes: Option<u64>,
+    #[serde(default)]
+    pub keysize_bytes: Option<u64>,
+    #[serde(default)]
+    pub name_hash_length_bytes: Option<u64>,
+    #[serde(default)]
+    pub signature_length_bytes: Option<u64>,
+    pub ratchetsize_bytes: u64,
+    pub random_hash_length_bytes: u64,
+    pub truncated_hash_length_bytes: u64,
+    pub announce_min_payload_bytes: u64,
+    #[serde(default)]
+    pub max_app_data_no_ratchet_bytes: Option<u64>,
+    #[serde(default)]
+    pub max_app_data_with_ratchet_bytes: Option<u64>,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct ValidAnnounce {
     pub description: String,
     pub keypair_index: u64,
@@ -131,7 +152,7 @@ pub struct RatchetAnnounce {
 pub struct AnnouncesVectors {
     pub description: String,
     pub source: String,
-    pub constants: serde_json::Value,
+    pub constants: AnnounceConstants,
     pub algorithm: serde_json::Value,
     pub valid_announces: Vec<ValidAnnounce>,
     pub invalid_announces: Vec<InvalidAnnounce>,

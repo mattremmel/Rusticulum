@@ -32,6 +32,17 @@ pub struct KeySplit {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct TokenLayout {
+    pub iv_offset: u64,
+    pub iv_length: u64,
+    pub ciphertext_offset: u64,
+    pub ciphertext_length: u64,
+    pub hmac_offset: u64,
+    pub hmac_length: u64,
+    pub total_length: u64,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct DeterministicFernetVector {
     pub description: String,
     pub key: String,
@@ -44,9 +55,33 @@ pub struct DeterministicFernetVector {
     pub signed_parts_note: String,
     pub hmac: String,
     pub token: String,
-    pub token_layout: serde_json::Value,
+    pub token_layout: TokenLayout,
     #[serde(default)]
     pub plaintext_utf8: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct LayoutComponent {
+    pub offset: u64,
+    pub length: u64,
+    pub value: String,
+    #[serde(default)]
+    pub note: Option<String>,
+    #[serde(default)]
+    pub components: Option<Box<FernetComponents>>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct FernetComponents {
+    pub iv: LayoutComponent,
+    pub ciphertext: LayoutComponent,
+    pub hmac: LayoutComponent,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct FixedTokenLayout {
+    pub ephemeral_public_key: LayoutComponent,
+    pub fernet_token: LayoutComponent,
 }
 
 #[derive(Debug, Deserialize)]
@@ -54,7 +89,7 @@ pub struct FixedTokenDecomposition {
     pub description: String,
     pub fixed_token: String,
     pub total_length: u64,
-    pub layout: serde_json::Value,
+    pub layout: FixedTokenLayout,
     pub plaintext: String,
     pub decryption_note: String,
 }

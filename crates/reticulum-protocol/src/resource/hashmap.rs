@@ -459,13 +459,12 @@ mod tests {
         let hm = ResourceHashmap::from_bytes(&total_bytes, random_hash).unwrap();
 
         let segments = v.hashmap_by_segment.as_ref().unwrap();
-        let segments = segments.as_array().unwrap();
         assert_eq!(hm.segment_count(), segments.len());
 
         for seg_val in segments {
-            let seg_idx = seg_val["segment"].as_u64().unwrap() as usize;
-            let expected_count = seg_val["hash_count"].as_u64().unwrap() as usize;
-            let expected_hex = seg_val["hashmap_hex"].as_str().unwrap();
+            let seg_idx = seg_val.segment as usize;
+            let expected_count = seg_val.hash_count as usize;
+            let expected_hex = seg_val.hashmap_hex.as_ref().unwrap();
             let expected_bytes = hex_to_bytes(expected_hex);
 
             assert_eq!(
@@ -494,11 +493,10 @@ mod tests {
 
         let hm = ResourceHashmap::from_bytes(&total_bytes, random_hash).unwrap();
 
-        let rep_parts = v.representative_parts.as_ref().unwrap().as_array().unwrap();
+        let rep_parts = v.representative_parts.as_ref().unwrap();
         for part in rep_parts {
-            let idx = part["part_index"].as_u64().unwrap() as usize;
-            let expected_hash_hex = part["map_hash_hex"].as_str().unwrap();
-            let expected_hash: MapHash = hex_to_bytes(expected_hash_hex).try_into().unwrap();
+            let idx = part.part_index as usize;
+            let expected_hash: MapHash = hex_to_bytes(&part.map_hash_hex).try_into().unwrap();
 
             assert_eq!(
                 *hm.get(idx).unwrap(),
@@ -517,7 +515,7 @@ mod tests {
         let vectors = load_transfer_vectors();
         let v = vector_with_hashmap(&vectors, 1);
 
-        let segments_json = v.hashmap_by_segment.as_ref().unwrap().as_array().unwrap();
+        let segments = v.hashmap_by_segment.as_ref().unwrap();
 
         // Reconstruct from segment 0 (has hashmap_hex) + segment 29 (has hashmap_hex).
         // We can only verify the overall SHA256 since middle segments only have sha256.
@@ -527,21 +525,21 @@ mod tests {
         assert_eq!(num_parts, 2156);
 
         // Verify segment structure.
-        assert_eq!(segments_json.len(), 30);
+        assert_eq!(segments.len(), 30);
 
         // First segment has hashmap_hex.
-        let seg0_hex = segments_json[0]["hashmap_hex"].as_str().unwrap();
+        let seg0_hex = segments[0].hashmap_hex.as_ref().unwrap();
         let seg0_bytes = hex_to_bytes(seg0_hex);
         assert_eq!(seg0_bytes.len(), 74 * MAPHASH_LEN);
 
         // Last segment has hashmap_hex.
-        let seg29_hex = segments_json[29]["hashmap_hex"].as_str().unwrap();
+        let seg29_hex = segments[29].hashmap_hex.as_ref().unwrap();
         let seg29_bytes = hex_to_bytes(seg29_hex);
         assert_eq!(seg29_bytes.len(), 10 * MAPHASH_LEN);
 
         // Verify segment hash counts: 29 segments of 74, last segment of 10.
-        for (i, seg) in segments_json.iter().enumerate() {
-            let count = seg["hash_count"].as_u64().unwrap() as usize;
+        for (i, seg) in segments.iter().enumerate() {
+            let count = seg.hash_count as usize;
             if i < 29 {
                 assert_eq!(count, 74, "segment {i} should have 74 hashes");
             } else {
@@ -589,9 +587,9 @@ mod tests {
 
         // We can only verify part hashes that appear in segments with hashmap_hex.
         // Segment 0 covers parts 0..74, segment 29 covers parts 2146..2156.
-        let segments_json = v.hashmap_by_segment.as_ref().unwrap().as_array().unwrap();
-        let seg0_bytes = hex_to_bytes(segments_json[0]["hashmap_hex"].as_str().unwrap());
-        let seg29_bytes = hex_to_bytes(segments_json[29]["hashmap_hex"].as_str().unwrap());
+        let segments = v.hashmap_by_segment.as_ref().unwrap();
+        let seg0_bytes = hex_to_bytes(segments[0].hashmap_hex.as_ref().unwrap());
+        let seg29_bytes = hex_to_bytes(segments[29].hashmap_hex.as_ref().unwrap());
 
         let random_hash: [u8; 4] = hex_to_bytes(v.random_hash_hex.as_ref().unwrap())
             .try_into()
@@ -601,10 +599,10 @@ mod tests {
         let seg0_hm = ResourceHashmap::from_bytes(&seg0_bytes, random_hash).unwrap();
         let seg29_hm = ResourceHashmap::from_bytes(&seg29_bytes, random_hash).unwrap();
 
-        let rep_parts = v.representative_parts.as_ref().unwrap().as_array().unwrap();
+        let rep_parts = v.representative_parts.as_ref().unwrap();
         for part in rep_parts {
-            let idx = part["part_index"].as_u64().unwrap() as usize;
-            let expected_hash: MapHash = hex_to_bytes(part["map_hash_hex"].as_str().unwrap())
+            let idx = part.part_index as usize;
+            let expected_hash: MapHash = hex_to_bytes(&part.map_hash_hex)
                 .try_into()
                 .unwrap();
 

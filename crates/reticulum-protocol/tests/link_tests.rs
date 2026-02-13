@@ -327,9 +327,9 @@ fn derived_key_split_correctness() {
     let hs = &vectors.handshake_vectors[0];
     let step2 = &hs.step_2_lrproof;
 
-    let dk_hex = step2["derived_key"].as_str().unwrap();
-    let sk_hex = step2["signing_key"].as_str().unwrap();
-    let ek_hex = step2["encryption_key"].as_str().unwrap();
+    let dk_hex = step2.derived_key.as_str();
+    let sk_hex = step2.signing_key.as_str();
+    let ek_hex = step2.encryption_key.as_str();
 
     let dk_bytes = hex::decode(dk_hex).unwrap();
     let mut arr = [0u8; 64];
@@ -445,21 +445,16 @@ fn link_id_all_handshake_vectors() {
     let vectors = links::load();
     for hs in &vectors.handshake_vectors {
         let step1 = &hs.step_1_linkrequest;
-        let hashable_hex = step1["hashable_part"].as_str();
-        // Legacy vector (no signalling) still has hashable_part
-        if let Some(hp_hex) = hashable_hex {
-            let hashable = hex::decode(hp_hex).unwrap();
-            let data_len = step1["request_data_length"].as_u64().unwrap() as usize;
-            let link_id = LinkPending::compute_link_id(&hashable, data_len);
-            let expected_hex = step1["link_id"].as_str().unwrap();
-            let expected = hex::decode(expected_hex).unwrap();
-            assert_eq!(
-                link_id.as_ref(),
-                expected.as_slice(),
-                "link_id mismatch for: {}",
-                hs.description
-            );
-        }
+        let hashable = hex::decode(&step1.hashable_part).unwrap();
+        let data_len = step1.request_data_length as usize;
+        let link_id = LinkPending::compute_link_id(&hashable, data_len);
+        let expected = hex::decode(&step1.link_id).unwrap();
+        assert_eq!(
+            link_id.as_ref(),
+            expected.as_slice(),
+            "link_id mismatch for: {}",
+            hs.description
+        );
     }
 }
 
