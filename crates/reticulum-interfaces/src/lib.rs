@@ -4,6 +4,9 @@
 //! interfaces with HDLC and KISS framing support.
 
 pub mod error;
+pub mod framing;
+#[cfg(unix)]
+pub mod local;
 pub mod tcp;
 pub mod traits;
 pub mod udp;
