@@ -20,15 +20,30 @@ pub struct NodeConfig {
     pub interfaces: InterfacesSection,
     #[serde(default)]
     pub destinations: Vec<DestinationEntry>,
+    #[serde(default)]
+    pub link_targets: Vec<LinkTargetEntry>,
 }
 
 /// A `[[destinations]]` entry for auto-announcing a destination on startup.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct DestinationEntry {
     pub app_name: String,
     #[serde(default)]
     pub aspects: Vec<String>,
     pub app_data: Option<String>,
+    /// Whether this destination accepts incoming link requests.
+    #[serde(default)]
+    pub accept_links: bool,
+}
+
+/// A `[[link_targets]]` entry for auto-initiating links on announce receipt.
+#[derive(Debug, Clone, Deserialize)]
+pub struct LinkTargetEntry {
+    pub app_name: String,
+    #[serde(default)]
+    pub aspects: Vec<String>,
+    /// Data to send automatically after link establishment.
+    pub auto_data: Option<String>,
 }
 
 impl NodeConfig {
@@ -337,6 +352,35 @@ app_name = "plain_dest"
         assert_eq!(config.destinations[1].app_name, "plain_dest");
         assert!(config.destinations[1].aspects.is_empty());
         assert!(config.destinations[1].app_data.is_none());
+    }
+
+    #[test]
+    fn parse_accept_links_and_link_targets() {
+        let toml = r#"
+[[destinations]]
+app_name = "link_test"
+aspects = ["link", "v1"]
+accept_links = true
+app_data = "hello"
+
+[[destinations]]
+app_name = "no_links"
+
+[[link_targets]]
+app_name = "python_test"
+aspects = ["link", "v1"]
+auto_data = "hello from rust link"
+"#;
+        let config = NodeConfig::parse(toml).unwrap();
+        assert_eq!(config.destinations.len(), 2);
+        assert!(config.destinations[0].accept_links);
+        assert!(!config.destinations[1].accept_links);
+        assert_eq!(config.link_targets.len(), 1);
+        assert_eq!(config.link_targets[0].app_name, "python_test");
+        assert_eq!(
+            config.link_targets[0].auto_data.as_deref(),
+            Some("hello from rust link")
+        );
     }
 
     #[test]

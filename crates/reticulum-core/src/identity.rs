@@ -123,6 +123,26 @@ impl Identity {
         &self.hash
     }
 
+    /// Get the Ed25519 public key.
+    pub fn ed25519_public(&self) -> &Ed25519PublicKey {
+        &self.ed25519_public
+    }
+
+    /// Get the Ed25519 private key, if available.
+    pub fn ed25519_private(&self) -> Option<&Ed25519PrivateKey> {
+        self.ed25519_private.as_ref()
+    }
+
+    /// Get the X25519 public key.
+    pub fn x25519_public(&self) -> &X25519PublicKey {
+        &self.x25519_public
+    }
+
+    /// Get the X25519 private key, if available.
+    pub fn x25519_private(&self) -> Option<&X25519PrivateKey> {
+        self.x25519_private.as_ref()
+    }
+
     /// Sign data with the Ed25519 private key.
     pub fn sign(&self, data: &[u8]) -> Result<Ed25519Signature, IdentityError> {
         let key = self

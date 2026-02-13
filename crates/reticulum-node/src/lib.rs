@@ -6,6 +6,7 @@
 pub mod config;
 pub mod error;
 pub mod interface_enum;
+pub mod link_manager;
 pub mod logging;
 pub mod node;
 pub mod storage;

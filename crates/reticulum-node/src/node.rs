@@ -23,8 +23,9 @@ use reticulum_interfaces::local::{
 };
 
 use reticulum_core::announce::{Announce, make_random_hash};
-use reticulum_core::constants::PacketType;
+use reticulum_core::constants::{DestinationType, PacketType};
 use reticulum_core::destination;
+use reticulum_core::packet::context::ContextType;
 use reticulum_core::packet::wire::RawPacket;
 use reticulum_transport::ifac::{IfacConfig, has_ifac_flag, ifac_apply, ifac_verify};
 use reticulum_transport::path::constants::PATHFINDER_M;
@@ -36,6 +37,7 @@ use reticulum_core::identity::Identity;
 use crate::config::{NodeConfig, parse_mode, parse_socket_addr};
 use crate::error::NodeError;
 use crate::interface_enum::AnyInterface;
+use crate::link_manager::LinkManager;
 use crate::storage::Storage;
 
 /// A handle that can trigger node shutdown from another task or signal handler.
@@ -67,6 +69,7 @@ enum NodeEvent {
 pub struct Node {
     config: NodeConfig,
     router: PacketRouter,
+    link_manager: LinkManager,
     ifac_config: Option<IfacConfig>,
     storage: Option<Storage>,
     transport_identity: Option<Identity>,
@@ -114,12 +117,15 @@ impl Node {
             None
         };
 
+        let link_manager = LinkManager::new(config.link_targets.clone());
+
         let (event_tx, event_rx) = mpsc::channel(1024);
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
 
         Self {
             config,
             router,
+            link_manager,
             ifac_config,
             storage,
             transport_identity: None,
@@ -199,6 +205,15 @@ impl Node {
                 let dh = destination::destination_hash(&nh, identity.hash());
                 let random_hash = make_random_hash();
                 let app_data = dest_cfg.app_data.as_deref().map(|s| s.as_bytes());
+
+                // Register as link-accepting destination if configured
+                if dest_cfg.accept_links {
+                    self.link_manager.register_local_destination(
+                        dh,
+                        &dest_cfg.app_name,
+                        &dest_cfg.aspects,
+                    );
+                }
 
                 match Announce::create(identity, nh, dh, random_hash, None, app_data) {
                     Ok(announce) => {
@@ -444,6 +459,9 @@ impl Node {
                     match event {
                         Some(NodeEvent::InboundPacket { interface_id, raw }) => {
                             self.handle_inbound_packet(interface_id, &raw).await;
+
+                            // Process any pending link initiations (queued by announce processing)
+                            self.process_pending_link_targets().await;
                         }
                         Some(NodeEvent::InterfaceDown { interface_id }) => {
                             tracing::warn!(id = interface_id.0, "interface down");
@@ -614,6 +632,17 @@ impl Node {
                         path_updated = result.path_updated,
                         "announce_validated"
                     );
+
+                    // Register identity from announce for link management
+                    if let Ok(announce) = Announce::from_payload(
+                        packet.destination,
+                        packet.flags.context_flag,
+                        packet.context,
+                        &packet.data,
+                    ) {
+                        self.link_manager
+                            .register_identity_from_announce(result.destination_hash, &announce);
+                    }
                 }
                 Err(e) => {
                     tracing::debug!(error = %e, "announce_validation_failed");
@@ -621,14 +650,118 @@ impl Node {
             }
         }
 
-        // Increment hops and re-serialize for forwarding
-        let mut forward_packet = packet.clone();
-        forward_packet.hops = packet.hops.saturating_add(1);
-        let forward_raw = forward_packet.serialize();
+        // Link packet handling — route before flood
+        let handled_locally = self.handle_link_packet(&packet).await;
 
-        // Flood to all other interfaces
-        self.broadcast_to_interfaces(Some(from_iface), &forward_raw)
-            .await;
+        // Increment hops and re-serialize for forwarding
+        // Don't flood link packets that we handled locally
+        if !handled_locally {
+            let mut forward_packet = packet.clone();
+            forward_packet.hops = packet.hops.saturating_add(1);
+            let forward_raw = forward_packet.serialize();
+
+            // Flood to all other interfaces
+            self.broadcast_to_interfaces(Some(from_iface), &forward_raw)
+                .await;
+        }
+    }
+
+    /// Handle link-related packets. Returns true if the packet was handled locally.
+    async fn handle_link_packet(&mut self, packet: &RawPacket) -> bool {
+        match (
+            packet.flags.packet_type,
+            packet.context,
+            packet.flags.destination_type,
+        ) {
+            // LINKREQUEST: incoming link request (we are responder)
+            (PacketType::LinkRequest, ContextType::None, DestinationType::Single) => {
+                if let Some(ref identity) = self.transport_identity {
+                    // Clone identity to avoid borrow conflict
+                    let identity = Identity::from_private_bytes(
+                        &identity.private_key_bytes().unwrap_or([0u8; 64]),
+                    );
+                    if let Some(proof_raw) =
+                        self.link_manager.handle_link_request(packet, &identity)
+                    {
+                        self.broadcast_to_interfaces(None, &proof_raw).await;
+                        return true;
+                    }
+                }
+                false
+            }
+
+            // LRPROOF: link proof from responder (we are initiator)
+            (PacketType::Proof, ContextType::Lrproof, DestinationType::Link) => {
+                if let Some(rtt_raw) = self.link_manager.handle_lrproof(packet) {
+                    self.broadcast_to_interfaces(None, &rtt_raw).await;
+
+                    // Check for auto-data to send after link establishment
+                    // Parse the RTT packet to get the link_id
+                    if let Ok(rtt_pkt) = RawPacket::parse(&rtt_raw) {
+                        let link_id_bytes: [u8; 16] =
+                            rtt_pkt.destination.as_ref().try_into().unwrap_or([0u8; 16]);
+                        let link_id = reticulum_core::types::LinkId::new(link_id_bytes);
+                        self.send_auto_data(&link_id).await;
+                    }
+                    return true;
+                }
+                false
+            }
+
+            // LRRTT: RTT measurement (we are responder)
+            (PacketType::Data, ContextType::Lrrtt, DestinationType::Link) => {
+                if let Some(link_id) = self.link_manager.handle_lrrtt(packet) {
+                    tracing::info!(
+                        link_id = %hex::encode(link_id.as_ref()),
+                        "link_established"
+                    );
+                    return true;
+                }
+                false
+            }
+
+            // Link data: encrypted data on an active link
+            (PacketType::Data, ContextType::None, DestinationType::Link) => {
+                if self.link_manager.has_pending_or_active(&packet.destination)
+                    && let Some(plaintext) = self.link_manager.handle_link_data(packet)
+                {
+                    let text = String::from_utf8_lossy(&plaintext);
+                    tracing::info!(
+                        destination = %hex::encode(packet.destination.as_ref()),
+                        data = %text,
+                        "link_data_received"
+                    );
+                    return true;
+                }
+                false
+            }
+
+            _ => false,
+        }
+    }
+
+    /// Process destinations queued for link initiation.
+    async fn process_pending_link_targets(&mut self) {
+        let targets = self.link_manager.drain_pending_targets();
+        for (dest_hash, auto_data) in targets {
+            if let Some(lr_raw) = self.link_manager.initiate_link(dest_hash, auto_data) {
+                self.broadcast_to_interfaces(None, &lr_raw).await;
+            }
+        }
+    }
+
+    /// Send auto-data for a newly established link, if configured.
+    async fn send_auto_data(&mut self, link_id: &reticulum_core::types::LinkId) {
+        if let Some(data) = self.link_manager.drain_auto_data(link_id)
+            && let Some(raw) = self.link_manager.encrypt_and_send(link_id, data.as_bytes())
+        {
+            tracing::info!(
+                link_id = %hex::encode(link_id.as_ref()),
+                data = %data,
+                "link_data_sent"
+            );
+            self.broadcast_to_interfaces(None, &raw).await;
+        }
     }
 
     /// Process pending announce retransmissions.
