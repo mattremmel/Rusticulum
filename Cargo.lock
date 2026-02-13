@@ -1023,6 +1023,7 @@ dependencies = [
  "reticulum-interfaces",
  "reticulum-protocol",
  "reticulum-transport",
+ "rmpv",
  "serde",
  "tempfile",
  "thiserror",

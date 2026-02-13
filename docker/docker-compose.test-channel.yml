@@ -1,0 +1,12 @@
+services:
+  python-rns:
+    volumes:
+      - ./scripts:/scripts:ro
+    command: ["python3", "/scripts/python-channel-test.py"]
+
+  rust-node:
+    volumes:
+      - ./configs/rust-node/channel-test.toml:/etc/reticulum/config.toml:ro
+    environment:
+      - RUST_LOG=debug
+      - RUST_LOG_FORMAT=json

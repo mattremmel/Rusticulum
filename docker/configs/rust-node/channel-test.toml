@@ -1,0 +1,20 @@
+[node]
+enable_transport = true
+storage_path = "/var/lib/reticulum"
+
+[[interfaces.tcp_client]]
+name = "TCP to Python RNS"
+target = "python-rns:4242"
+
+[[destinations]]
+app_name = "channel_test"
+aspects = ["channel", "v1"]
+accept_links = true
+app_data = "hello from rust"
+
+[[link_targets]]
+app_name = "channel_test"
+aspects = ["channel", "v1"]
+auto_channel = "hello from rust channel"
+auto_request_path = "/test/echo"
+auto_request_data = "rust request payload"

@@ -1,0 +1,616 @@
+//! Channel, buffer, and request/response management for the node.
+//!
+//! Manages per-link channel state (envelope sequencing), buffer stream
+//! accumulation, and request/response dispatching. This module is a pure
+//! state tracker — it does NOT send packets or hold crypto keys.
+
+use std::collections::HashMap;
+
+use reticulum_core::types::LinkId;
+use reticulum_protocol::buffer::constants::SMT_STREAM_DATA;
+use reticulum_protocol::buffer::stream_data::StreamDataMessage;
+use reticulum_protocol::channel::envelope::Envelope;
+use reticulum_protocol::channel::state::ChannelState;
+use reticulum_protocol::request::types::{PathHash, Request, RequestId, Response};
+
+use rmpv::Value;
+
+/// Actions the node should take after processing a channel event.
+#[derive(Debug)]
+pub enum ChannelAction {
+    /// A channel message was received (msg_type, payload).
+    MessageReceived { msg_type: u16, payload: Vec<u8> },
+    /// A buffer stream completed (stream_id, accumulated data).
+    BufferComplete { stream_id: u16, data: Vec<u8> },
+    /// A response should be sent (serialized response bytes).
+    SendResponse(Vec<u8>),
+}
+
+/// Per-link channel context.
+struct ChannelContext {
+    state: ChannelState,
+    /// Buffer accumulation: stream_id -> accumulated data chunks.
+    rx_buffers: HashMap<u16, Vec<u8>>,
+}
+
+/// Request handler callback type.
+type RequestHandler = Box<dyn Fn(&[u8]) -> Vec<u8> + Send + Sync>;
+
+/// Manages channel, buffer, and request/response state for all links.
+pub struct ChannelManager {
+    /// Per-link channel state.
+    channels: HashMap<LinkId, ChannelContext>,
+    /// Request handlers keyed by path hash (first 16 bytes).
+    request_handlers: HashMap<[u8; 16], RequestHandler>,
+    /// Pending outbound requests: request_id -> (link_id, path).
+    pending_requests: HashMap<[u8; 16], (LinkId, String)>,
+    /// Auto-send queues from config.
+    auto_channel_queue: HashMap<LinkId, String>,
+    auto_buffer_queue: HashMap<LinkId, String>,
+    auto_request_queue: HashMap<LinkId, (String, String)>,
+}
+
+impl Default for ChannelManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl ChannelManager {
+    /// Create a new empty ChannelManager.
+    pub fn new() -> Self {
+        Self {
+            channels: HashMap::new(),
+            request_handlers: HashMap::new(),
+            pending_requests: HashMap::new(),
+            auto_channel_queue: HashMap::new(),
+            auto_buffer_queue: HashMap::new(),
+            auto_request_queue: HashMap::new(),
+        }
+    }
+
+    /// Register a link for channel communication.
+    pub fn register_link(&mut self, link_id: LinkId, rtt: f64) {
+        tracing::debug!(
+            link_id = %hex::encode(link_id.as_ref()),
+            rtt,
+            "registered link for channel communication"
+        );
+        self.channels.insert(
+            link_id,
+            ChannelContext {
+                state: ChannelState::new(rtt),
+                rx_buffers: HashMap::new(),
+            },
+        );
+    }
+
+    /// Register a request handler for a given path.
+    pub fn register_request_handler<F>(&mut self, path: &str, handler: F)
+    where
+        F: Fn(&[u8]) -> Vec<u8> + Send + Sync + 'static,
+    {
+        let path_hash = PathHash::from_path(path);
+        let mut key = [0u8; 16];
+        key.copy_from_slice(path_hash.as_ref());
+        tracing::debug!(path, path_hash = %hex::encode(key), "registered request handler");
+        self.request_handlers.insert(key, Box::new(handler));
+    }
+
+    // ---- Channel message handling ----
+
+    /// Handle decrypted channel data (from a CHANNEL context packet).
+    ///
+    /// Parses the Envelope, dispatches by msg_type.
+    /// Returns an action if the message was processed.
+    pub fn handle_channel_data(
+        &mut self,
+        link_id: &LinkId,
+        plaintext: &[u8],
+    ) -> Option<ChannelAction> {
+        let ctx = self.channels.get_mut(link_id)?;
+
+        let envelope = match Envelope::unpack(plaintext) {
+            Ok(e) => e,
+            Err(e) => {
+                tracing::warn!(
+                    link_id = %hex::encode(link_id.as_ref()),
+                    "failed to unpack channel envelope: {e}"
+                );
+                return None;
+            }
+        };
+
+        // Validate sequence
+        if !ctx.state.is_rx_valid(envelope.sequence, ctx.state.window_max) {
+            tracing::warn!(
+                link_id = %hex::encode(link_id.as_ref()),
+                sequence = envelope.sequence,
+                "channel sequence rejected"
+            );
+            return None;
+        }
+        ctx.state.advance_rx_sequence();
+
+        tracing::info!(
+            link_id = %hex::encode(link_id.as_ref()),
+            msg_type = envelope.msg_type,
+            sequence = envelope.sequence,
+            payload_len = envelope.payload.len(),
+            "channel_message_received"
+        );
+
+        // Dispatch by msg_type
+        if envelope.msg_type == SMT_STREAM_DATA {
+            // Buffer stream data
+            self.handle_stream_data_inner(link_id, &envelope.payload)
+        } else {
+            // Application message
+            Some(ChannelAction::MessageReceived {
+                msg_type: envelope.msg_type,
+                payload: envelope.payload,
+            })
+        }
+    }
+
+    /// Handle a stream data message (inside an envelope with msg_type=SMT_STREAM_DATA).
+    fn handle_stream_data_inner(
+        &mut self,
+        link_id: &LinkId,
+        stream_packed: &[u8],
+    ) -> Option<ChannelAction> {
+        let msg = match StreamDataMessage::unpack(stream_packed) {
+            Ok(m) => m,
+            Err(e) => {
+                tracing::warn!(
+                    link_id = %hex::encode(link_id.as_ref()),
+                    "failed to unpack stream data: {e}"
+                );
+                return None;
+            }
+        };
+
+        let ctx = self.channels.get_mut(link_id)?;
+
+        // Accumulate data
+        let buffer = ctx.rx_buffers.entry(msg.header.stream_id).or_default();
+        buffer.extend_from_slice(&msg.data);
+
+        tracing::debug!(
+            link_id = %hex::encode(link_id.as_ref()),
+            stream_id = msg.header.stream_id,
+            chunk_len = msg.data.len(),
+            total_len = buffer.len(),
+            is_eof = msg.header.is_eof,
+            "buffer_chunk_received"
+        );
+
+        if msg.header.is_eof {
+            let complete_data = ctx
+                .rx_buffers
+                .remove(&msg.header.stream_id)
+                .unwrap_or_default();
+            tracing::info!(
+                link_id = %hex::encode(link_id.as_ref()),
+                stream_id = msg.header.stream_id,
+                total_len = complete_data.len(),
+                "buffer_complete"
+            );
+            Some(ChannelAction::BufferComplete {
+                stream_id: msg.header.stream_id,
+                data: complete_data,
+            })
+        } else {
+            None
+        }
+    }
+
+    // ---- Request/Response handling ----
+
+    /// Handle a decrypted request (from a REQUEST context packet).
+    ///
+    /// Looks up the request handler by path hash and invokes it.
+    /// Returns the serialized Response bytes to send back, if a handler matched.
+    pub fn handle_request(
+        &mut self,
+        link_id: &LinkId,
+        plaintext: &[u8],
+        hashable_part: &[u8],
+    ) -> Option<Vec<u8>> {
+        let request = match Request::from_msgpack(plaintext) {
+            Ok(r) => r,
+            Err(e) => {
+                tracing::warn!(
+                    link_id = %hex::encode(link_id.as_ref()),
+                    "failed to parse request: {e}"
+                );
+                return None;
+            }
+        };
+
+        let mut key = [0u8; 16];
+        key.copy_from_slice(request.path_hash.as_ref());
+
+        tracing::info!(
+            link_id = %hex::encode(link_id.as_ref()),
+            path_hash = %hex::encode(key),
+            "request_received"
+        );
+
+        let handler = self.request_handlers.get(&key)?;
+
+        // Extract request data as bytes
+        let request_data = match &request.data {
+            Value::Binary(b) => b.clone(),
+            Value::String(s) => s.as_str().unwrap_or("").as_bytes().to_vec(),
+            other => {
+                let mut buf = Vec::new();
+                rmpv::encode::write_value(&mut buf, other).ok()?;
+                buf
+            }
+        };
+
+        let response_data = handler(&request_data);
+
+        // Compute request_id from the hashable_part of the incoming packet
+        let request_id = RequestId::from_hashable_part(hashable_part);
+
+        let response = Response {
+            request_id,
+            data: Value::Binary(response_data),
+        };
+
+        let response_bytes = response.to_msgpack();
+
+        tracing::info!(
+            link_id = %hex::encode(link_id.as_ref()),
+            request_id = %hex::encode(request_id.as_ref()),
+            response_len = response_bytes.len(),
+            "request_handled"
+        );
+
+        Some(response_bytes)
+    }
+
+    /// Handle a decrypted response (from a RESPONSE context packet).
+    pub fn handle_response(&mut self, link_id: &LinkId, plaintext: &[u8]) {
+        let response = match Response::from_msgpack(plaintext) {
+            Ok(r) => r,
+            Err(e) => {
+                tracing::warn!(
+                    link_id = %hex::encode(link_id.as_ref()),
+                    "failed to parse response: {e}"
+                );
+                return;
+            }
+        };
+
+        let mut key = [0u8; 16];
+        key.copy_from_slice(response.request_id.as_ref());
+
+        if let Some((_, path)) = self.pending_requests.remove(&key) {
+            let data_preview = match &response.data {
+                Value::Binary(b) => String::from_utf8_lossy(b).to_string(),
+                other => format!("{other:?}"),
+            };
+            tracing::info!(
+                link_id = %hex::encode(link_id.as_ref()),
+                request_id = %hex::encode(key),
+                path,
+                data_preview = %&data_preview[..data_preview.len().min(200)],
+                "response_received"
+            );
+        } else {
+            tracing::debug!(
+                link_id = %hex::encode(link_id.as_ref()),
+                request_id = %hex::encode(key),
+                "received response for unknown request"
+            );
+        }
+    }
+
+    // ---- Building outbound messages ----
+
+    /// Build a channel envelope for sending (returns plaintext to be link-encrypted).
+    pub fn build_channel_message(
+        &mut self,
+        link_id: &LinkId,
+        msg_type: u16,
+        payload: &[u8],
+    ) -> Option<Vec<u8>> {
+        let ctx = self.channels.get_mut(link_id)?;
+        let sequence = ctx.state.next_sequence();
+
+        let envelope = Envelope {
+            msg_type,
+            sequence,
+            payload: payload.to_vec(),
+        };
+
+        Some(envelope.pack())
+    }
+
+    /// Build a buffer stream chunk wrapped in an envelope (returns plaintext).
+    ///
+    /// Uses stream_id=0, wraps data in StreamDataMessage inside Envelope(SMT_STREAM_DATA).
+    pub fn build_stream_message(
+        &mut self,
+        link_id: &LinkId,
+        stream_id: u16,
+        data: &[u8],
+        eof: bool,
+    ) -> Option<Vec<u8>> {
+        use reticulum_protocol::buffer::stream_data::{StreamDataMessage, StreamHeader};
+
+        let stream_msg = StreamDataMessage {
+            header: StreamHeader {
+                stream_id,
+                is_eof: eof,
+                is_compressed: false, // small data, skip compression for MVP
+            },
+            data: data.to_vec(),
+        };
+
+        let stream_packed = stream_msg.pack();
+        self.build_channel_message(link_id, SMT_STREAM_DATA, &stream_packed)
+    }
+
+    /// Build a request message (returns plaintext for REQUEST context).
+    pub fn build_request(
+        &mut self,
+        link_id: &LinkId,
+        path: &str,
+        data: &[u8],
+    ) -> Option<Vec<u8>> {
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs_f64();
+
+        let request = Request {
+            timestamp,
+            path_hash: PathHash::from_path(path),
+            data: Value::Binary(data.to_vec()),
+        };
+
+        let packed = request.to_msgpack();
+
+        tracing::debug!(
+            link_id = %hex::encode(link_id.as_ref()),
+            path,
+            packed_len = packed.len(),
+            "built request"
+        );
+
+        Some(packed)
+    }
+
+    /// Record a pending outbound request so we can match the response later.
+    pub fn record_pending_request(
+        &mut self,
+        link_id: &LinkId,
+        path: &str,
+        request_id: [u8; 16],
+    ) {
+        self.pending_requests
+            .insert(request_id, (*link_id, path.to_string()));
+    }
+
+    // ---- Auto-send queue management ----
+
+    /// Queue an auto-channel message for a link.
+    pub fn queue_auto_channel(&mut self, link_id: LinkId, msg: String) {
+        self.auto_channel_queue.insert(link_id, msg);
+    }
+
+    /// Queue auto-buffer data for a link.
+    pub fn queue_auto_buffer(&mut self, link_id: LinkId, data: String) {
+        self.auto_buffer_queue.insert(link_id, data);
+    }
+
+    /// Queue an auto-request for a link.
+    pub fn queue_auto_request(&mut self, link_id: LinkId, path: String, data: String) {
+        self.auto_request_queue.insert(link_id, (path, data));
+    }
+
+    /// Drain auto-channel message.
+    pub fn drain_auto_channel(&mut self, link_id: &LinkId) -> Option<String> {
+        self.auto_channel_queue.remove(link_id)
+    }
+
+    /// Drain auto-buffer data.
+    pub fn drain_auto_buffer(&mut self, link_id: &LinkId) -> Option<String> {
+        self.auto_buffer_queue.remove(link_id)
+    }
+
+    /// Drain auto-request.
+    pub fn drain_auto_request(&mut self, link_id: &LinkId) -> Option<(String, String)> {
+        self.auto_request_queue.remove(link_id)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use reticulum_core::types::TruncatedHash;
+
+    #[test]
+    fn test_register_link() {
+        let mut mgr = ChannelManager::new();
+        let link_id = LinkId::new([0xAA; 16]);
+        mgr.register_link(link_id, 0.05);
+        assert!(mgr.channels.contains_key(&link_id));
+    }
+
+    #[test]
+    fn test_envelope_roundtrip() {
+        let mut mgr = ChannelManager::new();
+        let link_id = LinkId::new([0xBB; 16]);
+        mgr.register_link(link_id, 0.05);
+
+        let plaintext = mgr
+            .build_channel_message(&link_id, 0x0101, b"hello channel")
+            .unwrap();
+
+        let action = mgr.handle_channel_data(&link_id, &plaintext).unwrap();
+
+        match action {
+            ChannelAction::MessageReceived { msg_type, payload } => {
+                assert_eq!(msg_type, 0x0101);
+                assert_eq!(payload, b"hello channel");
+            }
+            _ => panic!("expected MessageReceived"),
+        }
+    }
+
+    #[test]
+    fn test_stream_buffer_accumulation() {
+        let mut mgr = ChannelManager::new();
+        let link_id = LinkId::new([0xCC; 16]);
+        mgr.register_link(link_id, 0.05);
+
+        // Send first chunk (not EOF)
+        let chunk1 = mgr
+            .build_stream_message(&link_id, 0, b"hello ", false)
+            .unwrap();
+        let action1 = mgr.handle_channel_data(&link_id, &chunk1);
+        assert!(action1.is_none()); // Not complete yet
+
+        // Send second chunk (EOF)
+        let chunk2 = mgr
+            .build_stream_message(&link_id, 0, b"world", true)
+            .unwrap();
+        let action2 = mgr.handle_channel_data(&link_id, &chunk2).unwrap();
+
+        match action2 {
+            ChannelAction::BufferComplete { stream_id, data } => {
+                assert_eq!(stream_id, 0);
+                assert_eq!(data, b"hello world");
+            }
+            _ => panic!("expected BufferComplete"),
+        }
+    }
+
+    #[test]
+    fn test_request_handler_echo() {
+        let mut mgr = ChannelManager::new();
+        let link_id = LinkId::new([0xDD; 16]);
+        mgr.register_link(link_id, 0.05);
+
+        // Register echo handler
+        mgr.register_request_handler("/test/echo", |data| data.to_vec());
+
+        // Build a request
+        let request_bytes = mgr.build_request(&link_id, "/test/echo", b"ping").unwrap();
+
+        // Simulate hashable_part (just use the request bytes for test)
+        let fake_hashable = b"fake_hashable_part_for_test_1234567890abcdef";
+
+        // Handle request
+        let response_bytes = mgr
+            .handle_request(&link_id, &request_bytes, fake_hashable)
+            .unwrap();
+
+        // Parse response
+        let response = Response::from_msgpack(&response_bytes).unwrap();
+        match response.data {
+            Value::Binary(b) => assert_eq!(b, b"ping"),
+            _ => panic!("expected binary response data"),
+        }
+    }
+
+    #[test]
+    fn test_response_matching() {
+        let mut mgr = ChannelManager::new();
+        let link_id = LinkId::new([0xEE; 16]);
+        mgr.register_link(link_id, 0.05);
+
+        // Record a pending request
+        let request_id = [0x42u8; 16];
+        mgr.record_pending_request(&link_id, "/test/echo", request_id);
+
+        // Build a matching response
+        let response = Response {
+            request_id: RequestId::new(TruncatedHash::new(request_id)),
+            data: Value::Binary(b"pong".to_vec()),
+        };
+        let response_bytes = response.to_msgpack();
+
+        // Handle response -- should log response_received (not panic)
+        mgr.handle_response(&link_id, &response_bytes);
+
+        // Pending request should be removed
+        assert!(!mgr.pending_requests.contains_key(&request_id));
+    }
+
+    #[test]
+    fn test_sequence_wrapping() {
+        let mut mgr = ChannelManager::new();
+        let link_id = LinkId::new([0xFF; 16]);
+        mgr.register_link(link_id, 0.05);
+
+        // Manually set TX sequence near wrap point
+        {
+            let ctx = mgr.channels.get_mut(&link_id).unwrap();
+            // Advance to 65534 (two before wrap)
+            for _ in 0..65534u32 {
+                ctx.state.next_sequence();
+            }
+            assert_eq!(ctx.state.peek_tx_sequence(), 65534);
+        }
+
+        // Build messages across the wrap boundary
+        let msg1 = mgr
+            .build_channel_message(&link_id, 0x0101, b"before wrap")
+            .unwrap();
+        let msg2 = mgr
+            .build_channel_message(&link_id, 0x0101, b"at wrap")
+            .unwrap();
+        let msg3 = mgr
+            .build_channel_message(&link_id, 0x0101, b"after wrap")
+            .unwrap();
+
+        // Verify sequences in the envelopes
+        let env1 = Envelope::unpack(&msg1).unwrap();
+        let env2 = Envelope::unpack(&msg2).unwrap();
+        let env3 = Envelope::unpack(&msg3).unwrap();
+
+        assert_eq!(env1.sequence, 65534);
+        assert_eq!(env2.sequence, 65535);
+        assert_eq!(env3.sequence, 0); // wrapped!
+    }
+
+    #[test]
+    fn test_auto_queues() {
+        let mut mgr = ChannelManager::new();
+        let link_id = LinkId::new([0x11; 16]);
+
+        mgr.queue_auto_channel(link_id, "hello".to_string());
+        mgr.queue_auto_buffer(link_id, "stream data".to_string());
+        mgr.queue_auto_request(link_id, "/test/echo".to_string(), "payload".to_string());
+
+        assert_eq!(mgr.drain_auto_channel(&link_id).as_deref(), Some("hello"));
+        assert_eq!(
+            mgr.drain_auto_buffer(&link_id).as_deref(),
+            Some("stream data")
+        );
+        assert_eq!(
+            mgr.drain_auto_request(&link_id),
+            Some(("/test/echo".to_string(), "payload".to_string()))
+        );
+
+        // Second drain should return None
+        assert!(mgr.drain_auto_channel(&link_id).is_none());
+    }
+
+    #[test]
+    fn test_unknown_link_returns_none() {
+        let mut mgr = ChannelManager::new();
+        let link_id = LinkId::new([0x99; 16]);
+
+        assert!(mgr
+            .build_channel_message(&link_id, 0x0101, b"test")
+            .is_none());
+        assert!(mgr.handle_channel_data(&link_id, b"test").is_none());
+    }
+}

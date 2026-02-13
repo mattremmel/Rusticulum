@@ -34,6 +34,7 @@ use reticulum_transport::router::types::RouterAction;
 
 use reticulum_core::identity::Identity;
 
+use crate::channel_manager::ChannelManager;
 use crate::config::{NodeConfig, parse_mode, parse_socket_addr};
 use crate::error::NodeError;
 use crate::interface_enum::AnyInterface;
@@ -72,6 +73,7 @@ pub struct Node {
     router: PacketRouter,
     link_manager: LinkManager,
     resource_manager: ResourceManager,
+    channel_manager: ChannelManager,
     ifac_config: Option<IfacConfig>,
     storage: Option<Storage>,
     transport_identity: Option<Identity>,
@@ -121,6 +123,10 @@ impl Node {
 
         let link_manager = LinkManager::new(config.link_targets.clone());
         let resource_manager = ResourceManager::new();
+        let mut channel_manager = ChannelManager::new();
+
+        // Register default request handler: /test/echo
+        channel_manager.register_request_handler("/test/echo", |data| data.to_vec());
 
         let (event_tx, event_rx) = mpsc::channel(1024);
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
@@ -130,6 +136,7 @@ impl Node {
             router,
             link_manager,
             resource_manager,
+            channel_manager,
             ifac_config,
             storage,
             transport_identity: None,
@@ -723,6 +730,11 @@ impl Node {
                         link_id = %hex::encode(link_id.as_ref()),
                         "link_established"
                     );
+
+                    // Register link with channel manager (responder side)
+                    let rtt = self.link_manager.get_rtt(&link_id).unwrap_or(0.05);
+                    self.channel_manager.register_link(link_id, rtt);
+
                     return true;
                 }
                 false
@@ -764,6 +776,34 @@ impl Node {
                 self.handle_resource_proof(packet).await
             }
 
+            // Channel data: link-encrypted, auto-proved
+            (PacketType::Data, ContextType::Channel, DestinationType::Link) => {
+                self.handle_channel_packet(packet).await
+            }
+
+            // Request: link-encrypted, NOT auto-proved
+            (PacketType::Data, ContextType::Request, DestinationType::Link) => {
+                self.handle_request_packet(packet).await
+            }
+
+            // Response: link-encrypted, NOT auto-proved
+            (PacketType::Data, ContextType::Response, DestinationType::Link) => {
+                self.handle_response_packet(packet).await
+            }
+
+            // Incoming packet delivery proof (proof of our sent packets)
+            (PacketType::Proof, ContextType::None, DestinationType::Link) => {
+                if self.link_manager.has_pending_or_active(&packet.destination) {
+                    tracing::debug!(
+                        link_id = %hex::encode(packet.destination.as_ref()),
+                        "received packet proof"
+                    );
+                    true
+                } else {
+                    false
+                }
+            }
+
             _ => false,
         }
     }
@@ -771,11 +811,8 @@ impl Node {
     /// Process destinations queued for link initiation.
     async fn process_pending_link_targets(&mut self) {
         let targets = self.link_manager.drain_pending_targets();
-        for (dest_hash, auto_data, auto_resource) in targets {
-            if let Some(lr_raw) = self
-                .link_manager
-                .initiate_link(dest_hash, auto_data, auto_resource)
-            {
+        for (dest_hash, actions) in targets {
+            if let Some(lr_raw) = self.link_manager.initiate_link(dest_hash, actions) {
                 self.broadcast_to_interfaces(None, &lr_raw).await;
             }
         }
@@ -783,6 +820,25 @@ impl Node {
 
     /// Send auto-data for a newly established link, if configured.
     async fn send_auto_data(&mut self, link_id: &reticulum_core::types::LinkId) {
+        // Register link with channel manager for sequencing
+        let rtt = self.link_manager.get_rtt(link_id).unwrap_or(0.05);
+        self.channel_manager.register_link(*link_id, rtt);
+
+        // Transfer auto queues from link_manager to channel_manager
+        if let Some(channel_msg) = self.link_manager.drain_auto_channel(link_id) {
+            self.channel_manager
+                .queue_auto_channel(*link_id, channel_msg);
+        }
+        if let Some(buffer_data) = self.link_manager.drain_auto_buffer(link_id) {
+            self.channel_manager
+                .queue_auto_buffer(*link_id, buffer_data);
+        }
+        if let Some((path, data)) = self.link_manager.drain_auto_request(link_id) {
+            self.channel_manager
+                .queue_auto_request(*link_id, path, data);
+        }
+
+        // Send auto plain data
         if let Some(data) = self.link_manager.drain_auto_data(link_id)
             && let Some(raw) = self.link_manager.encrypt_and_send(link_id, data.as_bytes())
         {
@@ -794,9 +850,116 @@ impl Node {
             self.broadcast_to_interfaces(None, &raw).await;
         }
 
-        // Also send auto-resource if configured
+        // Send auto-resource if configured
         if let Some(resource_data) = self.link_manager.drain_auto_resource(link_id) {
             self.send_resource(link_id, resource_data.as_bytes()).await;
+        }
+
+        // Send auto-channel message
+        if let Some(channel_msg) = self.channel_manager.drain_auto_channel(link_id) {
+            self.send_channel_message(link_id, channel_msg.as_bytes())
+                .await;
+        }
+
+        // Send auto-buffer stream
+        if let Some(buffer_data) = self.channel_manager.drain_auto_buffer(link_id) {
+            self.send_buffer_stream(link_id, buffer_data.as_bytes())
+                .await;
+        }
+
+        // Send auto-request
+        if let Some((path, data)) = self.channel_manager.drain_auto_request(link_id) {
+            self.send_request(link_id, &path, data.as_bytes()).await;
+        }
+    }
+
+    /// Send a channel message over an active link.
+    async fn send_channel_message(
+        &mut self,
+        link_id: &reticulum_core::types::LinkId,
+        payload: &[u8],
+    ) {
+        let msg_type = 0x0101u16; // application message type for test
+        if let Some(envelope_plaintext) = self
+            .channel_manager
+            .build_channel_message(link_id, msg_type, payload)
+            && let Some(raw) = self.link_manager.encrypt_and_send_with_context(
+                link_id,
+                &envelope_plaintext,
+                ContextType::Channel,
+            )
+        {
+            let text = String::from_utf8_lossy(payload);
+            tracing::info!(
+                link_id = %hex::encode(link_id.as_ref()),
+                data = %text,
+                "channel_message_sent"
+            );
+            self.broadcast_to_interfaces(None, &raw).await;
+        }
+    }
+
+    /// Send a buffer stream over an active link (single chunk + EOF).
+    async fn send_buffer_stream(
+        &mut self,
+        link_id: &reticulum_core::types::LinkId,
+        data: &[u8],
+    ) {
+        // Send as single chunk with EOF=true, stream_id=0
+        if let Some(envelope_plaintext) = self
+            .channel_manager
+            .build_stream_message(link_id, 0, data, true)
+            && let Some(raw) = self.link_manager.encrypt_and_send_with_context(
+                link_id,
+                &envelope_plaintext,
+                ContextType::Channel,
+            )
+        {
+            let text = String::from_utf8_lossy(data);
+            tracing::info!(
+                link_id = %hex::encode(link_id.as_ref()),
+                data_len = data.len(),
+                data = %text,
+                "buffer_stream_sent"
+            );
+            self.broadcast_to_interfaces(None, &raw).await;
+        }
+    }
+
+    /// Send a request over an active link.
+    async fn send_request(
+        &mut self,
+        link_id: &reticulum_core::types::LinkId,
+        path: &str,
+        data: &[u8],
+    ) {
+        if let Some(request_bytes) = self.channel_manager.build_request(link_id, path, data) {
+            // Build the packet to compute hashable_part for request_id
+            if let Some(raw) = self.link_manager.encrypt_and_send_with_context(
+                link_id,
+                &request_bytes,
+                ContextType::Request,
+            ) {
+                // Compute request_id from the encrypted packet's hashable part
+                if let Ok(pkt) = RawPacket::parse(&raw) {
+                    let hashable = pkt.hashable_part();
+                    let request_id =
+                        reticulum_protocol::request::types::RequestId::from_hashable_part(
+                            &hashable,
+                        );
+                    let mut id_bytes = [0u8; 16];
+                    id_bytes.copy_from_slice(request_id.as_ref());
+                    self.channel_manager
+                        .record_pending_request(link_id, path, id_bytes);
+                }
+
+                tracing::info!(
+                    link_id = %hex::encode(link_id.as_ref()),
+                    path,
+                    "request_sent"
+                );
+                self.broadcast_to_interfaces(None, &raw).await;
+            }
         }
     }
 
@@ -993,6 +1156,128 @@ impl Node {
                 false
             }
         }
+    }
+
+    /// Handle an incoming channel packet (link-encrypted, auto-proved).
+    async fn handle_channel_packet(&mut self, packet: &RawPacket) -> bool {
+        if !self.link_manager.has_pending_or_active(&packet.destination) {
+            return false;
+        }
+
+        let link_id_bytes: [u8; 16] = packet
+            .destination
+            .as_ref()
+            .try_into()
+            .unwrap_or([0u8; 16]);
+        let link_id = reticulum_core::types::LinkId::new(link_id_bytes);
+
+        // 1. Generate and send proof (Python Channel expects delivery proofs)
+        if let Some(proof_raw) = self.link_manager.prove_packet(&link_id, packet) {
+            self.broadcast_to_interfaces(None, &proof_raw).await;
+        }
+
+        // 2. Decrypt
+        let plaintext = match self.link_manager.handle_link_data(packet) {
+            Some(pt) => pt,
+            None => return false,
+        };
+
+        // 3. Process channel envelope
+        if let Some(action) = self
+            .channel_manager
+            .handle_channel_data(&link_id, &plaintext)
+        {
+            match action {
+                crate::channel_manager::ChannelAction::MessageReceived { msg_type, payload } => {
+                    let text = String::from_utf8_lossy(&payload);
+                    tracing::info!(
+                        link_id = %hex::encode(link_id.as_ref()),
+                        msg_type,
+                        data = %text,
+                        "channel_message_received"
+                    );
+                }
+                crate::channel_manager::ChannelAction::BufferComplete { stream_id, data } => {
+                    let text = String::from_utf8_lossy(&data);
+                    tracing::info!(
+                        link_id = %hex::encode(link_id.as_ref()),
+                        stream_id,
+                        data_len = data.len(),
+                        data = %text,
+                        "buffer_complete"
+                    );
+                }
+                crate::channel_manager::ChannelAction::SendResponse(response_bytes) => {
+                    if let Some(raw) = self.link_manager.encrypt_and_send_with_context(
+                        &link_id,
+                        &response_bytes,
+                        ContextType::Response,
+                    ) {
+                        self.broadcast_to_interfaces(None, &raw).await;
+                    }
+                }
+            }
+        }
+
+        true
+    }
+
+    /// Handle an incoming request packet (link-encrypted, NOT auto-proved).
+    async fn handle_request_packet(&mut self, packet: &RawPacket) -> bool {
+        if !self.link_manager.has_pending_or_active(&packet.destination) {
+            return false;
+        }
+
+        let link_id_bytes: [u8; 16] = packet
+            .destination
+            .as_ref()
+            .try_into()
+            .unwrap_or([0u8; 16]);
+        let link_id = reticulum_core::types::LinkId::new(link_id_bytes);
+
+        let plaintext = match self.link_manager.handle_link_data(packet) {
+            Some(pt) => pt,
+            None => return false,
+        };
+
+        let hashable = packet.hashable_part();
+        if let Some(response_bytes) =
+            self.channel_manager
+                .handle_request(&link_id, &plaintext, &hashable)
+        {
+            // Send response with context=Response
+            if let Some(raw) = self.link_manager.encrypt_and_send_with_context(
+                &link_id,
+                &response_bytes,
+                ContextType::Response,
+            ) {
+                self.broadcast_to_interfaces(None, &raw).await;
+            }
+        }
+
+        true
+    }
+
+    /// Handle an incoming response packet (link-encrypted, NOT auto-proved).
+    async fn handle_response_packet(&mut self, packet: &RawPacket) -> bool {
+        if !self.link_manager.has_pending_or_active(&packet.destination) {
+            return false;
+        }
+
+        let link_id_bytes: [u8; 16] = packet
+            .destination
+            .as_ref()
+            .try_into()
+            .unwrap_or([0u8; 16]);
+        let link_id = reticulum_core::types::LinkId::new(link_id_bytes);
+
+        let plaintext = match self.link_manager.handle_link_data(packet) {
+            Some(pt) => pt,
+            None => return false,
+        };
+
+        self.channel_manager.handle_response(&link_id, &plaintext);
+        true
     }
 
     /// Handle incoming resource proof.

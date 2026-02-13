@@ -46,6 +46,14 @@ pub struct LinkTargetEntry {
     pub auto_data: Option<String>,
     /// Data to send as a resource transfer after link establishment.
     pub auto_resource: Option<String>,
+    /// Channel message to send after link establishment.
+    pub auto_channel: Option<String>,
+    /// Buffer data to stream after link establishment.
+    pub auto_buffer: Option<String>,
+    /// Request path (e.g., "/test/echo") to send after link establishment.
+    pub auto_request_path: Option<String>,
+    /// Request payload to send after link establishment.
+    pub auto_request_data: Option<String>,
 }
 
 impl NodeConfig {

@@ -15,10 +15,35 @@ use reticulum_core::packet::flags::PacketFlags;
 use reticulum_core::packet::wire::RawPacket;
 use reticulum_core::types::{DestinationHash, LinkId};
 
+use reticulum_crypto::ed25519::Ed25519PrivateKey;
 use reticulum_protocol::link::state::{LinkActive, LinkHandshake, LinkPending};
 use reticulum_protocol::link::types::LinkMode;
 
 use crate::config::LinkTargetEntry;
+
+/// Actions to perform automatically after a link is established.
+#[derive(Debug, Clone, Default)]
+pub struct LinkAutoActions {
+    pub auto_data: Option<String>,
+    pub auto_resource: Option<String>,
+    pub auto_channel: Option<String>,
+    pub auto_buffer: Option<String>,
+    pub auto_request_path: Option<String>,
+    pub auto_request_data: Option<String>,
+}
+
+impl LinkAutoActions {
+    fn from_target(target: &LinkTargetEntry) -> Self {
+        Self {
+            auto_data: target.auto_data.clone(),
+            auto_resource: target.auto_resource.clone(),
+            auto_channel: target.auto_channel.clone(),
+            auto_buffer: target.auto_buffer.clone(),
+            auto_request_path: target.auto_request_path.clone(),
+            auto_request_data: target.auto_request_data.clone(),
+        }
+    }
+}
 
 /// Information about a locally registered destination that accepts links.
 #[allow(dead_code)]
@@ -42,14 +67,23 @@ pub struct LinkManager {
     pending_responder: HashMap<LinkId, LinkHandshake>,
     /// Active links: link_id → LinkActive
     active_links: HashMap<LinkId, LinkActive>,
+    /// Ed25519 signing key seeds for active links: link_id → 32-byte seed
+    /// Initiator: ephemeral Ed25519 key; Responder: identity Ed25519 key
+    signing_keys: HashMap<LinkId, [u8; 32]>,
     /// Destinations we have active links to (for dedup on re-announce)
     linked_destinations: HashSet<DestinationHash>,
     /// Destinations queued for link initiation
-    pending_link_targets: Vec<(DestinationHash, Option<String>, Option<String>)>,
+    pending_link_targets: Vec<(DestinationHash, LinkAutoActions)>,
     /// Auto-data to send after link establishment (link_id → data)
     auto_data_queue: HashMap<LinkId, String>,
     /// Auto-resource to send after link establishment (link_id → data)
     auto_resource_queue: HashMap<LinkId, String>,
+    /// Auto-channel message to send after link establishment (link_id → msg)
+    auto_channel_queue: HashMap<LinkId, String>,
+    /// Auto-buffer data to stream after link establishment (link_id → data)
+    auto_buffer_queue: HashMap<LinkId, String>,
+    /// Auto-request to send after link establishment (link_id → (path, data))
+    auto_request_queue: HashMap<LinkId, (String, String)>,
 }
 
 impl LinkManager {
@@ -62,10 +96,14 @@ impl LinkManager {
             pending_initiator: HashMap::new(),
             pending_responder: HashMap::new(),
             active_links: HashMap::new(),
+            signing_keys: HashMap::new(),
             linked_destinations: HashSet::new(),
             pending_link_targets: Vec::new(),
             auto_data_queue: HashMap::new(),
             auto_resource_queue: HashMap::new(),
+            auto_channel_queue: HashMap::new(),
+            auto_buffer_queue: HashMap::new(),
+            auto_request_queue: HashMap::new(),
         }
     }
 
@@ -132,11 +170,8 @@ impl LinkManager {
                         app_name = %target.app_name,
                         "queuing auto-link to announced destination"
                     );
-                    self.pending_link_targets.push((
-                        dest_hash,
-                        target.auto_data.clone(),
-                        target.auto_resource.clone(),
-                    ));
+                    self.pending_link_targets
+                        .push((dest_hash, LinkAutoActions::from_target(target)));
                     return true;
                 }
             }
@@ -154,9 +189,7 @@ impl LinkManager {
     }
 
     /// Drain destinations queued for link initiation.
-    pub fn drain_pending_targets(
-        &mut self,
-    ) -> Vec<(DestinationHash, Option<String>, Option<String>)> {
+    pub fn drain_pending_targets(&mut self) -> Vec<(DestinationHash, LinkAutoActions)> {
         std::mem::take(&mut self.pending_link_targets)
     }
 
@@ -166,8 +199,7 @@ impl LinkManager {
     pub fn initiate_link(
         &mut self,
         dest_hash: DestinationHash,
-        auto_data: Option<String>,
-        auto_resource: Option<String>,
+        actions: LinkAutoActions,
     ) -> Option<Vec<u8>> {
         let identity = self.known_identities.get(&dest_hash)?;
         let _ = identity; // We need the identity later for proof verification
@@ -237,12 +269,22 @@ impl LinkManager {
             "initiating link request"
         );
 
-        // Store auto_data/auto_resource if configured
-        if let Some(data) = auto_data {
+        // Store auto-actions if configured
+        if let Some(data) = actions.auto_data {
             self.auto_data_queue.insert(link_id, data);
         }
-        if let Some(resource) = auto_resource {
+        if let Some(resource) = actions.auto_resource {
             self.auto_resource_queue.insert(link_id, resource);
+        }
+        if let Some(channel) = actions.auto_channel {
+            self.auto_channel_queue.insert(link_id, channel);
+        }
+        if let Some(buffer) = actions.auto_buffer {
+            self.auto_buffer_queue.insert(link_id, buffer);
+        }
+        if let Some(path) = actions.auto_request_path {
+            let data = actions.auto_request_data.unwrap_or_default();
+            self.auto_request_queue.insert(link_id, (path, data));
         }
 
         // The pending's link_id was computed from placeholder data.
@@ -318,6 +360,10 @@ impl LinkManager {
 
         let link_id = handshake.link_id;
 
+        // Store identity Ed25519 seed for signing delivery proofs later
+        let ed25519_seed = ed25519_prv.to_bytes();
+        self.signing_keys.insert(link_id, ed25519_seed);
+
         tracing::info!(
             link_id = %hex::encode(link_id.as_ref()),
             "accepted link request, sending proof"
@@ -354,6 +400,9 @@ impl LinkManager {
         let link_id = dest_hash_to_link_id(&packet.destination);
 
         let (pending, dest_hash) = self.pending_initiator.remove(&link_id)?;
+
+        // Extract ephemeral Ed25519 seed BEFORE receive_proof consumes LinkPending
+        let ed25519_seed = pending.eph_ed25519_private.to_bytes();
 
         // Get the responder's identity Ed25519 public key
         let identity = self.known_identities.get(&dest_hash)?;
@@ -396,8 +445,11 @@ impl LinkManager {
             data: encrypted_rtt,
         };
 
-        self.active_links.insert(active.link_id, active);
+        let activated_link_id = active.link_id;
+        self.active_links.insert(activated_link_id, active);
         self.linked_destinations.insert(dest_hash);
+        // Store ephemeral Ed25519 seed for signing delivery proofs
+        self.signing_keys.insert(activated_link_id, ed25519_seed);
 
         Some(rtt_packet.serialize())
     }
@@ -509,6 +561,21 @@ impl LinkManager {
         self.auto_resource_queue.remove(link_id)
     }
 
+    /// Drain auto-channel message for newly established links.
+    pub fn drain_auto_channel(&mut self, link_id: &LinkId) -> Option<String> {
+        self.auto_channel_queue.remove(link_id)
+    }
+
+    /// Drain auto-buffer data for newly established links.
+    pub fn drain_auto_buffer(&mut self, link_id: &LinkId) -> Option<String> {
+        self.auto_buffer_queue.remove(link_id)
+    }
+
+    /// Drain auto-request for newly established links.
+    pub fn drain_auto_request(&mut self, link_id: &LinkId) -> Option<(String, String)> {
+        self.auto_request_queue.remove(link_id)
+    }
+
     /// Get the number of active links.
     pub fn active_link_count(&self) -> usize {
         self.active_links.len()
@@ -602,6 +669,52 @@ impl LinkManager {
     pub fn get_derived_key(&self, link_id: &LinkId) -> Option<&reticulum_protocol::link::types::DerivedKey> {
         self.active_links.get(link_id).map(|a| &a.derived_key)
     }
+
+    /// Get the RTT for an active link.
+    pub fn get_rtt(&self, link_id: &LinkId) -> Option<f64> {
+        self.active_links.get(link_id).map(|a| a.rtt)
+    }
+
+    /// Generate a delivery proof for an incoming link packet.
+    ///
+    /// Returns the serialized proof packet bytes. The proof format is:
+    /// `packet_hash(32) + Ed25519_signature(64)` = 96 bytes, sent as a PROOF packet
+    /// with `flags=0x0F, dest=link_id, context=None`.
+    ///
+    /// Python's Link.sign() uses Ed25519 (not HMAC), producing 64-byte signatures.
+    /// The peer validates with Ed25519 verify using `peer_sig_pub`.
+    pub fn prove_packet(&self, link_id: &LinkId, packet: &RawPacket) -> Option<Vec<u8>> {
+        let _active = self.active_links.get(link_id)?;
+        let ed25519_seed = self.signing_keys.get(link_id)?;
+
+        let packet_hash = packet.packet_hash(); // SHA256(hashable_part), 32 bytes
+        let hash_bytes = packet_hash.as_ref(); // 32 bytes
+
+        // Ed25519 sign the packet hash (64-byte signature)
+        let signing_key = Ed25519PrivateKey::from_bytes(*ed25519_seed);
+        let signature = signing_key.sign(hash_bytes);
+
+        let mut proof_data = Vec::with_capacity(96);
+        proof_data.extend_from_slice(hash_bytes); // 32 bytes
+        proof_data.extend_from_slice(&signature.to_bytes()); // 64 bytes
+
+        let proof_packet = RawPacket {
+            flags: PacketFlags {
+                header_type: HeaderType::Header1,
+                context_flag: false,
+                transport_type: TransportType::Broadcast,
+                destination_type: DestinationType::Link,
+                packet_type: PacketType::Proof,
+            },
+            hops: 0,
+            transport_id: None,
+            destination: link_id_to_dest_hash(link_id),
+            context: ContextType::None,
+            data: proof_data,
+        };
+
+        Some(proof_packet.serialize())
+    }
 }
 
 /// Convert a LinkId to a DestinationHash (they're both 16 bytes).
@@ -645,7 +758,7 @@ mod tests {
         assert!(mgr.drain_pending_targets().is_empty());
 
         mgr.pending_link_targets
-            .push((DestinationHash::new([0x01; 16]), Some("hello".to_string()), None));
+            .push((DestinationHash::new([0x01; 16]), LinkAutoActions::default()));
         let targets = mgr.drain_pending_targets();
         assert_eq!(targets.len(), 1);
         assert!(mgr.drain_pending_targets().is_empty());
@@ -678,7 +791,13 @@ mod tests {
 
         // Step 1: Initiator creates LINKREQUEST
         let lr_raw = init_mgr
-            .initiate_link(resp_dh, Some("hello".to_string()), None)
+            .initiate_link(
+                resp_dh,
+                LinkAutoActions {
+                    auto_data: Some("hello".to_string()),
+                    ..Default::default()
+                },
+            )
             .expect("should create link request");
 
         // Step 2: Responder processes LINKREQUEST

@@ -28,6 +28,7 @@ postcard = { workspace = true }
 dirs = { workspace = true }
 toml = { workspace = true }
 hex = { workspace = true }
+rmpv = { workspace = true }
 rand = { workspace = true }
 
 [dev-dependencies]
