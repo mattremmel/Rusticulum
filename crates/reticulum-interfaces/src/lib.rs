@@ -6,6 +6,7 @@
 pub mod error;
 pub mod tcp;
 pub mod traits;
+pub mod udp;
 
 pub use error::InterfaceError;
 pub use traits::{Interface, InterfaceEvent};
