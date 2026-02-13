@@ -40,6 +40,7 @@ rand = "0.8"
 # Serialization
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
+postcard = { version = "1", features = ["alloc"] }
 rmpv = "1"
 hex = "0.4"
 toml = "0.8"
@@ -63,6 +64,10 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # CLI
 clap = { version = "4", features = ["derive"] }
+
+# Filesystem
+dirs = "6"
+tempfile = "3"
 
 # Testing
 criterion = "0.5"

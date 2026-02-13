@@ -75,6 +75,20 @@ impl PacketHashlist {
     pub fn prev_len(&self) -> usize {
         self.prev.len()
     }
+
+    /// Iterate over all tracked hashes (current and previous sets).
+    pub fn iter_all(&self) -> impl Iterator<Item = &PacketHash> {
+        self.current.iter().chain(self.prev.iter())
+    }
+
+    /// Build a hashlist pre-populated with the given hashes in the current set.
+    pub fn from_hashes(hashes: impl IntoIterator<Item = PacketHash>) -> Self {
+        let current: HashSet<PacketHash> = hashes.into_iter().collect();
+        Self {
+            current,
+            prev: HashSet::new(),
+        }
+    }
 }
 
 impl Default for PacketHashlist {

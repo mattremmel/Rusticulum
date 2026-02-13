@@ -17,6 +17,8 @@ pub enum NodeError {
     Identity(String),
     #[error("IFAC error: {0}")]
     Ifac(String),
+    #[error("storage error: {0}")]
+    Storage(#[from] crate::storage::StorageError),
     #[error("node not started")]
     NotStarted,
     #[error("node already running")]

@@ -109,6 +109,18 @@ impl PathTable {
     pub fn iter(&self) -> impl Iterator<Item = (&DestinationHash, &PathEntry)> {
         self.entries.iter()
     }
+
+    /// Consume the table and return all entries as `(DestinationHash, PathEntry)` pairs.
+    pub fn into_entries(self) -> Vec<(DestinationHash, PathEntry)> {
+        self.entries.into_iter().collect()
+    }
+
+    /// Build a path table from an iterator of `(DestinationHash, PathEntry)` pairs.
+    pub fn from_entries(iter: impl IntoIterator<Item = (DestinationHash, PathEntry)>) -> Self {
+        Self {
+            entries: iter.into_iter().collect(),
+        }
+    }
 }
 
 impl Default for PathTable {

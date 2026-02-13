@@ -44,10 +44,26 @@ pub struct NodeSection {
     pub network_key: Option<String>,
     #[serde(default = "default_ifac_size")]
     pub ifac_size: u8,
+    /// Custom storage directory path. Defaults to `~/.reticulum/storage`.
+    pub storage_path: Option<String>,
+    /// Interval in seconds between periodic state persistence. 0 disables. Default: 300.
+    #[serde(default = "default_persist_interval")]
+    pub persist_interval: u64,
+    /// Whether to enable persistent storage. Default: true.
+    #[serde(default = "default_enable_storage")]
+    pub enable_storage: bool,
 }
 
 fn default_ifac_size() -> u8 {
     8
+}
+
+fn default_persist_interval() -> u64 {
+    300
+}
+
+fn default_enable_storage() -> bool {
+    true
 }
 
 impl Default for NodeSection {
@@ -57,6 +73,9 @@ impl Default for NodeSection {
             network_name: None,
             network_key: None,
             ifac_size: default_ifac_size(),
+            storage_path: None,
+            persist_interval: default_persist_interval(),
+            enable_storage: default_enable_storage(),
         }
     }
 }

@@ -27,9 +27,12 @@ use reticulum_transport::ifac::{IfacConfig, has_ifac_flag, ifac_apply, ifac_veri
 use reticulum_transport::path::constants::PATHFINDER_M;
 use reticulum_transport::router::dispatch::PacketRouter;
 
+use reticulum_core::identity::Identity;
+
 use crate::config::{NodeConfig, parse_mode, parse_socket_addr};
 use crate::error::NodeError;
 use crate::interface_enum::AnyInterface;
+use crate::storage::Storage;
 
 /// Events delivered to the central event loop from interface receive bridges.
 #[derive(Debug)]
@@ -48,6 +51,8 @@ pub struct Node {
     config: NodeConfig,
     router: PacketRouter,
     ifac_config: Option<IfacConfig>,
+    storage: Option<Storage>,
+    transport_identity: Option<Identity>,
     interfaces: HashMap<InterfaceId, Arc<AnyInterface>>,
     event_tx: mpsc::Sender<NodeEvent>,
     event_rx: mpsc::Receiver<NodeEvent>,
@@ -73,6 +78,24 @@ impl Node {
             None
         };
 
+        // Initialize storage (non-fatal)
+        let storage = if config.node.enable_storage {
+            let result = if let Some(ref path) = config.node.storage_path {
+                Storage::new(std::path::PathBuf::from(path))
+            } else {
+                Storage::default_path()
+            };
+            match result {
+                Ok(s) => Some(s),
+                Err(e) => {
+                    tracing::warn!("failed to initialize storage: {e}");
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
         let (event_tx, event_rx) = mpsc::channel(1024);
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
 
@@ -80,6 +103,8 @@ impl Node {
             config,
             router,
             ifac_config,
+            storage,
+            transport_identity: None,
             interfaces: HashMap::new(),
             event_tx,
             event_rx,
@@ -94,6 +119,57 @@ impl Node {
     pub async fn start(&mut self) -> Result<(), NodeError> {
         if !self.interfaces.is_empty() {
             return Err(NodeError::AlreadyRunning);
+        }
+
+        // Load or generate transport identity
+        if let Some(ref storage) = self.storage {
+            match storage.load_identity() {
+                Ok(Some(id)) => {
+                    tracing::info!("loaded transport identity");
+                    self.transport_identity = Some(id);
+                }
+                Ok(None) => {
+                    let id = Identity::generate();
+                    if let Err(e) = storage.save_identity(&id) {
+                        tracing::warn!("failed to save new identity: {e}");
+                    } else {
+                        tracing::info!("generated and saved new transport identity");
+                    }
+                    self.transport_identity = Some(id);
+                }
+                Err(e) => {
+                    tracing::warn!("failed to load identity: {e}");
+                    self.transport_identity = Some(Identity::generate());
+                }
+            }
+
+            // Load path table
+            match storage.load_path_table() {
+                Ok(table) => {
+                    let count = table.len();
+                    if count > 0 {
+                        tracing::info!("loaded {count} path table entries");
+                    }
+                    self.router.path_table = table;
+                }
+                Err(e) => {
+                    tracing::warn!("failed to load path table: {e}");
+                }
+            }
+
+            // Load hashlist
+            match storage.load_hashlist() {
+                Ok(hashlist) => {
+                    let count = hashlist.len();
+                    if count > 0 {
+                        tracing::info!("loaded {count} hashlist entries");
+                    }
+                    self.router.hashlist = hashlist;
+                }
+                Err(e) => {
+                    tracing::warn!("failed to load hashlist: {e}");
+                }
+            }
         }
 
         self.create_interfaces()?;
@@ -294,9 +370,20 @@ impl Node {
     pub async fn run(&mut self) {
         let mut maintenance_interval = tokio::time::interval(std::time::Duration::from_secs(1));
         let mut cull_interval = tokio::time::interval(std::time::Duration::from_secs(5));
+
+        let persist_secs = self.config.node.persist_interval;
+        let persist_enabled = persist_secs > 0 && self.storage.is_some();
+        let mut persist_interval =
+            tokio::time::interval(std::time::Duration::from_secs(if persist_enabled {
+                persist_secs
+            } else {
+                3600
+            }));
+
         // Don't fire immediately
         maintenance_interval.tick().await;
         cull_interval.tick().await;
+        persist_interval.tick().await;
 
         tracing::info!("entering event loop");
 
@@ -327,6 +414,10 @@ impl Node {
                     self.run_table_cull();
                 }
 
+                _ = persist_interval.tick(), if persist_enabled => {
+                    self.persist_state();
+                }
+
                 _ = self.shutdown_rx.changed() => {
                     tracing::info!("shutdown signal received");
                     break;
@@ -344,6 +435,9 @@ impl Node {
     pub async fn shutdown(mut self) {
         tracing::info!("shutting down node");
         self.trigger_shutdown();
+
+        // Final state persistence before shutdown
+        self.persist_state();
 
         // Wait for all bridge tasks to finish.
         for handle in self.bridge_handles.drain(..) {
@@ -457,6 +551,19 @@ impl Node {
 
         let _actions = self.router.process_announce_jobs(now);
         // TODO: dispatch announce actions once full routing is implemented
+    }
+
+    /// Persist path table and hashlist to storage.
+    fn persist_state(&self) {
+        if let Some(ref storage) = self.storage {
+            if let Err(e) = storage.save_path_table(&self.router.path_table) {
+                tracing::warn!("failed to persist path table: {e}");
+            }
+            if let Err(e) = storage.save_hashlist(&self.router.hashlist) {
+                tracing::warn!("failed to persist hashlist: {e}");
+            }
+            tracing::debug!("persisted state to storage");
+        }
     }
 
     /// Cull expired entries from routing tables.

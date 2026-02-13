@@ -8,8 +8,10 @@ pub mod error;
 pub mod interface_enum;
 pub mod logging;
 pub mod node;
+pub mod storage;
 
 pub use config::NodeConfig;
 pub use error::NodeError;
 pub use interface_enum::AnyInterface;
 pub use node::Node;
+pub use storage::Storage;

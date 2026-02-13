@@ -93,6 +93,23 @@ impl Identity {
         })
     }
 
+    /// Whether this identity has private keys (i.e., can sign and decrypt).
+    pub fn has_private_key(&self) -> bool {
+        self.x25519_private.is_some() && self.ed25519_private.is_some()
+    }
+
+    /// Get the 64 raw private key bytes: `x25519_private(32) || ed25519_private(32)`.
+    ///
+    /// Returns `None` for public-only identities.
+    pub fn private_key_bytes(&self) -> Option<[u8; 64]> {
+        let x25519_prv = self.x25519_private.as_ref()?;
+        let ed25519_prv = self.ed25519_private.as_ref()?;
+        let mut result = [0u8; 64];
+        result[..32].copy_from_slice(&x25519_prv.to_bytes());
+        result[32..].copy_from_slice(&ed25519_prv.to_bytes());
+        Some(result)
+    }
+
     /// Get the 64-byte combined public key: `x25519_public(32) || ed25519_public(32)`.
     pub fn public_key_bytes(&self) -> [u8; 64] {
         let mut result = [0u8; 64];
@@ -211,6 +228,27 @@ mod tests {
             .expect("invalid hex")
             .try_into()
             .expect("must be 64 bytes")
+    }
+
+    #[test]
+    fn test_private_key_bytes_roundtrip() {
+        let identity = Identity::generate();
+        assert!(identity.has_private_key());
+
+        let prv_bytes = identity.private_key_bytes().unwrap();
+        let restored = Identity::from_private_bytes(&prv_bytes);
+
+        assert_eq!(identity.hash().as_ref(), restored.hash().as_ref());
+        assert_eq!(identity.public_key_bytes(), restored.public_key_bytes());
+    }
+
+    #[test]
+    fn test_private_key_bytes_public_only_returns_none() {
+        let identity = Identity::generate();
+        let public_only = Identity::from_public_bytes(&identity.public_key_bytes()).unwrap();
+
+        assert!(!public_only.has_private_key());
+        assert!(public_only.private_key_bytes().is_none());
     }
 
     #[test]
