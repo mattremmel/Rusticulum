@@ -77,6 +77,21 @@ pub enum ResourceError {
     #[error("resource transfer timed out")]
     Timeout,
 
+    #[error("decryption failed: {0}")]
+    DecryptionFailed(String),
+
+    #[error("decompression failed: {0}")]
+    DecompressionFailed(String),
+
+    #[error("invalid metadata: {0}")]
+    InvalidMetadata(String),
+
+    #[error("hash mismatch: expected {expected}, got {actual}")]
+    HashMismatch { expected: String, actual: String },
+
+    #[error("invalid payload: {0}")]
+    InvalidPayload(String),
+
     #[error("link error: {0}")]
     LinkError(#[from] LinkError),
 
