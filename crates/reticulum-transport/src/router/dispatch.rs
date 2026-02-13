@@ -1,17 +1,19 @@
 //! Central packet dispatch and header transformation.
 
+use reticulum_core::announce::Announce;
 use reticulum_core::constants::{
-    HEADER_1_SIZE, HEADER_2_SIZE, HeaderType, TRUNCATED_HASHLENGTH, TransportType,
+    HEADER_1_SIZE, HEADER_2_SIZE, HeaderType, PacketType, TRUNCATED_HASHLENGTH, TransportType,
 };
 use reticulum_core::packet::flags::PacketFlags;
 use reticulum_core::packet::wire::RawPacket;
-use reticulum_core::types::{LinkId, TruncatedHash};
+use reticulum_core::types::{DestinationHash, LinkId, TruncatedHash};
 use reticulum_crypto::sha::sha256;
 
-use crate::announce::AnnounceTable;
+use crate::announce::{AnnounceInsertParams, AnnounceTable};
 use crate::dedup::PacketHashlist;
 use crate::error::RouterError;
-use crate::path::{InterfaceId, PathTable};
+use crate::path::PathTable;
+use crate::path::types::{InterfaceId, InterfaceMode, PathEntry};
 use crate::router::tables::{LinkTable, ReverseTable};
 use crate::router::types::RouterAction;
 
@@ -107,6 +109,21 @@ pub fn compute_link_id_from_raw(raw: &[u8]) -> Result<LinkId, RouterError> {
     Ok(LinkId::new(link_id))
 }
 
+/// Result of processing an inbound announce.
+#[derive(Debug)]
+pub struct AnnounceResult {
+    /// The destination hash from the announce.
+    pub destination_hash: DestinationHash,
+    /// Hop count of the announce packet.
+    pub hops: u8,
+    /// Application data included in the announce, if any.
+    pub app_data: Option<Vec<u8>>,
+    /// Whether the path table was updated.
+    pub path_updated: bool,
+    /// Whether the announce was queued for retransmission.
+    pub queued: bool,
+}
+
 /// Central packet router.
 ///
 /// Holds all routing tables and processes inbound packets,
@@ -190,6 +207,103 @@ impl PacketRouter {
         &mut self.link_table
     }
 
+    /// Process an inbound announce packet: validate, update path table, queue for retransmission.
+    pub fn process_inbound_announce(
+        &mut self,
+        packet: &RawPacket,
+        from_interface: InterfaceId,
+        interface_mode: InterfaceMode,
+        now: u64,
+        now_f64: f64,
+    ) -> Result<AnnounceResult, RouterError> {
+        if packet.flags.packet_type != PacketType::Announce {
+            return Err(RouterError::InvalidTransformation(
+                "packet is not an announce".to_string(),
+            ));
+        }
+
+        // Parse and validate
+        let announce = Announce::from_payload(
+            packet.destination,
+            packet.flags.context_flag,
+            packet.context,
+            &packet.data,
+        )?;
+        announce.validate()?;
+
+        let dest = announce.destination_hash;
+        let hops = packet.hops;
+        let packet_hash = packet.packet_hash();
+
+        // Decide whether to update the path table
+        let path_updated = if let Some(existing) = self.path_table.get(&dest) {
+            if existing.has_random_blob(&announce.random_hash) {
+                // Already seen this exact announce
+                false
+            } else if hops < existing.hops || existing.is_expired(now) {
+                // Better path or expired — replace
+                let entry = PathEntry::new(
+                    now,
+                    TruncatedHash::new([0u8; 16]), // direct from interface
+                    hops,
+                    interface_mode,
+                    vec![announce.random_hash],
+                    from_interface,
+                    packet_hash,
+                );
+                self.path_table.insert(dest, entry);
+                true
+            } else {
+                // Same or worse path — just track the random blob
+                if let Some(existing_mut) = self.path_table.get_mut(&dest) {
+                    existing_mut.add_random_blob(announce.random_hash);
+                }
+                false
+            }
+        } else {
+            // New destination — add to path table
+            let entry = PathEntry::new(
+                now,
+                TruncatedHash::new([0u8; 16]), // direct from interface
+                hops,
+                interface_mode,
+                vec![announce.random_hash],
+                from_interface,
+                packet_hash,
+            );
+            self.path_table.insert(dest, entry);
+            true
+        };
+
+        // Queue for retransmission if not already queued
+        let queued = if !self.announce_table.contains(&dest) {
+            let raw_packet = packet.serialize();
+            self.announce_table.insert(AnnounceInsertParams {
+                destination: dest,
+                now: now_f64,
+                random_delay: 1.0,
+                retries: 0,
+                received_from: from_interface,
+                hops,
+                raw_packet,
+                local_rebroadcasts: 0,
+                block_rebroadcasts: false,
+                attached_interface: None,
+            });
+            true
+        } else {
+            false
+        };
+
+        Ok(AnnounceResult {
+            destination_hash: dest,
+            hops,
+            app_data: announce.app_data,
+            path_updated,
+            queued,
+        })
+    }
+
     /// Process periodic announce retransmissions.
     pub fn process_announce_jobs(&mut self, now: f64) -> Vec<RouterAction> {
         let actions = self.announce_table.process_retransmissions(now);
@@ -228,6 +342,140 @@ mod tests {
     use super::*;
     use crate::router::types::{LinkTableEntry, ReverseEntry};
     use reticulum_core::types::DestinationHash;
+
+    // === Announce processing tests ===
+
+    #[test]
+    fn test_process_inbound_announce_new_dest() {
+        use reticulum_core::announce::Announce;
+        use reticulum_core::destination;
+        use reticulum_core::identity::Identity;
+
+        let identity = Identity::generate();
+        let nh = destination::name_hash("test_app", &["announce", "v1"]);
+        let dh = destination::destination_hash(&nh, identity.hash());
+        let random_hash = [0xAA; 10];
+
+        let announce = Announce::create(&identity, nh, dh, random_hash, None, Some(b"hello"))
+            .expect("create failed");
+        let raw_packet = announce.to_raw_packet(2);
+
+        let mut router = PacketRouter::new();
+        let iface = InterfaceId(1);
+
+        let result = router
+            .process_inbound_announce(&raw_packet, iface, InterfaceMode::Full, 1000, 1000.0)
+            .expect("process failed");
+
+        assert_eq!(result.destination_hash, dh);
+        assert_eq!(result.hops, 2);
+        assert!(result.path_updated);
+        assert!(result.queued);
+        assert_eq!(result.app_data.as_deref(), Some(b"hello".as_slice()));
+
+        // Path table should have the entry
+        assert!(router.path_table().has_path(&dh, 1000));
+        assert_eq!(router.path_table().hops_to(&dh, 1000), 2);
+    }
+
+    #[test]
+    fn test_process_inbound_announce_better_path() {
+        use reticulum_core::announce::Announce;
+        use reticulum_core::destination;
+        use reticulum_core::identity::Identity;
+        use reticulum_core::types::PacketHash;
+
+        let identity = Identity::generate();
+        let nh = destination::name_hash("test_app", &["announce", "v1"]);
+        let dh = destination::destination_hash(&nh, identity.hash());
+
+        let mut router = PacketRouter::new();
+        let iface = InterfaceId(1);
+
+        // Insert initial path with 5 hops
+        let entry = PathEntry::new(
+            1000,
+            TruncatedHash::new([0; 16]),
+            5,
+            InterfaceMode::Full,
+            vec![[0x11; 10]],
+            iface,
+            PacketHash::new([0; 32]),
+        );
+        router.path_table_mut().insert(dh, entry);
+
+        // Receive announce with fewer hops (2)
+        let announce =
+            Announce::create(&identity, nh, dh, [0xBB; 10], None, None).expect("create failed");
+        let raw_packet = announce.to_raw_packet(2);
+
+        let result = router
+            .process_inbound_announce(&raw_packet, iface, InterfaceMode::Full, 1001, 1001.0)
+            .expect("process failed");
+
+        assert!(result.path_updated);
+        assert_eq!(router.path_table().hops_to(&dh, 1001), 2);
+    }
+
+    #[test]
+    fn test_process_inbound_announce_duplicate_random_blob() {
+        use reticulum_core::announce::Announce;
+        use reticulum_core::destination;
+        use reticulum_core::identity::Identity;
+
+        let identity = Identity::generate();
+        let nh = destination::name_hash("test_app", &["announce", "v1"]);
+        let dh = destination::destination_hash(&nh, identity.hash());
+        let random_hash = [0xCC; 10];
+
+        let announce =
+            Announce::create(&identity, nh, dh, random_hash, None, None).expect("create failed");
+        let raw_packet = announce.to_raw_packet(1);
+
+        let mut router = PacketRouter::new();
+        let iface = InterfaceId(1);
+
+        // First time — should update
+        let r1 = router
+            .process_inbound_announce(&raw_packet, iface, InterfaceMode::Full, 1000, 1000.0)
+            .unwrap();
+        assert!(r1.path_updated);
+
+        // Second time with same random_hash — should not update
+        let r2 = router
+            .process_inbound_announce(&raw_packet, iface, InterfaceMode::Full, 1001, 1001.0)
+            .unwrap();
+        assert!(!r2.path_updated);
+    }
+
+    #[test]
+    fn test_process_inbound_announce_invalid_signature() {
+        use reticulum_core::announce::Announce;
+        use reticulum_core::destination;
+        use reticulum_core::identity::Identity;
+
+        let identity = Identity::generate();
+        let other_identity = Identity::generate();
+        let nh = destination::name_hash("test_app", &["announce", "v1"]);
+        let dh = destination::destination_hash(&nh, identity.hash());
+
+        // Create announce with one identity but wrong destination hash (from other identity)
+        let wrong_dh = destination::destination_hash(&nh, other_identity.hash());
+        let announce = Announce::create(&identity, nh, wrong_dh, [0xDD; 10], None, None)
+            .expect("create failed");
+        let raw_packet = announce.to_raw_packet(0);
+
+        let mut router = PacketRouter::new();
+        let result = router.process_inbound_announce(
+            &raw_packet,
+            InterfaceId(1),
+            InterfaceMode::Full,
+            1000,
+            1000.0,
+        );
+
+        assert!(result.is_err());
+    }
 
     // === Header transformation tests from multi_hop_routing.json ===
 

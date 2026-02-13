@@ -22,10 +22,14 @@ use reticulum_interfaces::local::{
     LocalClientConfig, LocalClientInterface, LocalServerConfig, LocalServerInterface,
 };
 
+use reticulum_core::announce::{Announce, make_random_hash};
+use reticulum_core::constants::PacketType;
+use reticulum_core::destination;
 use reticulum_core::packet::wire::RawPacket;
 use reticulum_transport::ifac::{IfacConfig, has_ifac_flag, ifac_apply, ifac_verify};
 use reticulum_transport::path::constants::PATHFINDER_M;
 use reticulum_transport::router::dispatch::PacketRouter;
+use reticulum_transport::router::types::RouterAction;
 
 use reticulum_core::identity::Identity;
 
@@ -73,6 +77,7 @@ pub struct Node {
     shutdown_rx: watch::Receiver<bool>,
     next_id: u64,
     bridge_handles: Vec<tokio::task::JoinHandle<()>>,
+    pending_announces: Vec<Vec<u8>>,
 }
 
 impl Node {
@@ -125,6 +130,7 @@ impl Node {
             shutdown_rx,
             next_id: 1,
             bridge_handles: Vec::new(),
+            pending_announces: Vec::new(),
         }
     }
 
@@ -181,6 +187,35 @@ impl Node {
                 }
                 Err(e) => {
                     tracing::warn!("failed to load hashlist: {e}");
+                }
+            }
+        }
+
+        // Build announces from configured destinations
+        if let Some(ref identity) = self.transport_identity {
+            for dest_cfg in &self.config.destinations {
+                let aspect_refs: Vec<&str> = dest_cfg.aspects.iter().map(|s| s.as_str()).collect();
+                let nh = destination::name_hash(&dest_cfg.app_name, &aspect_refs);
+                let dh = destination::destination_hash(&nh, identity.hash());
+                let random_hash = make_random_hash();
+                let app_data = dest_cfg.app_data.as_deref().map(|s| s.as_bytes());
+
+                match Announce::create(identity, nh, dh, random_hash, None, app_data) {
+                    Ok(announce) => {
+                        let raw = announce.to_raw_packet(0).serialize();
+                        tracing::info!(
+                            destination_hash = %hex::encode(dh.as_ref()),
+                            app_name = %dest_cfg.app_name,
+                            "queued_announce"
+                        );
+                        self.pending_announces.push(raw);
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            app_name = %dest_cfg.app_name,
+                            "failed to create announce: {e}"
+                        );
+                    }
                 }
             }
         }
@@ -391,6 +426,14 @@ impl Node {
         cull_interval.tick().await;
         persist_interval.tick().await;
 
+        // Broadcast pending announces (from config destinations)
+        if !self.pending_announces.is_empty() {
+            let announces = std::mem::take(&mut self.pending_announces);
+            for raw in announces {
+                self.broadcast_to_interfaces(None, &raw).await;
+            }
+        }
+
         tracing::info!("entering event loop");
 
         loop {
@@ -413,7 +456,12 @@ impl Node {
                 }
 
                 _ = maintenance_interval.tick() => {
-                    self.run_maintenance();
+                    let actions = self.collect_announce_actions();
+                    for action in actions {
+                        if let RouterAction::Broadcast { exclude, raw } = action {
+                            self.broadcast_to_interfaces(exclude, &raw).await;
+                        }
+                    }
                 }
 
                 _ = cull_interval.tick() => {
@@ -467,7 +515,33 @@ impl Node {
         tracing::info!("node shutdown complete");
     }
 
-    /// Handle an inbound packet: IFAC verify, parse, dedup, flood.
+    /// Broadcast raw bytes to all interfaces, optionally excluding one.
+    async fn broadcast_to_interfaces(&self, exclude: Option<InterfaceId>, raw: &[u8]) {
+        for (&iface_id, iface) in &self.interfaces {
+            if Some(iface_id) == exclude || !iface.can_transmit() || !iface.is_connected() {
+                continue;
+            }
+
+            // Apply IFAC if configured
+            let outbound = if let Some(ref ifac) = self.ifac_config {
+                match ifac_apply(ifac, raw) {
+                    Ok(masked) => masked,
+                    Err(e) => {
+                        tracing::warn!(id = iface_id.0, "IFAC apply failed: {e}");
+                        continue;
+                    }
+                }
+            } else {
+                raw.to_vec()
+            };
+
+            if let Err(e) = iface.transmit(&outbound).await {
+                tracing::warn!(id = iface_id.0, "transmit failed: {e}");
+            }
+        }
+    }
+
+    /// Handle an inbound packet: IFAC verify, parse, dedup, announce processing, flood.
     async fn handle_inbound_packet(&mut self, from_iface: InterfaceId, raw: &[u8]) {
         if raw.is_empty() {
             return;
@@ -512,45 +586,62 @@ impl Node {
             return;
         }
 
+        // Announce processing
+        if packet.flags.packet_type == PacketType::Announce {
+            let interface_mode = self
+                .interfaces
+                .get(&from_iface)
+                .map(|i| i.mode())
+                .unwrap_or(reticulum_interfaces::InterfaceMode::Full);
+
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default();
+            let now_secs = now.as_secs();
+            let now_f64 = now.as_secs_f64();
+
+            match self.router.process_inbound_announce(
+                &packet,
+                from_iface,
+                interface_mode,
+                now_secs,
+                now_f64,
+            ) {
+                Ok(result) => {
+                    tracing::info!(
+                        destination_hash = %hex::encode(result.destination_hash.as_ref()),
+                        hops = result.hops,
+                        path_updated = result.path_updated,
+                        "announce_validated"
+                    );
+                }
+                Err(e) => {
+                    tracing::debug!(error = %e, "announce_validation_failed");
+                }
+            }
+        }
+
         // Increment hops and re-serialize for forwarding
         let mut forward_packet = packet.clone();
         forward_packet.hops = packet.hops.saturating_add(1);
         let forward_raw = forward_packet.serialize();
 
         // Flood to all other interfaces
-        for (&iface_id, iface) in &self.interfaces {
-            if iface_id == from_iface || !iface.can_transmit() || !iface.is_connected() {
-                continue;
-            }
-
-            // Apply IFAC if configured
-            let outbound = if let Some(ref ifac) = self.ifac_config {
-                match ifac_apply(ifac, &forward_raw) {
-                    Ok(masked) => masked,
-                    Err(e) => {
-                        tracing::warn!(id = iface_id.0, "IFAC apply failed: {e}");
-                        continue;
-                    }
-                }
-            } else {
-                forward_raw.clone()
-            };
-
-            if let Err(e) = iface.transmit(&outbound).await {
-                tracing::warn!(id = iface_id.0, "transmit failed: {e}");
-            }
-        }
+        self.broadcast_to_interfaces(Some(from_iface), &forward_raw)
+            .await;
     }
 
     /// Process pending announce retransmissions.
-    fn run_maintenance(&mut self) {
+    ///
+    /// This is sync but collects actions; we need to dispatch them async.
+    /// Returns the actions to be dispatched by the caller.
+    fn collect_announce_actions(&mut self) -> Vec<RouterAction> {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::SystemTime::UNIX_EPOCH)
             .map(|d| d.as_secs_f64())
             .unwrap_or(0.0);
 
-        let _actions = self.router.process_announce_jobs(now);
-        // TODO: dispatch announce actions once full routing is implemented
+        self.router.process_announce_jobs(now)
     }
 
     /// Persist path table and hashlist to storage.

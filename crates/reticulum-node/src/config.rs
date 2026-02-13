@@ -18,6 +18,17 @@ pub struct NodeConfig {
     pub logging: LoggingSection,
     #[serde(default)]
     pub interfaces: InterfacesSection,
+    #[serde(default)]
+    pub destinations: Vec<DestinationEntry>,
+}
+
+/// A `[[destinations]]` entry for auto-announcing a destination on startup.
+#[derive(Debug, Deserialize)]
+pub struct DestinationEntry {
+    pub app_name: String,
+    #[serde(default)]
+    pub aspects: Vec<String>,
+    pub app_data: Option<String>,
 }
 
 impl NodeConfig {
@@ -302,6 +313,30 @@ data_port = 42671
         assert_eq!(parse_mode("boundary").unwrap(), InterfaceMode::Boundary);
         assert_eq!(parse_mode("gateway").unwrap(), InterfaceMode::Gateway);
         assert!(parse_mode("invalid").is_err());
+    }
+
+    #[test]
+    fn parse_destinations() {
+        let toml = r#"
+[[destinations]]
+app_name = "rusticulum_test"
+aspects = ["announce", "v1"]
+app_data = "hello from rust"
+
+[[destinations]]
+app_name = "plain_dest"
+"#;
+        let config = NodeConfig::parse(toml).unwrap();
+        assert_eq!(config.destinations.len(), 2);
+        assert_eq!(config.destinations[0].app_name, "rusticulum_test");
+        assert_eq!(config.destinations[0].aspects, vec!["announce", "v1"]);
+        assert_eq!(
+            config.destinations[0].app_data.as_deref(),
+            Some("hello from rust")
+        );
+        assert_eq!(config.destinations[1].app_name, "plain_dest");
+        assert!(config.destinations[1].aspects.is_empty());
+        assert!(config.destinations[1].app_data.is_none());
     }
 
     #[test]

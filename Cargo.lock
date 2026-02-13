@@ -963,6 +963,7 @@ name = "reticulum-core"
 version = "0.1.0"
 dependencies = [
  "hex",
+ "rand 0.8.5",
  "reticulum-crypto",
  "reticulum-test-vectors",
  "rmpv",

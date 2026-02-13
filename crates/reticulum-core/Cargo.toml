@@ -10,7 +10,7 @@ repository.workspace = true
 
 [features]
 default = ["std"]
-std = ["reticulum-crypto/std", "tracing"]
+std = ["reticulum-crypto/std", "tracing", "dep:rand"]
 tracing = ["dep:tracing", "reticulum-crypto/tracing"]
 
 [dependencies]
@@ -19,6 +19,7 @@ serde = { workspace = true }
 rmpv = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true, optional = true }
+rand = { workspace = true, optional = true }
 
 [dev-dependencies]
 serde_json = { workspace = true }

@@ -35,6 +35,7 @@ use crate::constants::{
     RANDOM_HASH_LENGTH, RATCHETSIZE, SIGLENGTH, TRUNCATED_HASHLENGTH, TransportType,
 };
 use crate::error::AnnounceError;
+use crate::identity::Identity;
 use crate::packet::context::ContextType;
 use crate::packet::flags::PacketFlags;
 use crate::packet::wire::RawPacket;
@@ -54,7 +55,60 @@ pub struct Announce {
     pub context: ContextType,
 }
 
+/// Generate a 10-byte random hash: 5 random bytes + 5-byte big-endian Unix timestamp.
+///
+/// This matches the Python reference implementation's announce random hash format.
+#[cfg(feature = "std")]
+pub fn make_random_hash() -> [u8; 10] {
+    use rand::RngCore;
+    let mut rng = rand::thread_rng();
+    let mut result = [0u8; 10];
+    rng.fill_bytes(&mut result[..5]);
+
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    // Lower 5 bytes of the 8-byte big-endian timestamp
+    result[5..10].copy_from_slice(&now.to_be_bytes()[3..8]);
+    result
+}
+
 impl Announce {
+    /// Create a new signed announce from an identity and destination parameters.
+    ///
+    /// The identity must have private keys (for signing).
+    pub fn create(
+        identity: &Identity,
+        name_hash: NameHash,
+        destination_hash: DestinationHash,
+        random_hash: [u8; 10],
+        ratchet: Option<[u8; 32]>,
+        app_data: Option<&[u8]>,
+    ) -> Result<Self, AnnounceError> {
+        let public_key = identity.public_key_bytes();
+
+        let mut announce = Announce {
+            destination_hash,
+            public_key,
+            name_hash,
+            random_hash,
+            ratchet,
+            signature: [0u8; 64],
+            app_data: app_data.map(|d| d.to_vec()),
+            context: ContextType::None,
+        };
+
+        // Build signed_data and sign
+        let signed_data = announce.signed_data();
+        let sig = identity
+            .sign(&signed_data)
+            .map_err(AnnounceError::IdentityError)?;
+        announce.signature = sig.to_bytes();
+
+        Ok(announce)
+    }
+
     /// Parse an announce from a raw packet's payload.
     ///
     /// `destination_hash` comes from the packet header.
@@ -259,6 +313,109 @@ fn compute_destination_hash(name_hash: &NameHash, identity_hash: &IdentityHash) 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::destination;
+
+    #[test]
+    fn test_create_and_validate_roundtrip() {
+        let identity = Identity::generate();
+        let nh = destination::name_hash("test_app", &["announce", "v1"]);
+        let dh = destination::destination_hash(&nh, identity.hash());
+        let random_hash = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A];
+
+        let announce =
+            Announce::create(&identity, nh, dh, random_hash, None, None).expect("create failed");
+
+        // Validate the signature and destination hash
+        announce.validate().expect("validate failed");
+
+        // Check fields
+        assert_eq!(announce.destination_hash, dh);
+        assert_eq!(announce.public_key, identity.public_key_bytes());
+        assert_eq!(announce.name_hash, nh);
+        assert_eq!(announce.random_hash, random_hash);
+        assert!(announce.ratchet.is_none());
+        assert!(announce.app_data.is_none());
+    }
+
+    #[test]
+    fn test_create_payload_roundtrip() {
+        let identity = Identity::generate();
+        let nh = destination::name_hash("test_app", &["announce", "v1"]);
+        let dh = destination::destination_hash(&nh, identity.hash());
+        let random_hash = [0xAA; 10];
+
+        let announce =
+            Announce::create(&identity, nh, dh, random_hash, None, None).expect("create failed");
+
+        let payload = announce.to_payload();
+        let parsed = Announce::from_payload(dh, false, ContextType::None, &payload)
+            .expect("parse from payload failed");
+
+        parsed
+            .validate()
+            .expect("parsed announce validation failed");
+        assert_eq!(parsed.public_key, announce.public_key);
+        assert_eq!(parsed.signature, announce.signature);
+        assert_eq!(parsed.random_hash, announce.random_hash);
+    }
+
+    #[test]
+    fn test_create_with_app_data() {
+        let identity = Identity::generate();
+        let nh = destination::name_hash("test_app", &["data"]);
+        let dh = destination::destination_hash(&nh, identity.hash());
+        let random_hash = [0xBB; 10];
+        let app_data = b"hello from rust";
+
+        let announce = Announce::create(&identity, nh, dh, random_hash, None, Some(app_data))
+            .expect("create failed");
+
+        announce.validate().expect("validate failed");
+        assert_eq!(announce.app_data.as_deref(), Some(app_data.as_slice()));
+
+        // Raw packet roundtrip
+        let raw = announce.to_raw_packet(0);
+        let serialized = raw.serialize();
+        let parsed = Announce::from_raw_packet(&serialized).expect("parse raw failed");
+        parsed.validate().expect("parsed validation failed");
+        assert_eq!(parsed.app_data.as_deref(), Some(app_data.as_slice()));
+    }
+
+    #[test]
+    fn test_create_with_ratchet() {
+        let identity = Identity::generate();
+        let nh = destination::name_hash("test_app", &["ratchet"]);
+        let dh = destination::destination_hash(&nh, identity.hash());
+        let random_hash = [0xCC; 10];
+        let ratchet = [0xDD; 32];
+
+        let announce = Announce::create(&identity, nh, dh, random_hash, Some(ratchet), None)
+            .expect("create failed");
+
+        announce.validate().expect("validate failed");
+        assert_eq!(announce.ratchet, Some(ratchet));
+
+        // Roundtrip through raw packet (context_flag should be set)
+        let raw = announce.to_raw_packet(0);
+        assert!(raw.flags.context_flag);
+        let serialized = raw.serialize();
+        let parsed = Announce::from_raw_packet(&serialized).expect("parse raw failed");
+        parsed.validate().expect("parsed validation failed");
+        assert_eq!(parsed.ratchet, Some(ratchet));
+    }
+
+    #[test]
+    fn test_make_random_hash() {
+        let rh1 = make_random_hash();
+        let rh2 = make_random_hash();
+        assert_eq!(rh1.len(), 10);
+        assert_eq!(rh2.len(), 10);
+        // Random parts (first 5 bytes) should differ
+        assert_ne!(&rh1[..5], &rh2[..5]);
+        // Timestamp parts (last 5 bytes) should be the same or very close
+        // (both generated within the same second)
+        assert_eq!(&rh1[5..10], &rh2[5..10]);
+    }
 
     #[test]
     fn test_valid_announces() {
