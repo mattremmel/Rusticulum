@@ -67,6 +67,14 @@ impl IfacConfig {
 /// 4. Mask: byte 0 XOR mask[0] | 0x80, byte 1 XOR mask[1],
 ///    bytes 2..2+ifac_size NOT masked, remaining bytes XOR mask[i]
 pub fn ifac_apply(config: &IfacConfig, raw: &[u8]) -> Result<Vec<u8>, IfacError> {
+    // Minimum: 2-byte header + at least 1 byte payload
+    if raw.len() < 3 {
+        return Err(IfacError::PacketTooShort {
+            min: 3,
+            actual: raw.len(),
+        });
+    }
+
     // Step 1: Sign and extract IFAC value
     let signature = config.ifac_identity.sign(raw)?;
     let sig_bytes = signature.to_bytes();
@@ -118,17 +126,17 @@ pub fn ifac_apply(config: &IfacConfig, raw: &[u8]) -> Result<Vec<u8>, IfacError>
 /// 5. Clear IFAC flag, reassemble without IFAC bytes
 /// 6. Verify signature matches
 pub fn ifac_verify(config: &IfacConfig, masked_raw: &[u8]) -> Result<Vec<u8>, IfacError> {
-    // Step 1: Check IFAC flag
-    if masked_raw[0] & IFAC_FLAG != IFAC_FLAG {
-        return Err(IfacError::MissingFlag);
-    }
-
-    // Check minimum length
-    if masked_raw.len() <= 2 + config.ifac_size {
+    // Check minimum length before any indexing
+    if masked_raw.len() < 2 + config.ifac_size + 1 {
         return Err(IfacError::PacketTooShort {
             min: 2 + config.ifac_size + 1,
             actual: masked_raw.len(),
         });
+    }
+
+    // Step 1: Check IFAC flag
+    if masked_raw[0] & IFAC_FLAG != IFAC_FLAG {
+        return Err(IfacError::MissingFlag);
     }
 
     // Step 2: Extract IFAC
@@ -423,6 +431,41 @@ mod tests {
         assert!(has_ifac_flag(&[0x80]));
         assert!(has_ifac_flag(&[0xFF]));
         assert!(!has_ifac_flag(&[]));
+    }
+
+    #[test]
+    fn test_ifac_verify_empty_packet() {
+        let config = config_from_test(Some("testnet"), Some("testkey"), 8);
+        let result = ifac_verify(&config, &[]);
+        assert!(matches!(result, Err(IfacError::PacketTooShort { .. })));
+    }
+
+    #[test]
+    fn test_ifac_verify_one_byte_packet() {
+        let config = config_from_test(Some("testnet"), Some("testkey"), 8);
+        let result = ifac_verify(&config, &[0x80]);
+        assert!(matches!(result, Err(IfacError::PacketTooShort { .. })));
+    }
+
+    #[test]
+    fn test_ifac_verify_two_byte_packet() {
+        let config = config_from_test(Some("testnet"), Some("testkey"), 8);
+        let result = ifac_verify(&config, &[0x80, 0x00]);
+        assert!(matches!(result, Err(IfacError::PacketTooShort { .. })));
+    }
+
+    #[test]
+    fn test_ifac_apply_empty_packet() {
+        let config = config_from_test(Some("testnet"), Some("testkey"), 8);
+        let result = ifac_apply(&config, &[]);
+        assert!(matches!(result, Err(IfacError::PacketTooShort { .. })));
+    }
+
+    #[test]
+    fn test_ifac_apply_short_packet() {
+        let config = config_from_test(Some("testnet"), Some("testkey"), 8);
+        let result = ifac_apply(&config, &[0x00]);
+        assert!(matches!(result, Err(IfacError::PacketTooShort { .. })));
     }
 
     #[test]
