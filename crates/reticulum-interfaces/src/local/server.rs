@@ -155,8 +155,13 @@ impl LocalServerInterface {
                 can_receive: server_config.client_can_receive,
             };
 
-            let client =
-                LocalClientInterface::from_connected(client_config, InterfaceId(client_id), stream);
+            let client = match LocalClientInterface::from_connected(client_config, InterfaceId(client_id), stream) {
+                Ok(c) => c,
+                Err(e) => {
+                    warn!("{}: failed to initialize client: {}", server_config.name, e);
+                    continue;
+                }
+            };
 
             spawned.lock().await.push(client);
         }
@@ -323,7 +328,7 @@ mod tests {
 
         // Create an initiator client pointing at the server
         let client_config = LocalClientConfig::initiator("test-local-client-rt", path.clone());
-        let mut client = LocalClientInterface::new(client_config, InterfaceId(201));
+        let mut client = LocalClientInterface::new(client_config, InterfaceId(201)).unwrap();
         client.start().await.unwrap();
 
         // Wait for connection

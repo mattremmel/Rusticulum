@@ -202,7 +202,7 @@ impl Node {
             cfg.mode = mode;
             built.push((
                 id,
-                AnyInterface::TcpClient(TcpClientInterface::new(cfg, id)),
+                AnyInterface::TcpClient(TcpClientInterface::new(cfg, id)?),
             ));
         }
 
@@ -267,7 +267,7 @@ impl Node {
             cfg.mode = mode;
             built.push((
                 id,
-                AnyInterface::LocalClient(LocalClientInterface::new(cfg, id)),
+                AnyInterface::LocalClient(LocalClientInterface::new(cfg, id)?),
             ));
         }
 
@@ -303,9 +303,17 @@ impl Node {
         // We need &mut access to start each interface, so temporarily extract from map.
         let ids: Vec<InterfaceId> = self.interfaces.keys().copied().collect();
         for id in ids {
-            let arc = self.interfaces.remove(&id).unwrap();
-            let mut iface =
-                Arc::try_unwrap(arc).expect("interface Arc should have single owner at startup");
+            let arc = self.interfaces.remove(&id)
+                .ok_or_else(|| NodeError::Interface(
+                    reticulum_interfaces::InterfaceError::Configuration(
+                        format!("interface {:?} missing from map during startup", id)
+                    )
+                ))?;
+            let mut iface = Arc::try_unwrap(arc).map_err(|_| NodeError::Interface(
+                reticulum_interfaces::InterfaceError::Configuration(
+                    "interface Arc should have single owner at startup".into()
+                )
+            ))?;
             if let Err(e) = iface.start().await {
                 tracing::error!(interface = %iface.name(), "failed to start interface: {e}");
                 return Err(NodeError::Interface(e));

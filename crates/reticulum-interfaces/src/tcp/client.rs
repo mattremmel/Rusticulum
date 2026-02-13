@@ -55,18 +55,18 @@ pub struct TcpClientInterface {
 
 impl TcpClientInterface {
     /// Create an initiator client that will connect to `config.target_addr`.
-    pub fn new(config: TcpClientConfig, id: InterfaceId) -> Self {
+    pub fn new(config: TcpClientConfig, id: InterfaceId) -> Result<Self, InterfaceError> {
         let target_addr = config
             .target_addr
-            .expect("initiator config must have target_addr");
+            .ok_or_else(|| InterfaceError::Configuration("initiator config must have target_addr".into()))?;
         let role = TcpClientRole::Initiator { target_addr };
-        Self::build(config, id, role)
+        Ok(Self::build(config, id, role))
     }
 
     /// Create a responder client from an already-connected TCP stream.
     ///
     /// Immediately spawns the read loop — no need to call `start()`.
-    pub fn from_connected(config: TcpClientConfig, id: InterfaceId, stream: TcpStream) -> Self {
+    pub fn from_connected(config: TcpClientConfig, id: InterfaceId, stream: TcpStream) -> Result<Self, InterfaceError> {
         let role = TcpClientRole::Responder;
         let iface = Self::build(config, id, role);
 
@@ -77,7 +77,8 @@ impl TcpClientInterface {
         {
             // We can't await here but we need to set the writer synchronously.
             // Since the Mutex is uncontested, try_lock will succeed.
-            let mut guard = iface.inner.writer.try_lock().unwrap();
+            let mut guard = iface.inner.writer.try_lock()
+                .map_err(|_| InterfaceError::Configuration("writer lock contended during init".into()))?;
             *guard = Some(writer);
         }
         iface.inner.connected.store(true, Ordering::SeqCst);
@@ -89,9 +90,13 @@ impl TcpClientInterface {
         let handle = tokio::spawn(async move {
             Self::read_loop(inner, reader, stop_rx, &name).await;
         });
-        *iface.task_handle.try_lock().unwrap() = Some(handle);
+        {
+            let mut guard = iface.task_handle.try_lock()
+                .map_err(|_| InterfaceError::Configuration("task_handle lock contended during init".into()))?;
+            *guard = Some(handle);
+        }
 
-        iface
+        Ok(iface)
     }
 
     fn build(config: TcpClientConfig, id: InterfaceId, role: TcpClientRole) -> Self {
@@ -359,7 +364,7 @@ mod tests {
 
         // Create an initiator client
         let config = TcpClientConfig::initiator("test-client", addr);
-        let mut client = TcpClientInterface::new(config, InterfaceId(1));
+        let mut client = TcpClientInterface::new(config, InterfaceId(1)).unwrap();
         client.start().await.unwrap();
 
         // Accept the connection on the listener side
@@ -400,7 +405,7 @@ mod tests {
             "test-disconnected",
             "127.0.0.1:1".parse().unwrap(), // will not connect
         );
-        let client = TcpClientInterface::new(config, InterfaceId(99));
+        let client = TcpClientInterface::new(config, InterfaceId(99)).unwrap();
         // Don't start — not connected
         let result = client.transmit(&[0x01; 20]).await;
         assert!(matches!(result, Err(InterfaceError::NotConnected)));
@@ -412,7 +417,7 @@ mod tests {
         let addr = listener.local_addr().unwrap();
 
         let config = TcpClientConfig::initiator("test-reconnect", addr);
-        let mut client = TcpClientInterface::new(config, InterfaceId(2));
+        let mut client = TcpClientInterface::new(config, InterfaceId(2)).unwrap();
         client.start().await.unwrap();
 
         // Accept first connection

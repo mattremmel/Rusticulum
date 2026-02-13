@@ -56,26 +56,27 @@ pub struct LocalClientInterface {
 
 impl LocalClientInterface {
     /// Create an initiator client that will connect to `config.socket_path`.
-    pub fn new(config: LocalClientConfig, id: InterfaceId) -> Self {
+    pub fn new(config: LocalClientConfig, id: InterfaceId) -> Result<Self, InterfaceError> {
         let socket_path = config
             .socket_path
             .clone()
-            .expect("initiator config must have socket_path");
+            .ok_or_else(|| InterfaceError::Configuration("initiator config must have socket_path".into()))?;
         let role = LocalClientRole::Initiator { socket_path };
-        Self::build(config, id, role)
+        Ok(Self::build(config, id, role))
     }
 
     /// Create a responder client from an already-connected Unix stream.
     ///
     /// Immediately spawns the read loop — no need to call `start()`.
-    pub fn from_connected(config: LocalClientConfig, id: InterfaceId, stream: UnixStream) -> Self {
+    pub fn from_connected(config: LocalClientConfig, id: InterfaceId, stream: UnixStream) -> Result<Self, InterfaceError> {
         let role = LocalClientRole::Responder;
         let iface = Self::build(config, id, role);
 
         let (reader, writer) = stream.into_split();
 
         {
-            let mut guard = iface.inner.writer.try_lock().unwrap();
+            let mut guard = iface.inner.writer.try_lock()
+                .map_err(|_| InterfaceError::Configuration("writer lock contended during init".into()))?;
             *guard = Some(writer);
         }
         iface.inner.connected.store(true, Ordering::SeqCst);
@@ -87,9 +88,13 @@ impl LocalClientInterface {
         let handle = tokio::spawn(async move {
             Self::read_loop(inner, reader, stop_rx, &name).await;
         });
-        *iface.task_handle.try_lock().unwrap() = Some(handle);
+        {
+            let mut guard = iface.task_handle.try_lock()
+                .map_err(|_| InterfaceError::Configuration("task_handle lock contended during init".into()))?;
+            *guard = Some(handle);
+        }
 
-        iface
+        Ok(iface)
     }
 
     fn build(config: LocalClientConfig, id: InterfaceId, role: LocalClientRole) -> Self {
@@ -375,7 +380,7 @@ mod tests {
 
         // Create an initiator client
         let config = LocalClientConfig::initiator("test-local-client", path.clone());
-        let mut client = LocalClientInterface::new(config, InterfaceId(1));
+        let mut client = LocalClientInterface::new(config, InterfaceId(1)).unwrap();
         client.start().await.unwrap();
 
         // Accept the connection on the listener side
@@ -414,7 +419,7 @@ mod tests {
     async fn transmit_when_disconnected() {
         let path = test_socket_path("disconnected");
         let config = LocalClientConfig::initiator("test-disconnected", path);
-        let client = LocalClientInterface::new(config, InterfaceId(99));
+        let client = LocalClientInterface::new(config, InterfaceId(99)).unwrap();
         // Don't start — not connected
         let result = client.transmit(&[0x01; 20]).await;
         assert!(matches!(result, Err(InterfaceError::NotConnected)));
@@ -429,7 +434,7 @@ mod tests {
         let listener = UnixListener::bind(&path).unwrap();
 
         let config = LocalClientConfig::initiator("test-reconnect", path.clone());
-        let mut client = LocalClientInterface::new(config, InterfaceId(2));
+        let mut client = LocalClientInterface::new(config, InterfaceId(2)).unwrap();
         client.start().await.unwrap();
 
         // Accept first connection

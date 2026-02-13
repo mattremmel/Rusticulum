@@ -116,8 +116,13 @@ impl TcpServerInterface {
                 can_receive: server_config.client_can_receive,
             };
 
-            let client =
-                TcpClientInterface::from_connected(client_config, InterfaceId(client_id), stream);
+            let client = match TcpClientInterface::from_connected(client_config, InterfaceId(client_id), stream) {
+                Ok(c) => c,
+                Err(e) => {
+                    warn!("{}: failed to initialize client: {}", server_config.name, e);
+                    continue;
+                }
+            };
 
             spawned.lock().await.push(client);
         }
@@ -250,7 +255,7 @@ mod tests {
 
         // Create an initiator client pointing at the server
         let client_config = TcpClientConfig::initiator("test-client-rt", addr);
-        let mut client = TcpClientInterface::new(client_config, InterfaceId(201));
+        let mut client = TcpClientInterface::new(client_config, InterfaceId(201)).unwrap();
         client.start().await.unwrap();
 
         // Wait for connection
