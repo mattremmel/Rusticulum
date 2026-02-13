@@ -16,13 +16,21 @@ cargo clippy             # Lint
 cargo fmt --check        # Check formatting
 ```
 
-Once the workspace is set up with sub-crates:
+Per-crate tests:
 ```bash
 cargo test -p reticulum-crypto      # Test crypto primitives
 cargo test -p reticulum-core        # Test types and wire formats
 cargo test -p reticulum-protocol    # Test protocol state machines
 cargo test -p reticulum-transport   # Test routing and path tables
 ```
+
+Docker integration tests (requires Docker — always run after `cargo test`):
+```bash
+docker/scripts/test-announce.sh     # Announce exchange: Rust ↔ Python RNS
+docker/scripts/test-link.sh         # Link establishment + encrypted data: Rust ↔ Python RNS
+```
+
+These test real interop with the Python reference implementation over TCP. They build containers, run the test, and tear down automatically.
 
 ## Architecture
 
@@ -85,7 +93,7 @@ bd sync               # Sync with git
 When ending a work session, ALL steps below must be completed. Work is NOT complete until `git push` succeeds.
 
 1. **File issues for remaining work** — Create issues for anything that needs follow-up
-2. **Run quality gates** (if code changed) — Tests, linters, builds
+2. **Run quality gates** (if code changed) — `cargo test`, `cargo clippy`, then Docker integration tests (`docker/scripts/test-announce.sh`, `docker/scripts/test-link.sh`)
 3. **Update issue status** — Close finished work, update in-progress items
 4. **Push to remote** (MANDATORY):
    ```bash
