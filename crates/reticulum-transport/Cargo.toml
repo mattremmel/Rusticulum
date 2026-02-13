@@ -12,7 +12,6 @@ repository.workspace = true
 reticulum-protocol = { workspace = true }
 reticulum-core = { workspace = true, features = ["std"] }
 reticulum-crypto = { workspace = true, features = ["std"] }
-tokio = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 
