@@ -5,17 +5,16 @@
 
 use std::net::{Ipv6Addr, SocketAddrV6};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
 
 use socket2::{Domain, Protocol, SockAddr, Socket, Type};
 use tokio::net::UdpSocket;
 use tokio::sync::{Mutex, RwLock, mpsc, watch};
-use tokio::task::JoinHandle;
 use tracing::{debug, info, warn};
 
 use reticulum_transport::path::{InterfaceId, InterfaceMode};
 
 use crate::error::InterfaceError;
+use crate::shutdown::ShutdownToken;
 use crate::traits::Interface;
 
 use super::discovery::{
@@ -39,10 +38,7 @@ pub struct AutoInterface {
     /// One outbound data socket per adopted interface, keyed by ifname.
     #[allow(clippy::type_complexity)]
     outbound_sockets: Arc<RwLock<Vec<(String, Arc<UdpSocket>)>>>,
-    online: AtomicBool,
-    stop_tx: watch::Sender<bool>,
-    stop_rx: watch::Receiver<bool>,
-    task_handles: Mutex<Vec<JoinHandle<()>>>,
+    shutdown: ShutdownToken,
     /// Link-local addresses that belong to us (for echo detection).
     own_addresses: Arc<RwLock<Vec<String>>>,
 }
@@ -57,7 +53,6 @@ impl AutoInterface {
         );
 
         let (rx_sender, rx_receiver) = mpsc::channel(256);
-        let (stop_tx, stop_rx) = watch::channel(false);
 
         Self {
             config,
@@ -67,10 +62,7 @@ impl AutoInterface {
             rx_receiver: Mutex::new(rx_receiver),
             rx_sender,
             outbound_sockets: Arc::new(RwLock::new(Vec::new())),
-            online: AtomicBool::new(false),
-            stop_tx,
-            stop_rx,
-            task_handles: Mutex::new(Vec::new()),
+            shutdown: ShutdownToken::new(),
             own_addresses: Arc::new(RwLock::new(Vec::new())),
         }
     }
@@ -418,7 +410,7 @@ impl Interface for AutoInterface {
     }
 
     fn is_connected(&self) -> bool {
-        self.online.load(Ordering::SeqCst)
+        self.shutdown.is_online()
     }
 
     async fn start(&mut self) -> Result<(), InterfaceError> {
@@ -472,7 +464,7 @@ impl Interface for AutoInterface {
                         iface.if_index,
                         Arc::clone(&self.peer_table),
                         Arc::clone(&self.own_addresses),
-                        self.stop_rx.clone(),
+                        self.shutdown.subscribe(),
                         self.config.name.clone(),
                     ));
                     handles.push(handle);
@@ -484,7 +476,7 @@ impl Interface for AutoInterface {
                         self.config.group_id.clone(),
                         link_local_str.clone(),
                         iface.if_index,
-                        self.stop_rx.clone(),
+                        self.shutdown.subscribe(),
                         self.config.name.clone(),
                     ));
                     handles.push(handle);
@@ -514,7 +506,7 @@ impl Interface for AutoInterface {
                         iface.if_index,
                         Arc::clone(&self.peer_table),
                         Arc::clone(&self.own_addresses),
-                        self.stop_rx.clone(),
+                        self.shutdown.subscribe(),
                         self.config.name.clone(),
                     ));
                     handles.push(handle);
@@ -536,7 +528,7 @@ impl Interface for AutoInterface {
                         tok_sock,
                         self.rx_sender.clone(),
                         Arc::clone(&self.peer_table),
-                        self.stop_rx.clone(),
+                        self.shutdown.subscribe(),
                         self.config.name.clone(),
                     ));
                     handles.push(handle);
@@ -572,12 +564,12 @@ impl Interface for AutoInterface {
             own_ll,
             unicast_discovery_port,
             Arc::clone(&self.peer_table),
-            self.stop_rx.clone(),
+            self.shutdown.subscribe(),
             self.config.name.clone(),
         ));
         handles.push(handle);
 
-        *self.task_handles.lock().await = handles;
+        self.shutdown.set_tasks(handles).await;
 
         // Wait for initial peering window.
         let peering_wait = ANNOUNCE_INTERVAL.mul_f64(1.2);
@@ -588,7 +580,7 @@ impl Interface for AutoInterface {
         );
         tokio::time::sleep(peering_wait).await;
 
-        self.online.store(true, Ordering::SeqCst);
+        self.shutdown.set_online();
         let peer_count = self.peer_table.read().await.len();
         info!("{}: online with {} peer(s)", self.config.name, peer_count);
 
@@ -596,24 +588,20 @@ impl Interface for AutoInterface {
     }
 
     async fn stop(&mut self) -> Result<(), InterfaceError> {
-        let _ = self.stop_tx.send(true);
-        self.online.store(false, Ordering::SeqCst);
+        self.shutdown.signal_stop_and_go_offline();
 
         // Clear outbound sockets.
         self.outbound_sockets.write().await.clear();
 
         // Await all background tasks.
-        let handles: Vec<JoinHandle<()>> = self.task_handles.lock().await.drain(..).collect();
-        for handle in handles {
-            let _ = handle.await;
-        }
+        self.shutdown.join_all().await;
 
         info!("{}: stopped", self.config.name);
         Ok(())
     }
 
     async fn transmit(&self, data: &[u8]) -> Result<(), InterfaceError> {
-        if !self.online.load(Ordering::SeqCst) {
+        if !self.shutdown.is_online() {
             return Err(InterfaceError::NotConnected);
         }
 

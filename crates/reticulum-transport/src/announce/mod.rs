@@ -8,5 +8,6 @@ pub mod propagation;
 
 pub use constants::*;
 pub use propagation::{
-    AnnounceAction, AnnounceTable, AnnounceTableEntry, compute_announce_wait_time,
+    AnnounceAction, AnnounceInsertParams, AnnounceTable, AnnounceTableEntry,
+    compute_announce_wait_time,
 };

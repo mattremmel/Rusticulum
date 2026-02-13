@@ -79,42 +79,47 @@ impl Announce {
             });
         }
 
-        let mut offset = 0;
+        let mut cursor = payload;
 
         // public_key(64)
+        let (chunk, rest) = cursor.split_at(KEYSIZE);
         let mut public_key = [0u8; 64];
-        public_key.copy_from_slice(&payload[offset..offset + KEYSIZE]);
-        offset += KEYSIZE;
+        public_key.copy_from_slice(chunk);
+        cursor = rest;
 
         // name_hash(10)
+        let (chunk, rest) = cursor.split_at(NAME_HASH_LENGTH);
         let mut name_hash_bytes = [0u8; 10];
-        name_hash_bytes.copy_from_slice(&payload[offset..offset + NAME_HASH_LENGTH]);
+        name_hash_bytes.copy_from_slice(chunk);
         let name_hash = NameHash::new(name_hash_bytes);
-        offset += NAME_HASH_LENGTH;
+        cursor = rest;
 
         // random_hash(10)
+        let (chunk, rest) = cursor.split_at(RANDOM_HASH_LENGTH);
         let mut random_hash = [0u8; 10];
-        random_hash.copy_from_slice(&payload[offset..offset + RANDOM_HASH_LENGTH]);
-        offset += RANDOM_HASH_LENGTH;
+        random_hash.copy_from_slice(chunk);
+        cursor = rest;
 
         // ratchet(32) if context_flag
         let ratchet = if context_flag {
+            let (chunk, rest) = cursor.split_at(RATCHETSIZE);
             let mut ratchet_key = [0u8; 32];
-            ratchet_key.copy_from_slice(&payload[offset..offset + RATCHETSIZE]);
-            offset += RATCHETSIZE;
+            ratchet_key.copy_from_slice(chunk);
+            cursor = rest;
             Some(ratchet_key)
         } else {
             None
         };
 
         // signature(64)
+        let (chunk, rest) = cursor.split_at(SIGLENGTH);
         let mut signature = [0u8; 64];
-        signature.copy_from_slice(&payload[offset..offset + SIGLENGTH]);
-        offset += SIGLENGTH;
+        signature.copy_from_slice(chunk);
+        cursor = rest;
 
         // app_data (remaining bytes, if any)
-        let app_data = if offset < payload.len() {
-            Some(payload[offset..].to_vec())
+        let app_data = if !cursor.is_empty() {
+            Some(cursor.to_vec())
         } else {
             None
         };

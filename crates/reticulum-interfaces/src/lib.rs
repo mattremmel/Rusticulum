@@ -9,6 +9,7 @@ pub mod error;
 pub mod framing;
 #[cfg(unix)]
 pub mod local;
+pub mod shutdown;
 pub mod tcp;
 pub mod traits;
 pub mod udp;

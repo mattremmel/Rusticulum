@@ -112,11 +112,11 @@ pub fn compute_link_id_from_raw(raw: &[u8]) -> Result<LinkId, RouterError> {
 /// Holds all routing tables and processes inbound packets,
 /// returning a list of actions to perform.
 pub struct PacketRouter {
-    pub hashlist: PacketHashlist,
-    pub path_table: PathTable,
-    pub announce_table: AnnounceTable,
-    pub reverse_table: ReverseTable,
-    pub link_table: LinkTable,
+    hashlist: PacketHashlist,
+    path_table: PathTable,
+    announce_table: AnnounceTable,
+    reverse_table: ReverseTable,
+    link_table: LinkTable,
 }
 
 impl PacketRouter {
@@ -128,6 +128,66 @@ impl PacketRouter {
             reverse_table: ReverseTable::new(),
             link_table: LinkTable::new(),
         }
+    }
+
+    /// Returns a shared reference to the packet hashlist.
+    pub fn hashlist(&self) -> &PacketHashlist {
+        &self.hashlist
+    }
+
+    /// Returns a mutable reference to the packet hashlist.
+    pub fn hashlist_mut(&mut self) -> &mut PacketHashlist {
+        &mut self.hashlist
+    }
+
+    /// Replaces the packet hashlist with the given one.
+    pub fn set_hashlist(&mut self, hashlist: PacketHashlist) {
+        self.hashlist = hashlist;
+    }
+
+    /// Returns a shared reference to the path table.
+    pub fn path_table(&self) -> &PathTable {
+        &self.path_table
+    }
+
+    /// Returns a mutable reference to the path table.
+    pub fn path_table_mut(&mut self) -> &mut PathTable {
+        &mut self.path_table
+    }
+
+    /// Replaces the path table with the given one.
+    pub fn set_path_table(&mut self, path_table: PathTable) {
+        self.path_table = path_table;
+    }
+
+    /// Returns a shared reference to the announce table.
+    pub fn announce_table(&self) -> &AnnounceTable {
+        &self.announce_table
+    }
+
+    /// Returns a mutable reference to the announce table.
+    pub fn announce_table_mut(&mut self) -> &mut AnnounceTable {
+        &mut self.announce_table
+    }
+
+    /// Returns a shared reference to the reverse table.
+    pub fn reverse_table(&self) -> &ReverseTable {
+        &self.reverse_table
+    }
+
+    /// Returns a mutable reference to the reverse table.
+    pub fn reverse_table_mut(&mut self) -> &mut ReverseTable {
+        &mut self.reverse_table
+    }
+
+    /// Returns a shared reference to the link table.
+    pub fn link_table(&self) -> &LinkTable {
+        &self.link_table
+    }
+
+    /// Returns a mutable reference to the link table.
+    pub fn link_table_mut(&mut self) -> &mut LinkTable {
+        &mut self.link_table
     }
 
     /// Process periodic announce retransmissions.
@@ -414,11 +474,11 @@ mod tests {
                 };
 
                 let mut router = PacketRouter::new();
-                router.link_table.insert(link_id, link_entry);
-                assert!(router.link_table.contains(&link_id));
+                router.link_table_mut().insert(link_id, link_entry);
+                assert!(router.link_table().contains(&link_id));
 
                 if let Some(should_forward) = tv.should_forward {
-                    let entry = router.link_table.get(&link_id).unwrap();
+                    let entry = router.link_table().get(&link_id).unwrap();
                     let packet_hops = tv.packet_hops.unwrap_or(0) as u8;
 
                     // Link table forwarding rule:
@@ -579,11 +639,11 @@ mod tests {
     #[test]
     fn test_packet_router_new() {
         let router = PacketRouter::new();
-        assert!(router.hashlist.is_empty());
-        assert!(router.path_table.is_empty());
-        assert!(router.announce_table.is_empty());
-        assert!(router.reverse_table.is_empty());
-        assert!(router.link_table.is_empty());
+        assert!(router.hashlist().is_empty());
+        assert!(router.path_table().is_empty());
+        assert!(router.announce_table().is_empty());
+        assert!(router.reverse_table().is_empty());
+        assert!(router.link_table().is_empty());
     }
 
     #[test]
@@ -593,7 +653,7 @@ mod tests {
         let active = vec![iface];
 
         // Add an expired reverse entry
-        router.reverse_table.insert(
+        router.reverse_table_mut().insert(
             TruncatedHash::new([0x01; 16]),
             ReverseEntry {
                 receiving_interface: iface,
@@ -603,7 +663,7 @@ mod tests {
         );
 
         // Add an active reverse entry
-        router.reverse_table.insert(
+        router.reverse_table_mut().insert(
             TruncatedHash::new([0x02; 16]),
             ReverseEntry {
                 receiving_interface: iface,
@@ -613,6 +673,6 @@ mod tests {
         );
 
         router.cull_tables(1000, &active);
-        assert_eq!(router.reverse_table.len(), 1);
+        assert_eq!(router.reverse_table().len(), 1);
     }
 }

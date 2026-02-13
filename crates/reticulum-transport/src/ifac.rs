@@ -96,19 +96,23 @@ pub fn ifac_apply(config: &IfacConfig, raw: &[u8]) -> Result<Vec<u8>, IfacError>
     new_raw.extend_from_slice(&raw[2..]);
 
     // Step 4: Mask byte-by-byte
-    let mut masked = Vec::with_capacity(new_raw.len());
-    for (i, &byte) in new_raw.iter().enumerate() {
-        if i == 0 {
-            // XOR with mask, then force IFAC flag
-            masked.push((byte ^ mask[i]) | IFAC_FLAG);
-        } else if i == 1 || i > config.ifac_size + 1 {
-            // Mask header byte 1 and payload
-            masked.push(byte ^ mask[i]);
-        } else {
-            // IFAC bytes (2..2+ifac_size) are NOT masked
-            masked.push(byte);
-        }
-    }
+    let masked: Vec<u8> = new_raw
+        .iter()
+        .zip(mask.iter())
+        .enumerate()
+        .map(|(i, (&byte, &m))| {
+            if i == 0 {
+                // XOR with mask, then force IFAC flag
+                (byte ^ m) | IFAC_FLAG
+            } else if i == 1 || i > config.ifac_size + 1 {
+                // Mask header byte 1 and payload
+                byte ^ m
+            } else {
+                // IFAC bytes (2..2+ifac_size) are NOT masked
+                byte
+            }
+        })
+        .collect();
 
     Ok(masked)
 }
@@ -146,16 +150,20 @@ pub fn ifac_verify(config: &IfacConfig, masked_raw: &[u8]) -> Result<Vec<u8>, If
     let mask = hkdf(masked_raw.len(), ifac, Some(&config.ifac_key), None);
 
     // Step 4: Unmask
-    let mut unmasked = Vec::with_capacity(masked_raw.len());
-    for (i, &byte) in masked_raw.iter().enumerate() {
-        if i <= 1 || i > config.ifac_size + 1 {
-            // Unmask header bytes and payload
-            unmasked.push(byte ^ mask[i]);
-        } else {
-            // IFAC bytes stay clear
-            unmasked.push(byte);
-        }
-    }
+    let unmasked: Vec<u8> = masked_raw
+        .iter()
+        .zip(mask.iter())
+        .enumerate()
+        .map(|(i, (&byte, &m))| {
+            if i <= 1 || i > config.ifac_size + 1 {
+                // Unmask header bytes and payload
+                byte ^ m
+            } else {
+                // IFAC bytes stay clear
+                byte
+            }
+        })
+        .collect();
 
     // Step 5: Clear IFAC flag and reassemble
     let mut new_raw = Vec::with_capacity(unmasked.len() - config.ifac_size);

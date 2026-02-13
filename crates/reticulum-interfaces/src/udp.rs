@@ -6,16 +6,15 @@
 
 use std::net::SocketAddr;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
 
 use tokio::net::UdpSocket;
 use tokio::sync::{Mutex, mpsc, watch};
-use tokio::task::JoinHandle;
 use tracing::{debug, info, warn};
 
 use reticulum_transport::path::{InterfaceId, InterfaceMode};
 
 use crate::error::InterfaceError;
+use crate::shutdown::ShutdownToken;
 use crate::traits::Interface;
 
 // ---------------------------------------------------------------------------
@@ -116,17 +115,13 @@ pub struct UdpInterface {
     socket: Mutex<Option<Arc<UdpSocket>>>,
     rx_receiver: Mutex<mpsc::Receiver<Vec<u8>>>,
     rx_sender: mpsc::Sender<Vec<u8>>,
-    online: AtomicBool,
-    stop_tx: watch::Sender<bool>,
-    stop_rx: watch::Receiver<bool>,
-    task_handle: Mutex<Option<JoinHandle<()>>>,
+    shutdown: ShutdownToken,
 }
 
 impl UdpInterface {
     /// Create a new UDP interface with the given configuration.
     pub fn new(config: UdpConfig, id: InterfaceId) -> Self {
         let (rx_sender, rx_receiver) = mpsc::channel(256);
-        let (stop_tx, stop_rx) = watch::channel(false);
 
         Self {
             config,
@@ -134,10 +129,7 @@ impl UdpInterface {
             socket: Mutex::new(None),
             rx_receiver: Mutex::new(rx_receiver),
             rx_sender,
-            online: AtomicBool::new(false),
-            stop_tx,
-            stop_rx,
-            task_handle: Mutex::new(None),
+            shutdown: ShutdownToken::new(),
         }
     }
 
@@ -209,7 +201,7 @@ impl Interface for UdpInterface {
     }
 
     fn is_connected(&self) -> bool {
-        self.online.load(Ordering::SeqCst)
+        self.shutdown.is_online()
     }
 
     async fn start(&mut self) -> Result<(), InterfaceError> {
@@ -227,41 +219,37 @@ impl Interface for UdpInterface {
 
         let socket = Arc::new(socket);
         *self.socket.lock().await = Some(Arc::clone(&socket));
-        self.online.store(true, Ordering::SeqCst);
+        self.shutdown.set_online();
 
         if self.config.can_receive {
             let sock = Arc::clone(&socket);
             let tx = self.rx_sender.clone();
-            let stop_rx = self.stop_rx.clone();
+            let stop_rx = self.shutdown.subscribe();
             let name = self.config.name.clone();
 
             let handle = tokio::spawn(async move {
                 Self::read_loop(sock, tx, stop_rx, name).await;
             });
-            *self.task_handle.lock().await = Some(handle);
+            self.shutdown.set_task(handle).await;
         }
 
         Ok(())
     }
 
     async fn stop(&mut self) -> Result<(), InterfaceError> {
-        let _ = self.stop_tx.send(true);
-        self.online.store(false, Ordering::SeqCst);
+        self.shutdown.signal_stop_and_go_offline();
 
         // Clear the socket to unblock any pending recv
         *self.socket.lock().await = None;
 
         // Wait for the read loop to finish
-        let handle = self.task_handle.lock().await.take();
-        if let Some(h) = handle {
-            let _ = h.await;
-        }
+        self.shutdown.join_all().await;
 
         Ok(())
     }
 
     async fn transmit(&self, data: &[u8]) -> Result<(), InterfaceError> {
-        if !self.online.load(Ordering::SeqCst) {
+        if !self.shutdown.is_online() {
             return Err(InterfaceError::NotConnected);
         }
 

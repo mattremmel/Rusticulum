@@ -3,7 +3,7 @@
 
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use tokio::net::UnixListener;
 use tokio::sync::{Mutex, watch};
@@ -14,6 +14,7 @@ use reticulum_transport::path::{InterfaceId, InterfaceMode};
 use super::client::LocalClientInterface;
 use super::{BITRATE_GUESS, INITIAL_CONNECT_TIMEOUT, LocalClientConfig, LocalServerConfig};
 use crate::error::InterfaceError;
+use crate::shutdown::ShutdownToken;
 use crate::traits::Interface;
 
 /// A Unix domain socket server interface that accepts incoming connections and
@@ -28,28 +29,18 @@ pub struct LocalServerInterface {
     spawned_clients: Arc<Mutex<Vec<LocalClientInterface>>>,
     /// Counter for generating unique IDs for spawned clients.
     next_client_id: AtomicU64,
-    /// Whether the accept loop is running.
-    online: AtomicBool,
-    /// Cancellation signal.
-    stop_tx: watch::Sender<bool>,
-    stop_rx: watch::Receiver<bool>,
-    /// Accept loop task handle.
-    task_handle: Mutex<Option<tokio::task::JoinHandle<()>>>,
+    /// Shared shutdown token for online state, stop signaling, and task tracking.
+    shutdown: ShutdownToken,
 }
 
 impl LocalServerInterface {
     pub fn new(config: LocalServerConfig, id: InterfaceId) -> Self {
-        let (stop_tx, stop_rx) = watch::channel(false);
-
         Self {
             config,
             id,
             spawned_clients: Arc::new(Mutex::new(Vec::new())),
             next_client_id: AtomicU64::new(id.0.wrapping_mul(1000) + 1),
-            online: AtomicBool::new(false),
-            stop_tx,
-            stop_rx,
-            task_handle: Mutex::new(None),
+            shutdown: ShutdownToken::new(),
         }
     }
 
@@ -155,7 +146,11 @@ impl LocalServerInterface {
                 can_receive: server_config.client_can_receive,
             };
 
-            let client = match LocalClientInterface::from_connected(client_config, InterfaceId(client_id), stream) {
+            let client = match LocalClientInterface::from_connected(
+                client_config,
+                InterfaceId(client_id),
+                stream,
+            ) {
                 Ok(c) => c,
                 Err(e) => {
                     warn!("{}: failed to initialize client: {}", server_config.name, e);
@@ -194,7 +189,7 @@ impl Interface for LocalServerInterface {
     }
 
     fn is_connected(&self) -> bool {
-        self.online.load(Ordering::SeqCst)
+        self.shutdown.is_online()
     }
 
     async fn start(&mut self) -> Result<(), InterfaceError> {
@@ -207,24 +202,23 @@ impl Interface for LocalServerInterface {
             "{}: listening on {:?}",
             self.config.name, self.config.socket_path
         );
-        self.online.store(true, Ordering::SeqCst);
+        self.shutdown.set_online();
 
         let spawned = Arc::clone(&self.spawned_clients);
         let next_id = Arc::new(AtomicU64::new(self.next_client_id.load(Ordering::SeqCst)));
-        let stop_rx = self.stop_rx.clone();
+        let stop_rx = self.shutdown.subscribe();
         let server_config = self.config.clone();
 
         let handle = tokio::spawn(async move {
             Self::accept_loop(listener, spawned, next_id, stop_rx, server_config).await;
         });
-        *self.task_handle.lock().await = Some(handle);
+        self.shutdown.set_task(handle).await;
 
         Ok(())
     }
 
     async fn stop(&mut self) -> Result<(), InterfaceError> {
-        let _ = self.stop_tx.send(true);
-        self.online.store(false, Ordering::SeqCst);
+        self.shutdown.signal_stop_and_go_offline();
 
         // Stop all spawned clients
         {
@@ -236,10 +230,7 @@ impl Interface for LocalServerInterface {
         }
 
         // Wait for accept loop to finish
-        let handle = self.task_handle.lock().await.take();
-        if let Some(h) = handle {
-            let _ = h.await;
-        }
+        self.shutdown.join_all().await;
 
         // Clean up the socket file
         if let Err(e) = tokio::fs::remove_file(&self.config.socket_path).await {

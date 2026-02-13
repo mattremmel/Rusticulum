@@ -150,7 +150,7 @@ impl Node {
                     if count > 0 {
                         tracing::info!("loaded {count} path table entries");
                     }
-                    self.router.path_table = table;
+                    self.router.set_path_table(table);
                 }
                 Err(e) => {
                     tracing::warn!("failed to load path table: {e}");
@@ -164,7 +164,7 @@ impl Node {
                     if count > 0 {
                         tracing::info!("loaded {count} hashlist entries");
                     }
-                    self.router.hashlist = hashlist;
+                    self.router.set_hashlist(hashlist);
                 }
                 Err(e) => {
                     tracing::warn!("failed to load hashlist: {e}");
@@ -303,17 +303,16 @@ impl Node {
         // We need &mut access to start each interface, so temporarily extract from map.
         let ids: Vec<InterfaceId> = self.interfaces.keys().copied().collect();
         for id in ids {
-            let arc = self.interfaces.remove(&id)
-                .ok_or_else(|| NodeError::Interface(
-                    reticulum_interfaces::InterfaceError::Configuration(
-                        format!("interface {:?} missing from map during startup", id)
-                    )
-                ))?;
-            let mut iface = Arc::try_unwrap(arc).map_err(|_| NodeError::Interface(
-                reticulum_interfaces::InterfaceError::Configuration(
-                    "interface Arc should have single owner at startup".into()
-                )
-            ))?;
+            let arc = self.interfaces.remove(&id).ok_or_else(|| {
+                NodeError::Interface(reticulum_interfaces::InterfaceError::Configuration(
+                    format!("interface {:?} missing from map during startup", id),
+                ))
+            })?;
+            let mut iface = Arc::try_unwrap(arc).map_err(|_| {
+                NodeError::Interface(reticulum_interfaces::InterfaceError::Configuration(
+                    "interface Arc should have single owner at startup".into(),
+                ))
+            })?;
             if let Err(e) = iface.start().await {
                 tracing::error!(interface = %iface.name(), "failed to start interface: {e}");
                 return Err(NodeError::Interface(e));
@@ -509,7 +508,7 @@ impl Node {
 
         // Deduplication
         let hash = packet.packet_hash();
-        if !self.router.hashlist.insert(hash) {
+        if !self.router.hashlist_mut().insert(hash) {
             tracing::trace!(id = from_iface.0, "duplicate packet dropped");
             return;
         }
@@ -564,10 +563,10 @@ impl Node {
     /// Persist path table and hashlist to storage.
     async fn persist_state(&self) {
         if let Some(ref storage) = self.storage {
-            if let Err(e) = storage.save_path_table(&self.router.path_table).await {
+            if let Err(e) = storage.save_path_table(self.router.path_table()).await {
                 tracing::warn!("failed to persist path table: {e}");
             }
-            if let Err(e) = storage.save_hashlist(&self.router.hashlist).await {
+            if let Err(e) = storage.save_hashlist(self.router.hashlist()).await {
                 tracing::warn!("failed to persist hashlist: {e}");
             }
             tracing::debug!("persisted state to storage");

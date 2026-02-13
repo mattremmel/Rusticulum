@@ -15,6 +15,7 @@ use reticulum_transport::path::{InterfaceId, InterfaceMode};
 use super::framing::HdlcFrameAccumulator;
 use super::{BITRATE_GUESS, RECONNECT_WAIT, TCP_RECV_BUFFER, TcpClientConfig};
 use crate::error::InterfaceError;
+use crate::shutdown::ShutdownToken;
 use crate::traits::Interface;
 
 /// Whether this client initiates connections or was spawned by a server.
@@ -34,8 +35,8 @@ struct TcpClientInner {
     rx_sender: mpsc::Sender<Vec<u8>>,
     /// Whether the TCP connection is currently active.
     connected: AtomicBool,
-    /// Cancellation signal for background tasks.
-    stop_tx: watch::Sender<bool>,
+    /// Shared shutdown token for cancellation signaling.
+    shutdown: ShutdownToken,
 }
 
 /// A TCP client interface that frames packets with HDLC over a TCP stream.
@@ -49,16 +50,15 @@ pub struct TcpClientInterface {
     role: TcpClientRole,
     inner: Arc<TcpClientInner>,
     rx_receiver: Mutex<mpsc::Receiver<Vec<u8>>>,
-    stop_rx: watch::Receiver<bool>,
     task_handle: Mutex<Option<tokio::task::JoinHandle<()>>>,
 }
 
 impl TcpClientInterface {
     /// Create an initiator client that will connect to `config.target_addr`.
     pub fn new(config: TcpClientConfig, id: InterfaceId) -> Result<Self, InterfaceError> {
-        let target_addr = config
-            .target_addr
-            .ok_or_else(|| InterfaceError::Configuration("initiator config must have target_addr".into()))?;
+        let target_addr = config.target_addr.ok_or_else(|| {
+            InterfaceError::Configuration("initiator config must have target_addr".into())
+        })?;
         let role = TcpClientRole::Initiator { target_addr };
         Ok(Self::build(config, id, role))
     }
@@ -66,7 +66,11 @@ impl TcpClientInterface {
     /// Create a responder client from an already-connected TCP stream.
     ///
     /// Immediately spawns the read loop — no need to call `start()`.
-    pub fn from_connected(config: TcpClientConfig, id: InterfaceId, stream: TcpStream) -> Result<Self, InterfaceError> {
+    pub fn from_connected(
+        config: TcpClientConfig,
+        id: InterfaceId,
+        stream: TcpStream,
+    ) -> Result<Self, InterfaceError> {
         let role = TcpClientRole::Responder;
         let iface = Self::build(config, id, role);
 
@@ -77,22 +81,24 @@ impl TcpClientInterface {
         {
             // We can't await here but we need to set the writer synchronously.
             // Since the Mutex is uncontested, try_lock will succeed.
-            let mut guard = iface.inner.writer.try_lock()
-                .map_err(|_| InterfaceError::Configuration("writer lock contended during init".into()))?;
+            let mut guard = iface.inner.writer.try_lock().map_err(|_| {
+                InterfaceError::Configuration("writer lock contended during init".into())
+            })?;
             *guard = Some(writer);
         }
         iface.inner.connected.store(true, Ordering::SeqCst);
 
         // Spawn the read loop immediately
         let inner = Arc::clone(&iface.inner);
-        let stop_rx = iface.stop_rx.clone();
+        let stop_rx = iface.inner.shutdown.subscribe();
         let name = iface.config.name.clone();
         let handle = tokio::spawn(async move {
             Self::read_loop(inner, reader, stop_rx, &name).await;
         });
         {
-            let mut guard = iface.task_handle.try_lock()
-                .map_err(|_| InterfaceError::Configuration("task_handle lock contended during init".into()))?;
+            let mut guard = iface.task_handle.try_lock().map_err(|_| {
+                InterfaceError::Configuration("task_handle lock contended during init".into())
+            })?;
             *guard = Some(handle);
         }
 
@@ -101,13 +107,12 @@ impl TcpClientInterface {
 
     fn build(config: TcpClientConfig, id: InterfaceId, role: TcpClientRole) -> Self {
         let (tx, rx) = mpsc::channel(256);
-        let (stop_tx, stop_rx) = watch::channel(false);
 
         let inner = Arc::new(TcpClientInner {
             writer: Mutex::new(None),
             rx_sender: tx,
             connected: AtomicBool::new(false),
-            stop_tx,
+            shutdown: ShutdownToken::new(),
         });
 
         Self {
@@ -116,7 +121,6 @@ impl TcpClientInterface {
             role,
             inner,
             rx_receiver: Mutex::new(rx),
-            stop_rx,
             task_handle: Mutex::new(None),
         }
     }
@@ -293,7 +297,7 @@ impl Interface for TcpClientInterface {
                 let target = *target_addr;
                 let timeout = self.config.connect_timeout;
                 let max_tries = self.config.max_reconnect_tries;
-                let stop_rx = self.stop_rx.clone();
+                let stop_rx = self.inner.shutdown.subscribe();
                 let name = self.config.name.clone();
 
                 let handle = tokio::spawn(async move {
@@ -311,7 +315,7 @@ impl Interface for TcpClientInterface {
 
     async fn stop(&mut self) -> Result<(), InterfaceError> {
         // Signal background tasks to stop
-        let _ = self.inner.stop_tx.send(true);
+        self.inner.shutdown.signal_stop();
 
         // Shut down the writer to force read side to see EOF
         {

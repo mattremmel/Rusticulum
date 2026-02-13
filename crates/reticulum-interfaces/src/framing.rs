@@ -15,14 +15,23 @@ use reticulum_core::framing::hdlc::{ESC, ESC_MASK, FLAG};
 /// - Unescapes content between delimiters
 /// - Discards frames smaller than `HEADER_MINSIZE` (19 bytes)
 /// - Retains trailing FLAG as potential start of next frame
+///
+/// The accumulator reuses internal buffers across calls to minimize
+/// per-frame heap allocations. The main buffer is compacted in-place
+/// via `drain` rather than reallocating, and a scratch buffer is reused
+/// for HDLC unescaping.
 pub struct HdlcFrameAccumulator {
     buffer: Vec<u8>,
+    /// Scratch space reused for HDLC unescaping to avoid a fresh
+    /// allocation per frame.
+    unescape_buf: Vec<u8>,
 }
 
 impl HdlcFrameAccumulator {
     pub fn new() -> Self {
         Self {
             buffer: Vec::with_capacity(4096),
+            unescape_buf: Vec::with_capacity(1024),
         }
     }
 
@@ -30,39 +39,64 @@ impl HdlcFrameAccumulator {
     ///
     /// Returns a `Vec` of unescaped frame payloads (without FLAG delimiters).
     /// Frames smaller than `HEADER_MINSIZE` are silently discarded.
+    ///
+    /// For zero-outer-allocation frame delivery, see [`feed_to`](Self::feed_to).
     pub fn feed(&mut self, data: &[u8]) -> Vec<Vec<u8>> {
+        let mut frames = Vec::new();
+        self.feed_to(data, |frame| frames.push(frame));
+        frames
+    }
+
+    /// Feed new data from the stream and deliver each complete frame to a
+    /// callback. This avoids allocating the outer `Vec<Vec<u8>>` returned
+    /// by [`feed`](Self::feed), which is useful in read loops that forward
+    /// frames one at a time.
+    ///
+    /// Frames smaller than `HEADER_MINSIZE` are silently discarded.
+    pub fn feed_to(&mut self, data: &[u8], mut on_frame: impl FnMut(Vec<u8>)) {
         self.buffer.extend_from_slice(data);
 
-        let mut frames = Vec::new();
+        // Track how many bytes at the front of `buffer` have been consumed
+        // so we can drain them all at once after the loop, instead of
+        // reallocating the buffer on every frame.
+        let mut consumed = 0;
 
-        while let Some(frame_start) = self.buffer.iter().position(|&b| b == FLAG) {
+        loop {
+            let buf = &self.buffer[consumed..];
+
+            let Some(frame_start) = buf.iter().position(|&b| b == FLAG) else {
+                break;
+            };
+
             // Find closing FLAG (starting after the opening one)
-            let Some(offset) = self.buffer[frame_start + 1..]
-                .iter()
-                .position(|&b| b == FLAG)
-            else {
+            let Some(offset) = buf[frame_start + 1..].iter().position(|&b| b == FLAG) else {
                 break;
             };
             let frame_end = frame_start + 1 + offset;
 
             // Extract inner content between the two FLAGs
-            let inner = &self.buffer[frame_start + 1..frame_end];
+            let inner = &buf[frame_start + 1..frame_end];
 
-            // Unescape the inner content
-            let unescaped = hdlc_unescape(inner);
+            // Unescape into the reusable scratch buffer
+            hdlc_unescape_into(inner, &mut self.unescape_buf);
 
             // Only accept frames at least HEADER_MINSIZE bytes
-            if unescaped.len() >= HEADER_MINSIZE {
-                frames.push(unescaped);
+            if self.unescape_buf.len() >= HEADER_MINSIZE {
+                on_frame(self.unescape_buf.clone());
             }
 
-            // Keep data from frame_end onward (the closing FLAG may be
-            // the opening FLAG of the next frame — matching Python's
-            // `frame_buffer = frame_buffer[frame_end:]`)
-            self.buffer = self.buffer[frame_end..].to_vec();
+            // Advance past this frame. The closing FLAG may be the
+            // opening FLAG of the next frame -- matching Python's
+            // `frame_buffer = frame_buffer[frame_end:]`
+            consumed += frame_end;
         }
 
-        frames
+        // Compact the buffer once, removing all consumed bytes.
+        // `drain` shifts the remaining tail in-place without
+        // reallocating the backing storage.
+        if consumed > 0 {
+            self.buffer.drain(..consumed);
+        }
     }
 }
 
@@ -72,24 +106,29 @@ impl Default for HdlcFrameAccumulator {
     }
 }
 
-/// Unescape HDLC byte-stuffed content (inner bytes between FLAG delimiters).
+/// Unescape HDLC byte-stuffed content into `out`, which is cleared first.
 ///
 /// Matching Python reference unescape order:
-/// - ESC + (FLAG ^ ESC_MASK) → FLAG
-/// - ESC + (ESC ^ ESC_MASK)  → ESC
-fn hdlc_unescape(data: &[u8]) -> Vec<u8> {
-    let mut result = Vec::with_capacity(data.len());
+/// - ESC + (FLAG ^ ESC_MASK) -> FLAG
+/// - ESC + (ESC ^ ESC_MASK)  -> ESC
+///
+/// Reuses the capacity already present in `out` to avoid per-frame allocation.
+fn hdlc_unescape_into(data: &[u8], out: &mut Vec<u8>) {
+    out.clear();
+    // Reserve enough space -- unescaped output is at most `data.len()` bytes.
+    if out.capacity() < data.len() {
+        out.reserve(data.len() - out.capacity());
+    }
     let mut i = 0;
     while i < data.len() {
         if data[i] == ESC && i + 1 < data.len() {
-            result.push(data[i + 1] ^ ESC_MASK);
+            out.push(data[i + 1] ^ ESC_MASK);
             i += 2;
         } else {
-            result.push(data[i]);
+            out.push(data[i]);
             i += 1;
         }
     }
-    result
 }
 
 #[cfg(test)]
@@ -229,5 +268,38 @@ mod tests {
         let frames = acc.feed(&data);
         assert_eq!(frames.len(), 1);
         assert_eq!(frames[0], payload);
+    }
+
+    #[test]
+    fn feed_to_callback_api() {
+        let mut acc = HdlcFrameAccumulator::new();
+        let p1 = fake_packet(HEADER_MINSIZE);
+        let p2 = fake_packet(HEADER_MINSIZE + 10);
+
+        let mut data = hdlc_frame(&p1);
+        data.extend_from_slice(&hdlc_frame(&p2));
+
+        let mut collected = Vec::new();
+        acc.feed_to(&data, |frame| collected.push(frame));
+        assert_eq!(collected.len(), 2);
+        assert_eq!(collected[0], p1);
+        assert_eq!(collected[1], p2);
+    }
+
+    #[test]
+    fn buffer_reuse_across_multiple_feeds() {
+        let mut acc = HdlcFrameAccumulator::new();
+
+        // Feed several frames across multiple calls and verify buffer reuse
+        for i in 0..10 {
+            let payload = fake_packet(HEADER_MINSIZE + i);
+            let framed = hdlc_frame(&payload);
+            let frames = acc.feed(&framed);
+            assert_eq!(frames.len(), 1);
+            assert_eq!(frames[0], payload);
+        }
+
+        // The unescape_buf should have been reused (capacity >= last payload size)
+        assert!(acc.unescape_buf.capacity() >= HEADER_MINSIZE);
     }
 }

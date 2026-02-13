@@ -43,6 +43,31 @@ pub struct AnnounceTableEntry {
     pub attached_interface: Option<InterfaceId>,
 }
 
+/// Parameters for inserting an announce entry into the retransmission table.
+#[derive(Debug, Clone)]
+pub struct AnnounceInsertParams {
+    /// Destination hash for this announce.
+    pub destination: DestinationHash,
+    /// Current time (seconds).
+    pub now: f64,
+    /// Random delay factor for retransmission scheduling.
+    pub random_delay: f64,
+    /// Number of retransmit attempts so far.
+    pub retries: u32,
+    /// Interface the announce was received from.
+    pub received_from: InterfaceId,
+    /// Hop count of the announce.
+    pub hops: u8,
+    /// The raw packet to retransmit.
+    pub raw_packet: Vec<u8>,
+    /// Local rebroadcast count.
+    pub local_rebroadcasts: u32,
+    /// Whether to block further rebroadcasts.
+    pub block_rebroadcasts: bool,
+    /// Interface the announce is attached to.
+    pub attached_interface: Option<InterfaceId>,
+}
+
 /// Announce retransmission table.
 pub struct AnnounceTable {
     entries: HashMap<DestinationHash, AnnounceTableEntry>,
@@ -56,33 +81,20 @@ impl AnnounceTable {
     }
 
     /// Insert a new announce entry for retransmission.
-    #[allow(clippy::too_many_arguments)]
-    pub fn insert(
-        &mut self,
-        destination: DestinationHash,
-        now: f64,
-        random_delay: f64,
-        retries: u32,
-        received_from: InterfaceId,
-        hops: u8,
-        raw_packet: Vec<u8>,
-        local_rebroadcasts: u32,
-        block_rebroadcasts: bool,
-        attached_interface: Option<InterfaceId>,
-    ) {
-        let retransmit_timeout = now + random_delay * PATHFINDER_RW;
+    pub fn insert(&mut self, params: AnnounceInsertParams) {
+        let retransmit_timeout = params.now + params.random_delay * PATHFINDER_RW;
         let entry = AnnounceTableEntry {
-            timestamp: now,
+            timestamp: params.now,
             retransmit_timeout,
-            retries,
-            received_from,
-            hops,
-            raw_packet,
-            local_rebroadcast_count: local_rebroadcasts,
-            block_rebroadcasts,
-            attached_interface,
+            retries: params.retries,
+            received_from: params.received_from,
+            hops: params.hops,
+            raw_packet: params.raw_packet,
+            local_rebroadcast_count: params.local_rebroadcasts,
+            block_rebroadcasts: params.block_rebroadcasts,
+            attached_interface: params.attached_interface,
         };
-        self.entries.insert(destination, entry);
+        self.entries.insert(params.destination, entry);
     }
 
     /// Get an announce entry.
@@ -181,18 +193,18 @@ mod tests {
         let mut table = AnnounceTable::new();
         let dest = make_dest(1);
 
-        table.insert(
-            dest,
-            1000.0,
-            0.5,
-            0,
-            InterfaceId(1),
-            1,
-            vec![0x01, 0x02],
-            0,
-            false,
-            None,
-        );
+        table.insert(AnnounceInsertParams {
+            destination: dest,
+            now: 1000.0,
+            random_delay: 0.5,
+            retries: 0,
+            received_from: InterfaceId(1),
+            hops: 1,
+            raw_packet: vec![0x01, 0x02],
+            local_rebroadcasts: 0,
+            block_rebroadcasts: false,
+            attached_interface: None,
+        });
 
         assert!(table.contains(&dest));
         let entry = table.get(&dest).unwrap();
@@ -206,18 +218,18 @@ mod tests {
         let dest = make_dest(1);
 
         // Insert with timeout at 1000.25 (1000.0 + 0.5 * 0.5)
-        table.insert(
-            dest,
-            1000.0,
-            0.5,
-            0,
-            InterfaceId(1),
-            1,
-            vec![0x01],
-            0,
-            false,
-            None,
-        );
+        table.insert(AnnounceInsertParams {
+            destination: dest,
+            now: 1000.0,
+            random_delay: 0.5,
+            retries: 0,
+            received_from: InterfaceId(1),
+            hops: 1,
+            raw_packet: vec![0x01],
+            local_rebroadcasts: 0,
+            block_rebroadcasts: false,
+            attached_interface: None,
+        });
 
         // Before timeout: no actions
         let actions = table.process_retransmissions(1000.1);
@@ -244,18 +256,18 @@ mod tests {
         let dest = make_dest(1);
 
         // Insert with retries already at PATHFINDER_R + 1 = 2
-        table.insert(
-            dest,
-            1000.0,
-            0.0,
-            PATHFINDER_R + 1,
-            InterfaceId(1),
-            1,
-            vec![0x01],
-            0,
-            false,
-            None,
-        );
+        table.insert(AnnounceInsertParams {
+            destination: dest,
+            now: 1000.0,
+            random_delay: 0.0,
+            retries: PATHFINDER_R + 1,
+            received_from: InterfaceId(1),
+            hops: 1,
+            raw_packet: vec![0x01],
+            local_rebroadcasts: 0,
+            block_rebroadcasts: false,
+            attached_interface: None,
+        });
 
         let actions = table.process_retransmissions(2000.0);
         assert!(
@@ -273,18 +285,18 @@ mod tests {
         let dest = make_dest(1);
 
         // Insert with retries at LOCAL_REBROADCASTS_MAX
-        table.insert(
-            dest,
-            1000.0,
-            0.0,
-            LOCAL_REBROADCASTS_MAX,
-            InterfaceId(1),
-            1,
-            vec![0x01],
-            0,
-            false,
-            None,
-        );
+        table.insert(AnnounceInsertParams {
+            destination: dest,
+            now: 1000.0,
+            random_delay: 0.0,
+            retries: LOCAL_REBROADCASTS_MAX,
+            received_from: InterfaceId(1),
+            hops: 1,
+            raw_packet: vec![0x01],
+            local_rebroadcasts: 0,
+            block_rebroadcasts: false,
+            attached_interface: None,
+        });
 
         let actions = table.process_retransmissions(2000.0);
         assert!(
@@ -300,18 +312,18 @@ mod tests {
         let mut table = AnnounceTable::new();
         let dest = make_dest(1);
 
-        table.insert(
-            dest,
-            1000.0,
-            0.0, // immediate timeout
-            0,
-            InterfaceId(1),
-            1,
-            vec![0x01],
-            0,
-            true, // block rebroadcasts
-            None,
-        );
+        table.insert(AnnounceInsertParams {
+            destination: dest,
+            now: 1000.0,
+            random_delay: 0.0, // immediate timeout
+            retries: 0,
+            received_from: InterfaceId(1),
+            hops: 1,
+            raw_packet: vec![0x01],
+            local_rebroadcasts: 0,
+            block_rebroadcasts: true, // block rebroadcasts
+            attached_interface: None,
+        });
 
         let actions = table.process_retransmissions(1001.0);
         // Should not emit Retransmit actions when blocked
@@ -344,18 +356,18 @@ mod tests {
         let mut table = AnnounceTable::new();
         let dest = make_dest(1);
 
-        table.insert(
-            dest,
-            1000.0,
-            0.5,
-            0,
-            InterfaceId(1),
-            1,
-            vec![0x01],
-            0,
-            false,
-            None,
-        );
+        table.insert(AnnounceInsertParams {
+            destination: dest,
+            now: 1000.0,
+            random_delay: 0.5,
+            retries: 0,
+            received_from: InterfaceId(1),
+            hops: 1,
+            raw_packet: vec![0x01],
+            local_rebroadcasts: 0,
+            block_rebroadcasts: false,
+            attached_interface: None,
+        });
         assert!(table.contains(&dest));
 
         table.remove(&dest);

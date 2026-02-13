@@ -64,7 +64,10 @@ impl InterfaceMode {
         match self {
             InterfaceMode::AccessPoint => AP_PATH_TIME,
             InterfaceMode::Roaming => ROAMING_PATH_TIME,
-            _ => PATHFINDER_E,
+            InterfaceMode::Full
+            | InterfaceMode::PointToPoint
+            | InterfaceMode::Boundary
+            | InterfaceMode::Gateway => PATHFINDER_E,
         }
     }
 }
