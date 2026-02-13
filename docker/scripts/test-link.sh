@@ -12,34 +12,20 @@ docker compose -f docker-compose.yml -f docker-compose.link-test.yml up -d --bui
 
 echo "=== Waiting for python-rns test script to complete (120s timeout) ==="
 TIMEOUT=120
-ELAPSED=0
-PYTHON_EXIT=
 
-while [ $ELAPSED -lt $TIMEOUT ]; do
-    # Check if python-rns container has exited
-    STATUS=$(docker compose -f docker-compose.yml -f docker-compose.link-test.yml ps --format json python-rns 2>/dev/null | python3 -c "
-import sys, json
-data = json.loads(sys.stdin.read())
-if isinstance(data, list):
-    data = data[0]
-print(data.get('State', 'unknown'))
-" 2>/dev/null || echo "unknown")
+# Get the container name/ID for python-rns
+PYTHON_CONTAINER=$(docker compose -f docker-compose.yml -f docker-compose.link-test.yml ps -q python-rns 2>/dev/null)
 
-    if [ "$STATUS" = "exited" ]; then
-        PYTHON_EXIT=$(docker compose -f docker-compose.yml -f docker-compose.link-test.yml ps --format json python-rns 2>/dev/null | python3 -c "
-import sys, json
-data = json.loads(sys.stdin.read())
-if isinstance(data, list):
-    data = data[0]
-print(data.get('ExitCode', -1))
-" 2>/dev/null || echo "-1")
+if [ -n "$PYTHON_CONTAINER" ]; then
+    # Use 'docker wait' which reliably blocks until exit and returns the exit code
+    PYTHON_EXIT=$(timeout "$TIMEOUT" docker wait "$PYTHON_CONTAINER" 2>/dev/null || echo "")
+    if [ -n "$PYTHON_EXIT" ]; then
         echo "Python test script exited with code: $PYTHON_EXIT"
-        break
     fi
-
-    sleep 2
-    ELAPSED=$((ELAPSED + 2))
-done
+else
+    echo "WARNING: Could not find python-rns container"
+    PYTHON_EXIT=""
+fi
 
 echo "=== Collecting logs ==="
 docker compose -f docker-compose.yml -f docker-compose.link-test.yml logs >> "$LOG_FILE" 2>&1

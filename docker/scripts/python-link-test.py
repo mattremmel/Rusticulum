@@ -31,6 +31,16 @@ link_from_rust = None
 link_to_rust = None
 
 
+class AnnounceHandler:
+    """Class-based announce handler required by RNS Transport API."""
+
+    def __init__(self):
+        self.aspect_filter = None  # Receive all announces
+
+    def received_announce(self, destination_hash, announced_identity, app_data):
+        announce_handler(destination_hash, announced_identity, app_data)
+
+
 def link_established_callback(link):
     """Called when Rust initiates a link to our Python destination."""
     global link_from_rust
@@ -105,8 +115,9 @@ def main():
     # Start Reticulum
     reticulum = RNS.Reticulum("/etc/reticulum")
 
-    # Register announce handler
-    RNS.Transport.register_announce_handler(announce_handler)
+    # Register announce handler (must be class with aspect_filter + received_announce)
+    handler = AnnounceHandler()
+    RNS.Transport.register_announce_handler(handler)
 
     # Create our destination that accepts links
     identity = RNS.Identity()
@@ -124,12 +135,17 @@ def main():
 
     RNS.log(f"Python destination hash: {RNS.prettyhexrep(destination.hash)}")
 
-    # Wait for Rust node to connect
+    # Wait for Rust node to connect (give it time to start and establish TCP)
     RNS.log("Waiting for Rust node to connect...")
-    time.sleep(5)
+    time.sleep(10)
 
     # Send our announce so Rust can discover us and auto-link
     RNS.log("Sending announce")
+    destination.announce(app_data=b"hello from python")
+
+    # Re-announce after a short delay in case first was missed
+    time.sleep(3)
+    RNS.log("Sending re-announce")
     destination.announce(app_data=b"hello from python")
 
     # Wait for Rust-initiated link (60s timeout)

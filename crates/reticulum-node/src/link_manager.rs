@@ -4,7 +4,7 @@
 //! and teardown. Supports both responder mode (accepting incoming link requests)
 //! and initiator mode (connecting to discovered destinations).
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use reticulum_core::announce::Announce;
 use reticulum_core::constants::{DestinationType, HeaderType, MTU, PacketType, TransportType};
@@ -42,6 +42,8 @@ pub struct LinkManager {
     pending_responder: HashMap<LinkId, LinkHandshake>,
     /// Active links: link_id → LinkActive
     active_links: HashMap<LinkId, LinkActive>,
+    /// Destinations we have active links to (for dedup on re-announce)
+    linked_destinations: HashSet<DestinationHash>,
     /// Destinations queued for link initiation
     pending_link_targets: Vec<(DestinationHash, Option<String>)>,
     /// Auto-data to send after link establishment (link_id → data)
@@ -58,6 +60,7 @@ impl LinkManager {
             pending_initiator: HashMap::new(),
             pending_responder: HashMap::new(),
             active_links: HashMap::new(),
+            linked_destinations: HashSet::new(),
             pending_link_targets: Vec::new(),
             auto_data_queue: HashMap::new(),
         }
@@ -90,6 +93,15 @@ impl LinkManager {
         dest_hash: DestinationHash,
         announce: &Announce,
     ) -> bool {
+        // Skip our own announces — don't self-link
+        if self.local_destinations.contains_key(&dest_hash) {
+            tracing::debug!(
+                dest_hash = %hex::encode(dest_hash.as_ref()),
+                "ignoring announce from our own destination"
+            );
+            return false;
+        }
+
         // Extract identity from announce public key bytes
         let identity = match Identity::from_public_bytes(&announce.public_key) {
             Ok(id) => id,
@@ -132,11 +144,7 @@ impl LinkManager {
         self.pending_initiator
             .values()
             .any(|(_, dh)| dh == dest_hash)
-            || self.active_links.values().any(|_| {
-                // We don't track dest_hash in active links directly,
-                // but for now we rely on the pending_initiator check
-                false
-            })
+            || self.linked_destinations.contains(dest_hash)
     }
 
     /// Drain destinations queued for link initiation.
@@ -377,6 +385,7 @@ impl LinkManager {
         };
 
         self.active_links.insert(active.link_id, active);
+        self.linked_destinations.insert(dest_hash);
 
         Some(rtt_packet.serialize())
     }
