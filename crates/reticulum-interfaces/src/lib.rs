@@ -4,6 +4,7 @@
 //! interfaces with HDLC and KISS framing support.
 
 pub mod error;
+pub mod tcp;
 pub mod traits;
 
 pub use error::InterfaceError;
