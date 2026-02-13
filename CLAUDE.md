@@ -28,6 +28,7 @@ Docker integration tests (requires Docker — always run after `cargo test`):
 ```bash
 docker/scripts/test-announce.sh     # Announce exchange: Rust ↔ Python RNS
 docker/scripts/test-link.sh         # Link establishment + encrypted data: Rust ↔ Python RNS
+docker/scripts/test-resource.sh     # Resource transfer: Rust ↔ Python RNS
 ```
 
 These test real interop with the Python reference implementation over TCP. They build containers, run the test, and tear down automatically.
