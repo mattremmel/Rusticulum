@@ -11,6 +11,7 @@ pub mod link_manager;
 pub mod logging;
 pub mod node;
 pub mod resource_manager;
+pub mod routing;
 pub mod storage;
 
 pub use config::NodeConfig;

@@ -919,4 +919,79 @@ mod tests {
         router.cull_tables(1000, &active);
         assert_eq!(router.reverse_table().len(), 1);
     }
+
+    #[test]
+    fn announce_next_hop_stores_transport_id() {
+        use reticulum_core::announce::Announce;
+        use reticulum_core::destination;
+        use reticulum_core::identity::Identity;
+
+        let identity = Identity::generate();
+        let nh = destination::name_hash("test_app", &["announce", "v1"]);
+        let dh = destination::destination_hash(&nh, identity.hash());
+        let random_hash = [0xAA; 10];
+
+        let announce = Announce::create(&identity, nh, dh, random_hash, None, None)
+            .expect("create failed");
+        let raw_packet = announce.to_raw_packet(2);
+
+        let mut router = PacketRouter::new();
+        let iface = InterfaceId(1);
+
+        // Simulate HEADER_2 announce with transport_id
+        let transport_id = DestinationHash::new([0xBB; 16]);
+        let result = router
+            .process_inbound_announce(
+                &raw_packet,
+                iface,
+                InterfaceMode::Full,
+                1000,
+                1000.0,
+                Some(transport_id),
+            )
+            .expect("process failed");
+
+        assert!(result.path_updated);
+
+        // Path entry's next_hop should be the transport_id
+        let entry = router.path_table().get(&dh).expect("path should exist");
+        assert_eq!(entry.next_hop.as_ref(), &[0xBB; 16]);
+    }
+
+    #[test]
+    fn announce_next_hop_zero_for_direct() {
+        use reticulum_core::announce::Announce;
+        use reticulum_core::destination;
+        use reticulum_core::identity::Identity;
+
+        let identity = Identity::generate();
+        let nh = destination::name_hash("test_app", &["announce", "v1"]);
+        let dh = destination::destination_hash(&nh, identity.hash());
+        let random_hash = [0xCC; 10];
+
+        let announce = Announce::create(&identity, nh, dh, random_hash, None, None)
+            .expect("create failed");
+        let raw_packet = announce.to_raw_packet(1);
+
+        let mut router = PacketRouter::new();
+        let iface = InterfaceId(1);
+
+        // Direct announce: no transport_id
+        let result = router
+            .process_inbound_announce(
+                &raw_packet,
+                iface,
+                InterfaceMode::Full,
+                1000,
+                1000.0,
+                None,
+            )
+            .expect("process failed");
+
+        assert!(result.path_updated);
+
+        // Path entry's next_hop should be all zeros (direct)
+        let entry = router.path_table().get(&dh).expect("path should exist");
+        assert_eq!(entry.next_hop.as_ref(), &[0u8; 16]);
+    }
 }
