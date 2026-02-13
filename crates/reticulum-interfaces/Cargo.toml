@@ -11,6 +11,7 @@ repository.workspace = true
 [dependencies]
 reticulum-core = { workspace = true, features = ["std"] }
 reticulum-crypto = { workspace = true, features = ["std"] }
+reticulum-transport = { workspace = true }
 tokio = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }

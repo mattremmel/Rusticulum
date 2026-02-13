@@ -844,6 +844,7 @@ dependencies = [
  "hex",
  "reticulum-core",
  "reticulum-crypto",
+ "reticulum-transport",
  "serde",
  "serde_json",
  "thiserror",
