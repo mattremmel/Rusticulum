@@ -3,6 +3,7 @@
 use reticulum_core::types::{PacketHash, TruncatedHash};
 
 use super::constants::*;
+use crate::error::PathError;
 
 /// Lightweight interface identifier.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -46,15 +47,15 @@ impl InterfaceMode {
     }
 
     /// Parse from test-vector string representation (e.g. "MODE_FULL", "default").
-    pub fn from_vector_str(s: &str) -> Self {
+    pub fn from_vector_str(s: &str) -> Result<Self, PathError> {
         match s {
-            mode_str::MODE_ACCESS_POINT => InterfaceMode::AccessPoint,
-            mode_str::MODE_ROAMING => InterfaceMode::Roaming,
-            mode_str::MODE_POINT_TO_POINT => InterfaceMode::PointToPoint,
-            mode_str::MODE_BOUNDARY => InterfaceMode::Boundary,
-            mode_str::MODE_GATEWAY => InterfaceMode::Gateway,
-            mode_str::MODE_FULL | mode_str::DEFAULT => InterfaceMode::Full,
-            other => panic!("unknown interface mode: {other}"),
+            mode_str::MODE_ACCESS_POINT => Ok(InterfaceMode::AccessPoint),
+            mode_str::MODE_ROAMING => Ok(InterfaceMode::Roaming),
+            mode_str::MODE_POINT_TO_POINT => Ok(InterfaceMode::PointToPoint),
+            mode_str::MODE_BOUNDARY => Ok(InterfaceMode::Boundary),
+            mode_str::MODE_GATEWAY => Ok(InterfaceMode::Gateway),
+            mode_str::MODE_FULL | mode_str::DEFAULT => Ok(InterfaceMode::Full),
+            other => Err(PathError::InvalidInterfaceMode(other.to_string())),
         }
     }
 

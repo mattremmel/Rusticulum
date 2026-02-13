@@ -37,7 +37,7 @@ pub enum PathError {
     Expired,
 
     #[error("invalid interface mode: {0}")]
-    InvalidInterfaceMode(u8),
+    InvalidInterfaceMode(String),
 
     #[error("packet error: {0}")]
     PacketError(#[from] PacketError),

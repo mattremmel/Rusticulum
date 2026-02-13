@@ -199,7 +199,8 @@ mod tests {
                 tv.interface_mode
                     .as_deref()
                     .unwrap_or(crate::path::types::mode_str::MODE_FULL),
-            );
+            )
+            .unwrap();
 
             let dest_bytes = hex::decode(&tv.destination_hash).unwrap();
             let _dest = DestinationHash::try_from(dest_bytes.as_slice()).unwrap();
@@ -249,7 +250,7 @@ mod tests {
         let vectors = reticulum_test_vectors::path_expiration::load();
 
         for tv in &vectors.ttl_enforcement_vectors {
-            let mode = InterfaceMode::from_vector_str(&tv.interface_mode);
+            let mode = InterfaceMode::from_vector_str(&tv.interface_mode).unwrap();
 
             assert_eq!(
                 mode.path_ttl(),
@@ -325,7 +326,7 @@ mod tests {
         let vectors = reticulum_test_vectors::path_expiration::load();
 
         for tv in &vectors.timestamp_refresh_vectors {
-            let mode = InterfaceMode::from_vector_str(&tv.interface_mode);
+            let mode = InterfaceMode::from_vector_str(&tv.interface_mode).unwrap();
 
             // Create initial entry
             let initial = &tv.path_entry_initial;
