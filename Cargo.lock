@@ -899,9 +899,11 @@ name = "reticulum-transport"
 version = "0.1.0"
 dependencies = [
  "hex",
+ "proptest",
  "reticulum-core",
  "reticulum-crypto",
  "reticulum-protocol",
+ "reticulum-test-vectors",
  "serde",
  "serde_json",
  "thiserror",

@@ -20,3 +20,5 @@ tracing = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 hex = { workspace = true }
+reticulum-test-vectors = { workspace = true }
+proptest = { workspace = true }
