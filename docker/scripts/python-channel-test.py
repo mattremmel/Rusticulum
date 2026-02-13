@@ -12,10 +12,10 @@ import json
 import sys
 import time
 import os
-import struct
 
 import RNS
 import RNS.Channel as Channel
+import RNS.Buffer
 
 # ---- Global result tracking ----
 results = {
@@ -36,6 +36,7 @@ results = {
 
 link_from_rust = None
 channel_obj = None
+buffer_obj = None
 
 
 # ---- Custom message type for channel test ----
@@ -94,16 +95,20 @@ buffer_complete = False
 
 def buffer_ready_callback(ready_bytes):
     """Called when buffer data is available."""
-    global buffer_data_received, buffer_complete
-    data = ready_bytes
-    if data:
-        buffer_data_received.extend(data)
-        RNS.log(f"Buffer data chunk received: {len(data)} bytes, total: {len(buffer_data_received)}")
+    global buffer_data_received, buffer_complete, buffer_obj
+    if buffer_obj and ready_bytes > 0:
+        data = buffer_obj.read(ready_bytes)
+        if data:
+            buffer_data_received.extend(data)
+            results["buffer_from_rust"] = True
+            results["buffer_from_rust_data"] = buffer_data_received.decode("utf-8", errors="replace")
+            RNS.log(f"Buffer data chunk received: {len(data)} bytes, total: {len(buffer_data_received)}")
+            RNS.log(f"Buffer data content: {data}")
 
 
 # ---- Link established callback ----
 def link_established_callback(link):
-    global link_from_rust, channel_obj
+    global link_from_rust, channel_obj, buffer_obj
     link_from_rust = link
     results["link_established"] = True
     RNS.log(f"Link from Rust established: {link}")
@@ -112,6 +117,11 @@ def link_established_callback(link):
     channel_obj = link.get_channel()
     channel_obj.register_message_type(TestMessage)
     channel_obj.add_message_handler(channel_message_received)
+
+    # Set up buffer — MUST be created here (before Rust sends auto_buffer data)
+    # so that StreamDataMessage (0xFF00) is registered as a system type
+    buffer_obj = RNS.Buffer.create_bidirectional_buffer(0, 0, channel_obj, buffer_ready_callback)
+    RNS.log("Buffer created on channel")
 
     # Set up resource strategy (needed for some operations)
     link.set_resource_strategy(RNS.Link.ACCEPT_ALL)
@@ -211,38 +221,13 @@ def main():
     time.sleep(3)
 
     # ---- Phase 2: Buffer streams ----
-    # Send buffer data from Python to Rust via channel
-    if channel_obj is not None:
+    # Send buffer data from Python to Rust via Buffer API
+    if buffer_obj is not None:
         try:
-            # Send a stream data message using channel envelope
-            # SMT_STREAM_DATA = 0xFF00
-            # Build StreamDataMessage manually: header(2) || data
             stream_data = b"streamed from python node"
-            # Stream header: stream_id=0, is_eof=True, is_compressed=False
-            # val = 0 | 0x8000 (eof) = 0x8000
-            stream_header = struct.pack(">H", 0x8000)
-            stream_packed = stream_header + stream_data
-
-            # Wrap in Envelope with msg_type=0xFF00
-            # We can use the raw channel send for this
-            # Actually, use RNS Buffer API if available, or send via channel raw
-            # Channel.send() expects a MessageBase subclass, so we need a system message approach
-
-            # RNS Channel has an internal _send_raw method for system messages
-            # For simplicity, let's use a custom MessageBase with SMT_STREAM_DATA type
-
-            class StreamMessage(Channel.MessageBase):
-                MSGTYPE = 0xFF00
-                def __init__(self, packed_data):
-                    self._packed = packed_data
-                def pack(self):
-                    return self._packed
-                def unpack(self, raw):
-                    self._packed = raw
-
-            channel_obj.register_message_type(StreamMessage)
-            stream_msg = StreamMessage(stream_packed)
-            channel_obj.send(stream_msg)
+            buffer_obj.write(stream_data)
+            buffer_obj.flush()
+            buffer_obj.close()
             results["buffer_to_rust_sent"] = True
             RNS.log(f"Sent buffer stream to Rust: {len(stream_data)} bytes")
         except Exception as e:
@@ -273,10 +258,12 @@ def main():
     # Report results
     RNS.log(f"Test results: {json.dumps(results, indent=2)}")
 
-    # Determine success: at minimum, link + channel message exchange
+    # Determine success: link + channel + buffer exchange
     success = (
         results["link_established"]
         and (results["channel_msg_from_rust"] or results["channel_msg_to_rust_sent"])
+        and results["buffer_to_rust_sent"]
+        and results["buffer_from_rust"]
     )
 
     if success:

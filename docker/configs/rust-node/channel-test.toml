@@ -16,5 +16,6 @@ app_data = "hello from rust"
 app_name = "channel_test"
 aspects = ["channel", "v1"]
 auto_channel = "hello from rust channel"
+auto_buffer = "hello from rust buffer"
 auto_request_path = "/test/echo"
 auto_request_data = "rust request payload"

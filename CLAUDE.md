@@ -29,6 +29,7 @@ Docker integration tests (requires Docker — always run after `cargo test`):
 docker/scripts/test-announce.sh     # Announce exchange: Rust ↔ Python RNS
 docker/scripts/test-link.sh         # Link establishment + encrypted data: Rust ↔ Python RNS
 docker/scripts/test-resource.sh     # Resource transfer: Rust ↔ Python RNS
+docker/scripts/test-channel.sh      # Channel messages + buffer streams: Rust ↔ Python RNS
 ```
 
 These test real interop with the Python reference implementation over TCP. They build containers, run the test, and tear down automatically.
@@ -94,7 +95,7 @@ bd sync               # Sync with git
 When ending a work session, ALL steps below must be completed. Work is NOT complete until `git push` succeeds.
 
 1. **File issues for remaining work** — Create issues for anything that needs follow-up
-2. **Run quality gates** (if code changed) — `cargo test`, `cargo clippy`, then Docker integration tests (`docker/scripts/test-announce.sh`, `docker/scripts/test-link.sh`)
+2. **Run quality gates** (if code changed) — `cargo test`, `cargo clippy`, then Docker integration tests (`docker/scripts/test-announce.sh`, `docker/scripts/test-link.sh`, `docker/scripts/test-resource.sh`, `docker/scripts/test-channel.sh`)
 3. **Update issue status** — Close finished work, update in-progress items
 4. **Push to remote** (MANDATORY):
    ```bash

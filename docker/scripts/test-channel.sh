@@ -99,7 +99,7 @@ echo "Rust response received:         $RUST_RESPONSE_RECEIVED"
 echo "Full logs saved to: $LOG_FILE"
 echo ""
 
-if [ "$PYTHON_PASS" = true ] && [ "$RUST_LINK_ESTABLISHED" = true ]; then
+if [ "$PYTHON_PASS" = true ] && [ "$RUST_LINK_ESTABLISHED" = true ] && [ "$RUST_BUFFER_RECEIVED" = true ]; then
     echo "=== Channel/Buffer/Request integration test PASSED ==="
     exit 0
 else
