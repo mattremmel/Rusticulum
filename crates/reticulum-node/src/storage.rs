@@ -456,4 +456,153 @@ mod tests {
         let loaded_table = storage.load_path_table().await.unwrap();
         assert_eq!(loaded_table.len(), 1); // Last write had 1 entry
     }
+
+    // --- Storage corruption recovery tests ---
+
+    #[tokio::test]
+    async fn test_identity_load_truncated_nonzero() {
+        let dir = tempfile::tempdir().unwrap();
+        let storage = Storage::new(dir.path().to_path_buf()).unwrap();
+
+        // Write 32 bytes (not 0, not 64)
+        std::fs::write(dir.path().join(IDENTITY_FILE), &[0xAB; 32]).unwrap();
+
+        let result = storage.load_identity().await;
+        match result {
+            Err(StorageError::InvalidIdentityLength(32)) => {}
+            Err(other) => panic!("expected InvalidIdentityLength(32), got: {other}"),
+            Ok(_) => panic!("expected error, got Ok"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_identity_load_oversized() {
+        let dir = tempfile::tempdir().unwrap();
+        let storage = Storage::new(dir.path().to_path_buf()).unwrap();
+
+        // Write 128 bytes
+        std::fs::write(dir.path().join(IDENTITY_FILE), &[0xCD; 128]).unwrap();
+
+        let result = storage.load_identity().await;
+        match result {
+            Err(StorageError::InvalidIdentityLength(128)) => {}
+            Err(other) => panic!("expected InvalidIdentityLength(128), got: {other}"),
+            Ok(_) => panic!("expected error, got Ok"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_identity_load_zero_length_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let storage = Storage::new(dir.path().to_path_buf()).unwrap();
+
+        // Write empty file
+        std::fs::write(dir.path().join(IDENTITY_FILE), &[]).unwrap();
+
+        let result = storage.load_identity().await;
+        match result {
+            Err(StorageError::InvalidIdentityLength(0)) => {}
+            Err(other) => panic!("expected InvalidIdentityLength(0), got: {other}"),
+            Ok(_) => panic!("expected error, got Ok"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_path_table_load_truncated_postcard() {
+        let dir = tempfile::tempdir().unwrap();
+        let storage = Storage::new(dir.path().to_path_buf()).unwrap();
+
+        // First save a valid path table to get valid serialized bytes
+        let mut table = PathTable::new();
+        let entry = make_entry(1000, 3, vec![[0x11; 10]]);
+        table.insert(make_dest(1), entry);
+        storage.save_path_table(&table).await.unwrap();
+
+        // Read the file and truncate it
+        let full_bytes = std::fs::read(dir.path().join(PATH_TABLE_FILE)).unwrap();
+        assert!(full_bytes.len() > 5, "need enough bytes to truncate");
+        std::fs::write(dir.path().join(PATH_TABLE_FILE), &full_bytes[..5]).unwrap();
+
+        let result = storage.load_path_table().await;
+        assert!(result.is_err(), "truncated postcard should fail to deserialize");
+        match result {
+            Err(StorageError::Deserialize(_)) => {}
+            Err(other) => panic!("expected Deserialize error, got: {other}"),
+            Ok(_) => panic!("expected error, got Ok"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_hashlist_load_truncated_postcard() {
+        let dir = tempfile::tempdir().unwrap();
+        let storage = Storage::new(dir.path().to_path_buf()).unwrap();
+
+        // Save a valid hashlist first
+        let mut hashlist = PacketHashlist::new();
+        hashlist.insert(make_packet_hash(0x11));
+        hashlist.insert(make_packet_hash(0x22));
+        storage.save_hashlist(&hashlist).await.unwrap();
+
+        // Truncate
+        let full_bytes = std::fs::read(dir.path().join(HASHLIST_FILE)).unwrap();
+        assert!(full_bytes.len() > 5, "need enough bytes to truncate");
+        std::fs::write(dir.path().join(HASHLIST_FILE), &full_bytes[..5]).unwrap();
+
+        let result = storage.load_hashlist().await;
+        assert!(result.is_err(), "truncated postcard should fail to deserialize");
+        match result {
+            Err(StorageError::Deserialize(_)) => {}
+            Err(other) => panic!("expected Deserialize error, got: {other}"),
+            Ok(_) => panic!("expected error, got Ok"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_storage_survives_readonly_directory() {
+        let dir = tempfile::tempdir().unwrap();
+        let storage = Storage::new(dir.path().to_path_buf()).unwrap();
+
+        // Make the directory readonly
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o000)).unwrap();
+        }
+
+        let identity = Identity::generate();
+        let result = storage.save_identity(&identity).await;
+
+        // Restore permissions before asserting (so tempdir cleanup works)
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+
+        assert!(result.is_err(), "save to readonly dir should return Io error");
+        match result {
+            Err(StorageError::Io(_)) => {}
+            Err(other) => panic!("expected Io error, got: {other}"),
+            Ok(_) => panic!("expected error, got Ok"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_tmp_file_from_previous_crash_ignored_on_load() {
+        let dir = tempfile::tempdir().unwrap();
+        let storage = Storage::new(dir.path().to_path_buf()).unwrap();
+
+        // Save a valid identity
+        let identity = Identity::generate();
+        storage.save_identity(&identity).await.unwrap();
+
+        // Create a stale .tmp file alongside the real identity file
+        let tmp_path = dir.path().join(format!("{IDENTITY_FILE}.tmp"));
+        std::fs::write(&tmp_path, b"stale garbage from crashed write").unwrap();
+        assert!(tmp_path.exists());
+
+        // Load should return the real identity, ignoring .tmp
+        let loaded = storage.load_identity().await.unwrap().expect("should load real file");
+        assert_eq!(identity.hash().as_ref(), loaded.hash().as_ref());
+    }
 }

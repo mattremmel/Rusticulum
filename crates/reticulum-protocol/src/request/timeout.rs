@@ -28,4 +28,49 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn test_timeout_zero_rtt() {
+        // RTT=0.0 → 0*6 + 10*1.125 = 11.25
+        let t = compute_request_timeout(0.0);
+        assert!((t - 11.25).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_timeout_negative_rtt() {
+        // RTT=-1.0 → -6 + 11.25 = 5.25 (no panic)
+        let t = compute_request_timeout(-1.0);
+        assert!((t - 5.25).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_timeout_very_large_rtt() {
+        // RTT=1e6 → 6e6 + 11.25, verify no overflow and proportional
+        let t = compute_request_timeout(1e6);
+        assert!(t > 5_999_000.0);
+        assert!(t < 6_100_000.0);
+    }
+
+    #[test]
+    fn test_timeout_monotonically_increasing() {
+        let rtts = [0.01, 0.1, 1.0, 10.0, 100.0];
+        let timeouts: Vec<f64> = rtts.iter().map(|&r| compute_request_timeout(r)).collect();
+        for i in 1..timeouts.len() {
+            assert!(
+                timeouts[i] > timeouts[i - 1],
+                "timeout at rtt={} ({}) should exceed timeout at rtt={} ({})",
+                rtts[i],
+                timeouts[i],
+                rtts[i - 1],
+                timeouts[i - 1],
+            );
+        }
+    }
+
+    #[test]
+    fn test_timeout_exact_formula() {
+        // RTT=1.0 → 1.0*6.0 + 10.0*1.125 = 6.0 + 11.25 = 17.25
+        let t = compute_request_timeout(1.0);
+        assert!((t - 17.25).abs() < 1e-9);
+    }
 }

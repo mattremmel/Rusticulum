@@ -502,4 +502,149 @@ mod tests {
 
         client.stop().await.unwrap();
     }
+
+    // --- Timeout and reconnection tests ---
+
+    #[tokio::test]
+    async fn test_max_reconnect_attempts_exhausted() {
+        // Bind and immediately drop to get a free port that nobody is listening on
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        drop(listener);
+
+        let mut config = TcpClientConfig::initiator("test-max-retry", addr.to_string());
+        config.max_reconnect_tries = Some(2);
+        config.connect_timeout = std::time::Duration::from_millis(100);
+
+        let client = TcpClientInterface::new(config, InterfaceId(50)).unwrap();
+        client.start().await.unwrap();
+
+        // Wait for the background task to finish (max retries exhausted)
+        // The task should exit after 2 failed attempts
+        let handle = client.task_handle.lock().await.take();
+        if let Some(h) = handle {
+            let result = tokio::time::timeout(std::time::Duration::from_secs(30), h).await;
+            assert!(result.is_ok(), "task should exit after max retries");
+        }
+
+        assert!(!client.is_connected());
+    }
+
+    #[tokio::test]
+    async fn test_transmit_while_disconnected_returns_not_connected() {
+        let mut config = TcpClientConfig::initiator(
+            "test-tx-disconnected",
+            "127.0.0.1:1",
+        );
+        config.max_reconnect_tries = Some(0);
+
+        let client = TcpClientInterface::new(config, InterfaceId(51)).unwrap();
+        // Don't start — not connected
+        let result = client.transmit(&[0x42; 10]).await;
+        assert!(matches!(result, Err(InterfaceError::NotConnected)));
+    }
+
+    #[tokio::test]
+    async fn test_rapid_stop_during_reconnect_wait() {
+        // No listener on this port
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        drop(listener);
+
+        let mut config = TcpClientConfig::initiator("test-rapid-stop", addr.to_string());
+        config.connect_timeout = std::time::Duration::from_millis(100);
+        // Unlimited retries
+        config.max_reconnect_tries = None;
+
+        let client = TcpClientInterface::new(config, InterfaceId(52)).unwrap();
+        client.start().await.unwrap();
+
+        // Give it a moment to enter the reconnect loop
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+
+        // Signal stop — should exit without waiting full RECONNECT_WAIT
+        let stop_result = tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            client.stop(),
+        )
+        .await;
+
+        assert!(stop_result.is_ok(), "stop should complete quickly");
+        assert!(!client.is_connected());
+    }
+
+    #[tokio::test]
+    async fn test_reconnect_counter_resets_on_success() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        // Allow 2 max retries
+        let mut config = TcpClientConfig::initiator("test-reset-counter", addr.to_string());
+        config.max_reconnect_tries = Some(2);
+
+        let client = TcpClientInterface::new(config, InterfaceId(53)).unwrap();
+        client.start().await.unwrap();
+
+        // Accept first connection
+        let (peer1, _) = listener.accept().await.unwrap();
+        for _ in 0..50 {
+            if client.is_connected() {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
+        assert!(client.is_connected());
+
+        // Drop to trigger reconnect — counter resets to 0 after successful connect
+        drop(peer1);
+
+        // Accept reconnection (counter should be 0 again)
+        let (_peer2, _) =
+            tokio::time::timeout(std::time::Duration::from_secs(10), listener.accept())
+                .await
+                .expect("timed out waiting for reconnect")
+                .unwrap();
+
+        for _ in 0..100 {
+            if client.is_connected() {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
+        assert!(client.is_connected(), "should reconnect (counter was reset)");
+
+        client.stop().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_responder_does_not_reconnect() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        // Create a real connection, then wrap it as a responder
+        let connector = TcpStream::connect(addr).await.unwrap();
+        let (_peer, _) = listener.accept().await.unwrap();
+
+        let config = TcpClientConfig::responder("test-responder-no-reconnect");
+        let client =
+            TcpClientInterface::from_connected(config, InterfaceId(54), connector).unwrap();
+        assert!(client.is_connected());
+
+        // Drop the peer to trigger disconnect in the read loop
+        drop(_peer);
+
+        // Wait for the responder's read loop to detect EOF and exit
+        for _ in 0..50 {
+            if !client.is_connected() {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
+
+        // Responder should not reconnect — just stay disconnected
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        assert!(!client.is_connected(), "responder should not reconnect");
+
+        client.stop().await.unwrap();
+    }
 }

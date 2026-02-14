@@ -1237,4 +1237,293 @@ mod tests {
             "after handshake, linked_destinations should track the destination"
         );
     }
+
+    // --- Timeout and recovery path tests ---
+
+    #[test]
+    fn test_initiator_pending_persists_without_proof() {
+        let responder_identity = Identity::generate();
+        let nh = destination::name_hash("pending_init", &["link", "v1"]);
+        let resp_dh = destination::destination_hash(&nh, responder_identity.hash());
+
+        let mut init_mgr = LinkManager::new(vec![]);
+        let resp_pub =
+            Identity::from_public_bytes(&responder_identity.public_key_bytes()).unwrap();
+        init_mgr.known_identities.insert(resp_dh, resp_pub);
+
+        let _lr_raw = init_mgr
+            .initiate_link(resp_dh, LinkAutoActions::default())
+            .expect("should create link request");
+
+        // Without receiving a proof, the pending_initiator should still hold the entry
+        assert_eq!(init_mgr.pending_initiator.len(), 1);
+        assert!(init_mgr.active_links.is_empty());
+
+        // The link_id should be in the map
+        let (link_id, (_, dest)) = init_mgr.pending_initiator.iter().next().unwrap();
+        assert_eq!(*dest, resp_dh);
+        assert_ne!(link_id.as_ref(), &[0u8; 16]);
+    }
+
+    #[test]
+    fn test_responder_pending_persists_without_rtt() {
+        let responder_identity = Identity::generate();
+        let nh = destination::name_hash("pending_resp", &["link", "v1"]);
+        let resp_dh = destination::destination_hash(&nh, responder_identity.hash());
+
+        let mut resp_mgr = LinkManager::new(vec![]);
+        resp_mgr.register_local_destination(
+            resp_dh,
+            "pending_resp",
+            &["link".to_string(), "v1".to_string()],
+        );
+
+        let mut init_mgr = LinkManager::new(vec![]);
+        let resp_pub =
+            Identity::from_public_bytes(&responder_identity.public_key_bytes()).unwrap();
+        init_mgr.known_identities.insert(resp_dh, resp_pub);
+
+        let lr_raw = init_mgr
+            .initiate_link(resp_dh, LinkAutoActions::default())
+            .unwrap();
+        let lr_pkt = RawPacket::parse(&lr_raw).unwrap();
+
+        let _proof_raw = resp_mgr
+            .handle_link_request(&lr_pkt, &responder_identity)
+            .expect("should produce proof");
+
+        // Without receiving LRRTT, the pending_responder should hold the entry
+        assert_eq!(resp_mgr.pending_responder.len(), 1);
+        assert!(resp_mgr.active_links.is_empty());
+    }
+
+    #[test]
+    fn test_pending_initiator_wrong_proof_leaves_pending() {
+        let responder_identity = Identity::generate();
+        let nh = destination::name_hash("wrong_proof", &["link", "v1"]);
+        let resp_dh = destination::destination_hash(&nh, responder_identity.hash());
+
+        let mut init_mgr = LinkManager::new(vec![]);
+        let resp_pub =
+            Identity::from_public_bytes(&responder_identity.public_key_bytes()).unwrap();
+        init_mgr.known_identities.insert(resp_dh, resp_pub);
+
+        let _lr_raw = init_mgr
+            .initiate_link(resp_dh, LinkAutoActions::default())
+            .unwrap();
+        assert_eq!(init_mgr.pending_initiator.len(), 1);
+
+        // Send a proof with wrong link_id
+        let wrong_proof = RawPacket {
+            flags: PacketFlags {
+                header_type: HeaderType::Header1,
+                context_flag: false,
+                transport_type: TransportType::Broadcast,
+                destination_type: DestinationType::Link,
+                packet_type: PacketType::Proof,
+            },
+            hops: 0,
+            transport_id: None,
+            destination: DestinationHash::new([0xBA; 16]),
+            context: ContextType::Lrproof,
+            data: vec![0u8; 99],
+        };
+
+        let result = init_mgr.handle_lrproof(&wrong_proof);
+        assert!(result.is_none());
+
+        // Pending entry should still be there
+        assert_eq!(init_mgr.pending_initiator.len(), 1);
+        assert!(init_mgr.active_links.is_empty());
+    }
+
+    #[test]
+    fn test_pending_responder_wrong_rtt_leaves_pending() {
+        let responder_identity = Identity::generate();
+        let nh = destination::name_hash("wrong_rtt", &["link", "v1"]);
+        let resp_dh = destination::destination_hash(&nh, responder_identity.hash());
+
+        let mut resp_mgr = LinkManager::new(vec![]);
+        resp_mgr.register_local_destination(
+            resp_dh,
+            "wrong_rtt",
+            &["link".to_string(), "v1".to_string()],
+        );
+
+        let mut init_mgr = LinkManager::new(vec![]);
+        let resp_pub =
+            Identity::from_public_bytes(&responder_identity.public_key_bytes()).unwrap();
+        init_mgr.known_identities.insert(resp_dh, resp_pub);
+
+        let lr_raw = init_mgr
+            .initiate_link(resp_dh, LinkAutoActions::default())
+            .unwrap();
+        let lr_pkt = RawPacket::parse(&lr_raw).unwrap();
+        let _proof_raw = resp_mgr
+            .handle_link_request(&lr_pkt, &responder_identity)
+            .unwrap();
+        assert_eq!(resp_mgr.pending_responder.len(), 1);
+
+        // Send RTT with wrong link_id
+        let wrong_rtt = RawPacket {
+            flags: PacketFlags {
+                header_type: HeaderType::Header1,
+                context_flag: false,
+                transport_type: TransportType::Broadcast,
+                destination_type: DestinationType::Link,
+                packet_type: PacketType::Data,
+            },
+            hops: 0,
+            transport_id: None,
+            destination: DestinationHash::new([0xBA; 16]),
+            context: ContextType::Lrrtt,
+            data: vec![0u8; 48],
+        };
+
+        let result = resp_mgr.handle_lrrtt(&wrong_rtt);
+        assert!(result.is_none());
+
+        // Pending entry should still be there
+        assert_eq!(resp_mgr.pending_responder.len(), 1);
+        assert!(resp_mgr.active_links.is_empty());
+    }
+
+    #[test]
+    fn test_active_link_state_after_handshake() {
+        let (init_mgr, resp_mgr, link_id, _resp_id) =
+            perform_full_handshake("active_state");
+
+        // Both sides should have active links
+        assert_eq!(init_mgr.active_links.len(), 1);
+        assert_eq!(resp_mgr.active_links.len(), 1);
+
+        // Pending maps should be empty
+        assert!(init_mgr.pending_initiator.is_empty());
+        assert!(resp_mgr.pending_responder.is_empty());
+
+        // Active link should be accessible by link_id
+        assert!(init_mgr.active_links.contains_key(&link_id));
+        assert!(resp_mgr.active_links.contains_key(&link_id));
+
+        // Derived keys should be present
+        assert!(init_mgr.get_derived_key(&link_id).is_some());
+        assert!(resp_mgr.get_derived_key(&link_id).is_some());
+    }
+
+    #[test]
+    fn test_handshake_with_unknown_destination_returns_none_no_state_change() {
+        let identity = Identity::generate();
+        let mut mgr = LinkManager::new(vec![]);
+
+        let initial_pending = mgr.pending_responder.len();
+        let initial_active = mgr.active_links.len();
+
+        let packet = RawPacket {
+            flags: PacketFlags {
+                header_type: HeaderType::Header1,
+                context_flag: false,
+                transport_type: TransportType::Broadcast,
+                destination_type: DestinationType::Single,
+                packet_type: PacketType::LinkRequest,
+            },
+            hops: 0,
+            transport_id: None,
+            destination: DestinationHash::new([0xFF; 16]),
+            context: ContextType::None,
+            data: vec![0u8; 64],
+        };
+
+        assert!(mgr.handle_link_request(&packet, &identity).is_none());
+        assert_eq!(mgr.pending_responder.len(), initial_pending);
+        assert_eq!(mgr.active_links.len(), initial_active);
+    }
+
+    #[test]
+    fn test_multiple_pending_links_independent() {
+        let responder_identity = Identity::generate();
+        let nh = destination::name_hash("multi_pending", &["link", "v1"]);
+        let resp_dh = destination::destination_hash(&nh, responder_identity.hash());
+
+        let mut resp_mgr = LinkManager::new(vec![]);
+        resp_mgr.register_local_destination(
+            resp_dh,
+            "multi_pending",
+            &["link".to_string(), "v1".to_string()],
+        );
+
+        // Create two initiators
+        let mut init1 = LinkManager::new(vec![]);
+        let resp_pub1 =
+            Identity::from_public_bytes(&responder_identity.public_key_bytes()).unwrap();
+        init1.known_identities.insert(resp_dh, resp_pub1);
+
+        let mut init2 = LinkManager::new(vec![]);
+        let resp_pub2 =
+            Identity::from_public_bytes(&responder_identity.public_key_bytes()).unwrap();
+        init2.known_identities.insert(resp_dh, resp_pub2);
+
+        let lr1_raw = init1
+            .initiate_link(resp_dh, LinkAutoActions::default())
+            .unwrap();
+        let lr2_raw = init2
+            .initiate_link(resp_dh, LinkAutoActions::default())
+            .unwrap();
+
+        // Responder handles both link requests
+        let lr1_pkt = RawPacket::parse(&lr1_raw).unwrap();
+        let lr2_pkt = RawPacket::parse(&lr2_raw).unwrap();
+
+        let proof1 = resp_mgr
+            .handle_link_request(&lr1_pkt, &responder_identity)
+            .unwrap();
+        let proof2 = resp_mgr
+            .handle_link_request(&lr2_pkt, &responder_identity)
+            .unwrap();
+
+        assert_eq!(resp_mgr.pending_responder.len(), 2);
+
+        // Complete only the first handshake
+        let proof1_pkt = RawPacket::parse(&proof1).unwrap();
+        let rtt1_raw = init1.handle_lrproof(&proof1_pkt).unwrap();
+        let rtt1_pkt = RawPacket::parse(&rtt1_raw).unwrap();
+        let _link_id1 = resp_mgr.handle_lrrtt(&rtt1_pkt).unwrap();
+
+        // First is now active, second should still be pending
+        assert_eq!(resp_mgr.active_links.len(), 1);
+        assert_eq!(resp_mgr.pending_responder.len(), 1);
+
+        // Complete the second handshake
+        let proof2_pkt = RawPacket::parse(&proof2).unwrap();
+        let rtt2_raw = init2.handle_lrproof(&proof2_pkt).unwrap();
+        let rtt2_pkt = RawPacket::parse(&rtt2_raw).unwrap();
+        let _link_id2 = resp_mgr.handle_lrrtt(&rtt2_pkt).unwrap();
+
+        assert_eq!(resp_mgr.active_links.len(), 2);
+        assert!(resp_mgr.pending_responder.is_empty());
+    }
+
+    #[test]
+    fn test_pending_initiator_count_after_initiate() {
+        let responder_identity = Identity::generate();
+        let nh = destination::name_hash("count_pending", &["link", "v1"]);
+        let resp_dh = destination::destination_hash(&nh, responder_identity.hash());
+
+        let mut init_mgr = LinkManager::new(vec![]);
+        let resp_pub =
+            Identity::from_public_bytes(&responder_identity.public_key_bytes()).unwrap();
+        init_mgr.known_identities.insert(resp_dh, resp_pub);
+
+        assert!(init_mgr.pending_initiator.is_empty());
+        assert!(init_mgr.active_links.is_empty());
+
+        let _lr_raw = init_mgr
+            .initiate_link(resp_dh, LinkAutoActions::default())
+            .unwrap();
+
+        // After initiating, pending_initiator should have exactly one entry
+        assert_eq!(init_mgr.pending_initiator.len(), 1);
+        // The entry should store the correct destination hash
+        let (_, (_, stored_dest)) = init_mgr.pending_initiator.iter().next().unwrap();
+        assert_eq!(*stored_dest, resp_dh);
+    }
 }

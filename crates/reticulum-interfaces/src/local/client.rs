@@ -479,4 +479,96 @@ mod tests {
 
         client.stop().await.unwrap();
     }
+
+    // --- Timeout and reconnection tests ---
+
+    #[tokio::test]
+    async fn test_max_reconnect_attempts_exhausted() {
+        let path = test_socket_path("max_retry");
+        let _cleanup = SocketCleanup(path.clone());
+        let _ = std::fs::remove_file(&path);
+        // Don't bind a listener — no one is listening
+
+        let mut config = LocalClientConfig::initiator("test-max-retry", path);
+        config.max_reconnect_tries = Some(2);
+        config.connect_timeout = std::time::Duration::from_millis(100);
+
+        let client = LocalClientInterface::new(config, InterfaceId(50)).unwrap();
+        client.start().await.unwrap();
+
+        // Wait for the background task to finish (max retries exhausted)
+        let handle = client.task_handle.lock().await.take();
+        if let Some(h) = handle {
+            let result = tokio::time::timeout(std::time::Duration::from_secs(30), h).await;
+            assert!(result.is_ok(), "task should exit after max retries");
+        }
+
+        assert!(!client.is_connected());
+    }
+
+    #[tokio::test]
+    async fn test_transmit_while_disconnected_returns_not_connected() {
+        let path = test_socket_path("tx_discon");
+        let mut config = LocalClientConfig::initiator("test-tx-disconnected", path);
+        config.max_reconnect_tries = Some(0);
+
+        let client = LocalClientInterface::new(config, InterfaceId(51)).unwrap();
+        // Don't start — not connected
+        let result = client.transmit(&[0x42; 10]).await;
+        assert!(matches!(result, Err(InterfaceError::NotConnected)));
+    }
+
+    #[tokio::test]
+    async fn test_stop_during_reconnect_exits_cleanly() {
+        let path = test_socket_path("stop_reconnect");
+        let _cleanup = SocketCleanup(path.clone());
+        let _ = std::fs::remove_file(&path);
+        // No listener — will keep trying to reconnect
+
+        let mut config = LocalClientConfig::initiator("test-stop-reconnect", path);
+        config.connect_timeout = std::time::Duration::from_millis(100);
+        config.max_reconnect_tries = None; // unlimited
+
+        let client = LocalClientInterface::new(config, InterfaceId(52)).unwrap();
+        client.start().await.unwrap();
+
+        // Give it a moment to enter the reconnect loop
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+
+        // Signal stop — should exit without waiting full RECONNECT_WAIT
+        let stop_result = tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            client.stop(),
+        )
+        .await;
+
+        assert!(stop_result.is_ok(), "stop should complete quickly");
+        assert!(!client.is_connected());
+    }
+
+    #[tokio::test]
+    async fn test_stale_socket_path_connection_refused() {
+        let path = test_socket_path("stale_socket");
+        let _cleanup = SocketCleanup(path.clone());
+        let _ = std::fs::remove_file(&path);
+
+        // Create a regular file (not a socket) at the path
+        std::fs::write(&path, b"not a socket").unwrap();
+
+        let mut config = LocalClientConfig::initiator("test-stale", path);
+        config.max_reconnect_tries = Some(2);
+        config.connect_timeout = std::time::Duration::from_millis(100);
+
+        let client = LocalClientInterface::new(config, InterfaceId(53)).unwrap();
+        client.start().await.unwrap();
+
+        // Wait for task to give up
+        let handle = client.task_handle.lock().await.take();
+        if let Some(h) = handle {
+            let result = tokio::time::timeout(std::time::Duration::from_secs(30), h).await;
+            assert!(result.is_ok(), "task should exit after max retries on bad socket");
+        }
+
+        assert!(!client.is_connected());
+    }
 }

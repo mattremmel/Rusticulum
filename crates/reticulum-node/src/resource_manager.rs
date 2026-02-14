@@ -731,4 +731,185 @@ mod tests {
         let transfer = receiver_mgr.incoming.get(&receiver_link).unwrap();
         assert_eq!(transfer.resource_hash, hash2);
     }
+
+    // --- Timeout and recovery path tests ---
+
+    #[test]
+    fn test_proof_mismatch_returns_false() {
+        let mut sender_mgr = ResourceManager::new();
+        let mut receiver_mgr = ResourceManager::new();
+        let sender_link = LinkId::new([0xD1; 16]);
+        let receiver_link = LinkId::new([0xD2; 16]);
+        let key = make_test_derived_key();
+
+        let (resource_hash, adv_bytes) = sender_mgr
+            .prepare_outgoing(sender_link, b"proof mismatch test", &key)
+            .unwrap();
+        let (_recv_hash, request_bytes) = receiver_mgr
+            .accept_advertisement(receiver_link, &adv_bytes)
+            .unwrap();
+        let (_link, parts) = sender_mgr.handle_part_request(&request_bytes).unwrap();
+        for part in &parts {
+            receiver_mgr.receive_part(&receiver_link, part).unwrap();
+        }
+        let (_data, mut proof_bytes) = receiver_mgr
+            .assemble_and_prove(&receiver_link, &key)
+            .unwrap();
+
+        // Tamper with the proof bytes (the proof hash is in bytes 32..64)
+        if proof_bytes.len() >= 64 {
+            proof_bytes[32] ^= 0xFF;
+            proof_bytes[33] ^= 0xFF;
+        }
+
+        let valid = sender_mgr.handle_proof(&proof_bytes).unwrap();
+        assert!(!valid, "tampered proof should not validate");
+        assert!(
+            !sender_mgr.is_complete(&resource_hash),
+            "transfer should not be marked complete on bad proof"
+        );
+    }
+
+    #[test]
+    fn test_proof_for_unknown_resource_returns_error() {
+        let mut mgr = ResourceManager::new();
+        // Proof payload: resource_hash(32) || proof(32)
+        let mut fake_proof = vec![0u8; 64];
+        fake_proof[..32].copy_from_slice(&[0xFA; 32]);
+        fake_proof[32..].copy_from_slice(&[0xFB; 32]);
+
+        let result = mgr.handle_proof(&fake_proof);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_part_request_for_unknown_resource_returns_error() {
+        let mut mgr = ResourceManager::new();
+        // Format: 0x00 flag + resource_hash(32) + map_hash(4)
+        let mut fake_request = vec![0x00u8];
+        fake_request.extend_from_slice(&[0xEE; 32]);
+        fake_request.extend_from_slice(&[0xAB; 4]);
+
+        let result = mgr.handle_part_request(&fake_request);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_receive_part_for_unknown_link_returns_error() {
+        let mut mgr = ResourceManager::new();
+        let unknown_link = LinkId::new([0xD3; 16]);
+
+        let result = mgr.receive_part(&unknown_link, b"some random part data");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_receive_unmatched_part_returns_not_all_received() {
+        let mut sender_mgr = ResourceManager::new();
+        let mut receiver_mgr = ResourceManager::new();
+        let sender_link = LinkId::new([0xD4; 16]);
+        let receiver_link = LinkId::new([0xD5; 16]);
+        let key = make_test_derived_key();
+
+        let (_hash, adv_bytes) = sender_mgr
+            .prepare_outgoing(sender_link, b"unmatched part test data", &key)
+            .unwrap();
+        let (_recv_hash, _request_bytes) = receiver_mgr
+            .accept_advertisement(receiver_link, &adv_bytes)
+            .unwrap();
+
+        // Send garbage data that won't match any map hash
+        let garbage = vec![0xDE; 100];
+        let result = receiver_mgr.receive_part(&receiver_link, &garbage).unwrap();
+        assert!(!result.all_received, "garbage part should not complete transfer");
+    }
+
+    #[test]
+    fn test_assemble_incomplete_transfer_returns_error() {
+        let mut sender_mgr = ResourceManager::new();
+        let mut receiver_mgr = ResourceManager::new();
+        let sender_link = LinkId::new([0xD6; 16]);
+        let receiver_link = LinkId::new([0xD7; 16]);
+        let key = make_test_derived_key();
+
+        // Use enough data to produce multiple parts
+        let data: Vec<u8> = (0..2000u16).map(|i| (i % 256) as u8).collect();
+        let (_hash, adv_bytes) = sender_mgr
+            .prepare_outgoing(sender_link, &data, &key)
+            .unwrap();
+        let (_recv_hash, request_bytes) = receiver_mgr
+            .accept_advertisement(receiver_link, &adv_bytes)
+            .unwrap();
+        let (_link, parts) = sender_mgr.handle_part_request(&request_bytes).unwrap();
+        assert!(parts.len() > 1, "need multiple parts for this test");
+
+        // Only receive the first part
+        let result = receiver_mgr
+            .receive_part(&receiver_link, &parts[0])
+            .unwrap();
+        assert!(!result.all_received);
+
+        // Attempt assembly with incomplete data — should fail
+        let assembly = receiver_mgr.assemble_and_prove(&receiver_link, &key);
+        assert!(assembly.is_err(), "assembly of incomplete transfer should fail");
+    }
+
+    #[test]
+    fn test_duplicate_advertisement_overwrites_no_panic() {
+        let mut sender_mgr = ResourceManager::new();
+        let mut receiver_mgr = ResourceManager::new();
+        let sender_link = LinkId::new([0xD8; 16]);
+        let receiver_link = LinkId::new([0xD9; 16]);
+        let key = make_test_derived_key();
+
+        let (_hash1, adv1) = sender_mgr
+            .prepare_outgoing(sender_link, b"first data", &key)
+            .unwrap();
+        let (_hash2, adv2) = sender_mgr
+            .prepare_outgoing(sender_link, b"second data", &key)
+            .unwrap();
+
+        // Accept the same link_id twice with different advertisements
+        let (recv1, _req1) = receiver_mgr
+            .accept_advertisement(receiver_link, &adv1)
+            .unwrap();
+        let (recv2, _req2) = receiver_mgr
+            .accept_advertisement(receiver_link, &adv2)
+            .unwrap();
+
+        assert_ne!(recv1, recv2, "different data should produce different hashes");
+        assert_eq!(receiver_mgr.incoming.len(), 1, "second should replace first");
+        assert_eq!(
+            receiver_mgr.incoming.get(&receiver_link).unwrap().resource_hash,
+            recv2,
+            "should hold the second resource"
+        );
+    }
+
+    #[test]
+    fn test_receive_part_after_all_received_is_idempotent() {
+        let mut sender_mgr = ResourceManager::new();
+        let mut receiver_mgr = ResourceManager::new();
+        let sender_link = LinkId::new([0xDA; 16]);
+        let receiver_link = LinkId::new([0xDB; 16]);
+        let key = make_test_derived_key();
+
+        let data = b"idempotent receive test data";
+        let (_hash, adv_bytes) = sender_mgr
+            .prepare_outgoing(sender_link, data, &key)
+            .unwrap();
+        let (_recv_hash, request_bytes) = receiver_mgr
+            .accept_advertisement(receiver_link, &adv_bytes)
+            .unwrap();
+        let (_link, parts) = sender_mgr.handle_part_request(&request_bytes).unwrap();
+
+        // Receive all parts
+        for part in &parts {
+            receiver_mgr.receive_part(&receiver_link, part).unwrap();
+        }
+
+        // Receive the first part again — should not panic
+        let extra_result = receiver_mgr.receive_part(&receiver_link, &parts[0]);
+        assert!(extra_result.is_ok(), "duplicate part after completion should not panic");
+    }
 }
