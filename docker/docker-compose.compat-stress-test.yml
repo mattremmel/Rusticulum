@@ -1,0 +1,12 @@
+services:
+  python-rns:
+    volumes:
+      - ./scripts:/scripts:ro
+    command: ["python3", "/scripts/python-compat-stress-test.py"]
+
+  rust-node:
+    volumes:
+      - ./configs/rust-node/compat-stress-test.toml:/etc/reticulum/config.toml:ro
+    environment:
+      - RUST_LOG=debug
+      - RUST_LOG_FORMAT=json

@@ -1,0 +1,18 @@
+[node]
+enable_transport = true
+storage_path = "/var/lib/reticulum"
+
+[[interfaces.tcp_client]]
+name = "TCP to Python RNS"
+target = "python-rns:4242"
+
+[[destinations]]
+app_name = "compat_stress_test"
+aspects = ["stress", "v1"]
+accept_links = true
+app_data = "hello from rust"
+
+[[link_targets]]
+app_name = "compat_stress_test"
+aspects = ["stress", "v1"]
+auto_data = "stress test auto data"
