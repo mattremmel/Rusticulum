@@ -17,6 +17,7 @@ use reticulum_protocol::link::state::{LinkActive, LinkHandshake, LinkPending};
 use reticulum_protocol::link::types::LinkMode;
 
 use crate::link_initiation::{self, queue_auto_actions};
+use crate::link_lifecycle;
 use crate::link_packets::{
     build_delivery_proof_data, build_link_data_packet, build_link_data_packet_with_context,
     build_lrproof_packet, build_lrrtt_packet, build_proof_packet,
@@ -26,7 +27,7 @@ use crate::link_packets::{
 use crate::config::LinkTargetEntry;
 
 /// Actions to perform automatically after a link is established.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct LinkAutoActions {
     pub auto_data: Option<String>,
     pub auto_resource: Option<String>,
@@ -138,48 +139,58 @@ impl LinkManager {
         dest_hash: DestinationHash,
         announce: &Announce,
     ) -> bool {
-        // Skip our own announces — don't self-link
-        if self.local_destinations.contains_key(&dest_hash) {
-            tracing::debug!(
-                dest_hash = %hex::encode(dest_hash.as_ref()),
-                "ignoring announce from our own destination"
-            );
-            return false;
-        }
+        let is_self = self.local_destinations.contains_key(&dest_hash);
+        let identity_result = Identity::from_public_bytes(&announce.public_key);
+        let identity_parse_ok = identity_result.is_ok();
 
-        // Extract identity from announce public key bytes
-        let identity = match Identity::from_public_bytes(&announce.public_key) {
-            Ok(id) => id,
-            Err(e) => {
-                tracing::warn!(
-                    dest_hash = %hex::encode(dest_hash.as_ref()),
-                    "failed to construct identity from announce: {e}"
-                );
-                return false;
-            }
+        // Compute auto-link decision only if identity parsed and not self
+        let auto_link_decision = if identity_parse_ok && !is_self {
+            let has_link = self.has_link_to_dest(&dest_hash);
+            link_initiation::should_auto_link(
+                announce.name_hash.as_ref(),
+                &self.link_targets,
+                false, // already checked is_self above
+                has_link,
+            )
+        } else {
+            None
         };
 
-        self.known_identities.insert(dest_hash, identity);
+        let outcome = link_lifecycle::classify_identity_registration(
+            is_self,
+            identity_parse_ok,
+            auto_link_decision,
+        );
 
-        // Check if we should auto-link
-        let is_local = self.local_destinations.contains_key(&dest_hash);
-        let has_link = self.has_link_to_dest(&dest_hash);
-
-        if let Some(actions) = link_initiation::should_auto_link(
-            announce.name_hash.as_ref(),
-            &self.link_targets,
-            is_local,
-            has_link,
-        ) {
-            tracing::info!(
-                dest_hash = %hex::encode(dest_hash.as_ref()),
-                "queuing auto-link to announced destination"
-            );
-            self.pending_link_targets.push((dest_hash, actions));
-            return true;
+        match outcome {
+            link_lifecycle::IdentityRegistrationOutcome::SkipSelfAnnounce => {
+                tracing::debug!(
+                    dest_hash = %hex::encode(dest_hash.as_ref()),
+                    "ignoring announce from our own destination"
+                );
+                false
+            }
+            link_lifecycle::IdentityRegistrationOutcome::IdentityParseFailed => {
+                tracing::warn!(
+                    dest_hash = %hex::encode(dest_hash.as_ref()),
+                    "failed to construct identity from announce"
+                );
+                false
+            }
+            link_lifecycle::IdentityRegistrationOutcome::Registered => {
+                self.known_identities.insert(dest_hash, identity_result.unwrap());
+                false
+            }
+            link_lifecycle::IdentityRegistrationOutcome::RegisteredAndAutoLink { actions } => {
+                self.known_identities.insert(dest_hash, identity_result.unwrap());
+                tracing::info!(
+                    dest_hash = %hex::encode(dest_hash.as_ref()),
+                    "queuing auto-link to announced destination"
+                );
+                self.pending_link_targets.push((dest_hash, actions));
+                true
+            }
         }
-
-        false
     }
 
     /// Check if we already have a pending or active link to a destination.
@@ -259,47 +270,56 @@ impl LinkManager {
         packet: &RawPacket,
         our_identity: &Identity,
     ) -> Option<Vec<u8>> {
-        // Check if this destination is one we accept links for
-        if !self.local_destinations.contains_key(&packet.destination) {
-            return None;
-        }
+        let is_known_destination = self.local_destinations.contains_key(&packet.destination);
 
         let ed25519_prv = our_identity.ed25519_private()?;
         let ed25519_pub = our_identity.ed25519_public();
 
         let hashable = packet.hashable_part();
 
-        let (handshake, proof_data) = match LinkHandshake::from_link_request(
-            &packet.data,
-            &hashable,
-            packet.data.len(),
-            ed25519_prv,
-            ed25519_pub,
-            MTU as u32,
-            LinkMode::default(),
-            packet.hops as u32,
-        ) {
-            Ok(result) => result,
-            Err(e) => {
-                tracing::warn!("failed to process link request: {e}");
-                return None;
-            }
+        let handshake_result = if is_known_destination {
+            LinkHandshake::from_link_request(
+                &packet.data,
+                &hashable,
+                packet.data.len(),
+                ed25519_prv,
+                ed25519_pub,
+                MTU as u32,
+                LinkMode::default(),
+                packet.hops as u32,
+            )
+            .ok()
+        } else {
+            None
         };
 
-        let link_id = handshake.link_id;
-
-        // Store identity Ed25519 seed for signing delivery proofs later
-        let ed25519_seed = ed25519_prv.to_bytes();
-        self.signing_keys.insert(link_id, ed25519_seed);
-
-        tracing::info!(
-            link_id = %hex::encode(link_id.as_ref()),
-            "accepted link request, sending proof"
+        let outcome = link_lifecycle::classify_link_acceptance(
+            is_known_destination,
+            handshake_result.is_some(),
         );
 
-        self.pending_responder.insert(link_id, handshake);
+        match outcome {
+            link_lifecycle::LinkAcceptanceOutcome::Accept => {
+                let (handshake, proof_data) = handshake_result.unwrap();
+                let link_id = handshake.link_id;
 
-        Some(build_lrproof_packet(&link_id, proof_data))
+                let ed25519_seed = ed25519_prv.to_bytes();
+                self.signing_keys.insert(link_id, ed25519_seed);
+
+                tracing::info!(
+                    link_id = %hex::encode(link_id.as_ref()),
+                    "accepted link request, sending proof"
+                );
+
+                self.pending_responder.insert(link_id, handshake);
+                Some(build_lrproof_packet(&link_id, proof_data))
+            }
+            link_lifecycle::LinkAcceptanceOutcome::UnknownDestination => None,
+            link_lifecycle::LinkAcceptanceOutcome::HandshakeFailed => {
+                tracing::warn!("failed to process link request");
+                None
+            }
+        }
     }
 
     /// Handle an incoming LRPROOF packet (as initiator).
@@ -308,42 +328,62 @@ impl LinkManager {
     pub fn handle_lrproof(&mut self, packet: &RawPacket) -> Option<Vec<u8>> {
         let link_id = dest_hash_to_link_id(&packet.destination);
 
-        let (pending, dest_hash) = self.pending_initiator.remove(&link_id)?;
+        let has_pending = self.pending_initiator.contains_key(&link_id);
+        let (pending, dest_hash) = match self.pending_initiator.remove(&link_id) {
+            Some(p) => p,
+            None => {
+                // classify_proof_receipt with has_pending=false
+                return None;
+            }
+        };
 
-        // Extract ephemeral Ed25519 seed BEFORE receive_proof consumes LinkPending
         let ed25519_seed = pending.eph_ed25519_private.to_bytes();
 
-        // Get the responder's identity Ed25519 public key
-        let identity = self.known_identities.get(&dest_hash)?;
+        let has_identity = self.known_identities.contains_key(&dest_hash);
+        let identity = match self.known_identities.get(&dest_hash) {
+            Some(id) => id,
+            None => {
+                // Put back the pending entry since we can't proceed
+                self.pending_initiator.insert(link_id, (pending, dest_hash));
+                return None;
+            }
+        };
         let responder_ed25519_pub = identity.ed25519_public();
 
-        let (active, encrypted_rtt) =
-            match pending.receive_proof(&packet.data, responder_ed25519_pub) {
-                Ok(result) => result,
-                Err(e) => {
-                    tracing::warn!(
-                        link_id = %hex::encode(link_id.as_ref()),
-                        "failed to verify link proof: {e}"
-                    );
-                    return None;
-                }
-            };
+        let proof_result = pending.receive_proof(&packet.data, responder_ed25519_pub);
+        let proof_ok = proof_result.is_ok();
 
-        tracing::info!(
-            link_id = %hex::encode(link_id.as_ref()),
-            rtt = active.rtt,
-            "link_established (initiator)"
-        );
+        let outcome = link_lifecycle::classify_proof_receipt(has_pending, has_identity, proof_ok);
 
-        let activated_link_id = active.link_id;
-        let rtt_raw = build_lrrtt_packet(&activated_link_id, encrypted_rtt);
+        match outcome {
+            link_lifecycle::ProofReceiptOutcome::Activated => {
+                let (active, encrypted_rtt) = proof_result.unwrap();
 
-        self.active_links.insert(activated_link_id, active);
-        self.linked_destinations.insert(dest_hash);
-        // Store ephemeral Ed25519 seed for signing delivery proofs
-        self.signing_keys.insert(activated_link_id, ed25519_seed);
+                tracing::info!(
+                    link_id = %hex::encode(link_id.as_ref()),
+                    rtt = active.rtt,
+                    "link_established (initiator)"
+                );
 
-        Some(rtt_raw)
+                let activated_link_id = active.link_id;
+                let rtt_raw = build_lrrtt_packet(&activated_link_id, encrypted_rtt);
+
+                self.active_links.insert(activated_link_id, active);
+                self.linked_destinations.insert(dest_hash);
+                self.signing_keys.insert(activated_link_id, ed25519_seed);
+
+                Some(rtt_raw)
+            }
+            link_lifecycle::ProofReceiptOutcome::ProofFailed => {
+                tracing::warn!(
+                    link_id = %hex::encode(link_id.as_ref()),
+                    "failed to verify link proof"
+                );
+                None
+            }
+            link_lifecycle::ProofReceiptOutcome::NoPending
+            | link_lifecycle::ProofReceiptOutcome::NoIdentity => None,
+        }
     }
 
     /// Handle an incoming LRRTT packet (as responder).
@@ -681,5 +721,211 @@ mod tests {
 
         // Should return None since no local destinations registered
         assert!(mgr.handle_link_request(&packet, &identity).is_none());
+    }
+
+    fn make_test_announce(identity: &Identity) -> reticulum_core::announce::Announce {
+        reticulum_core::announce::Announce {
+            destination_hash: DestinationHash::new([0x00; 16]),
+            public_key: identity.public_key_bytes(),
+            name_hash: reticulum_core::types::NameHash::new([0u8; 10]),
+            random_hash: [0u8; 10],
+            ratchet: None,
+            signature: [0u8; 64],
+            app_data: None,
+            context: reticulum_core::packet::context::ContextType::None,
+        }
+    }
+
+    #[test]
+    fn test_register_identity_skips_self() {
+        let mut mgr = LinkManager::new(vec![]);
+        let identity = Identity::generate();
+        let dh = DestinationHash::new([0x01; 16]);
+        mgr.register_local_destination(dh, "test_app", &["link".to_string()]);
+
+        let announce = make_test_announce(&identity);
+
+        let result = mgr.register_identity_from_announce(dh, &announce);
+        assert!(!result);
+        // Identity should NOT be stored for self-announces
+        assert!(!mgr.known_identities.contains_key(&dh));
+    }
+
+    #[test]
+    fn test_register_identity_no_duplicate_link() {
+        // If we already have a link to a destination, auto-link should not be queued again
+        let mut mgr = LinkManager::new(vec![
+            crate::config::LinkTargetEntry {
+                app_name: "dup_test".to_string(),
+                aspects: vec!["link".to_string()],
+                auto_data: Some("data".to_string()),
+                auto_resource: None,
+                auto_channel: None,
+                auto_buffer: None,
+                auto_request_path: None,
+                auto_request_data: None,
+            },
+        ]);
+        let identity = Identity::generate();
+        let dh = DestinationHash::new([0x02; 16]);
+
+        let announce = make_test_announce(&identity);
+
+        // First registration — might auto-link if name_hash matches
+        let _result = mgr.register_identity_from_announce(dh, &announce);
+
+        // Mark destination as linked
+        mgr.linked_destinations.insert(dh);
+
+        // Second registration should not queue another auto-link
+        let result2 = mgr.register_identity_from_announce(dh, &announce);
+        assert!(!result2);
+    }
+
+    #[test]
+    fn test_register_identity_stores_identity() {
+        let mut mgr = LinkManager::new(vec![]);
+        let identity = Identity::generate();
+        let dh = DestinationHash::new([0x03; 16]);
+
+        let announce = make_test_announce(&identity);
+
+        let result = mgr.register_identity_from_announce(dh, &announce);
+        assert!(!result); // no auto-link targets
+        assert!(mgr.known_identities.contains_key(&dh));
+    }
+
+    #[test]
+    fn test_initiate_link_unknown_identity() {
+        let mut mgr = LinkManager::new(vec![]);
+        let dh = DestinationHash::new([0x04; 16]);
+
+        // No identity registered for this destination
+        let result = mgr.initiate_link(dh, LinkAutoActions::default());
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_has_pending_or_active_negative() {
+        let mgr = LinkManager::new(vec![]);
+        let dh = DestinationHash::new([0x05; 16]);
+        assert!(!mgr.has_pending_or_active(&dh));
+    }
+
+    #[test]
+    fn test_prove_packet_no_signing_key() {
+        let mgr = LinkManager::new(vec![]);
+        let link_id = LinkId::new([0x06; 16]);
+        let packet = RawPacket {
+            flags: PacketFlags {
+                header_type: HeaderType::Header1,
+                context_flag: false,
+                transport_type: TransportType::Broadcast,
+                destination_type: DestinationType::Link,
+                packet_type: PacketType::Data,
+            },
+            hops: 0,
+            transport_id: None,
+            destination: DestinationHash::new([0x06; 16]),
+            context: ContextType::None,
+            data: b"test".to_vec(),
+        };
+
+        // No active link or signing key — should return None
+        assert!(mgr.prove_packet(&link_id, &packet).is_none());
+    }
+
+    #[test]
+    fn test_encrypt_decrypt_roundtrip() {
+        // Use the full handshake from the existing test to set up active links
+        let responder_identity = Identity::generate();
+
+        let aspect_refs = &["link", "v1"];
+        let nh = destination::name_hash("roundtrip_test", aspect_refs);
+        let resp_dh = destination::destination_hash(&nh, responder_identity.hash());
+
+        let mut resp_mgr = LinkManager::new(vec![]);
+        resp_mgr.register_local_destination(
+            resp_dh,
+            "roundtrip_test",
+            &["link".to_string(), "v1".to_string()],
+        );
+
+        let mut init_mgr = LinkManager::new(vec![]);
+        let resp_pub =
+            Identity::from_public_bytes(&responder_identity.public_key_bytes()).unwrap();
+        init_mgr.known_identities.insert(resp_dh, resp_pub);
+
+        let lr_raw = init_mgr
+            .initiate_link(resp_dh, LinkAutoActions::default())
+            .unwrap();
+        let lr_pkt = RawPacket::parse(&lr_raw).unwrap();
+        let proof_raw = resp_mgr
+            .handle_link_request(&lr_pkt, &responder_identity)
+            .unwrap();
+        let proof_pkt = RawPacket::parse(&proof_raw).unwrap();
+        let rtt_raw = init_mgr.handle_lrproof(&proof_pkt).unwrap();
+        let rtt_pkt = RawPacket::parse(&rtt_raw).unwrap();
+        let link_id = resp_mgr.handle_lrrtt(&rtt_pkt).unwrap();
+
+        // Initiator encrypts, responder decrypts
+        let data_raw = init_mgr
+            .encrypt_and_send(&link_id, b"encrypt-test")
+            .unwrap();
+        let data_pkt = RawPacket::parse(&data_raw).unwrap();
+        let plaintext = resp_mgr.handle_link_data(&data_pkt).unwrap();
+        assert_eq!(plaintext, b"encrypt-test");
+
+        // Responder encrypts, initiator decrypts
+        let data_raw2 = resp_mgr
+            .encrypt_and_send(&link_id, b"reverse-test")
+            .unwrap();
+        let data_pkt2 = RawPacket::parse(&data_raw2).unwrap();
+        let plaintext2 = init_mgr.handle_link_data(&data_pkt2).unwrap();
+        assert_eq!(plaintext2, b"reverse-test");
+    }
+
+    #[test]
+    fn test_raw_data_bypass() {
+        // Set up active links via handshake
+        let responder_identity = Identity::generate();
+        let aspect_refs = &["link", "v1"];
+        let nh = destination::name_hash("raw_test", aspect_refs);
+        let resp_dh = destination::destination_hash(&nh, responder_identity.hash());
+
+        let mut resp_mgr = LinkManager::new(vec![]);
+        resp_mgr.register_local_destination(
+            resp_dh,
+            "raw_test",
+            &["link".to_string(), "v1".to_string()],
+        );
+
+        let mut init_mgr = LinkManager::new(vec![]);
+        let resp_pub =
+            Identity::from_public_bytes(&responder_identity.public_key_bytes()).unwrap();
+        init_mgr.known_identities.insert(resp_dh, resp_pub);
+
+        let lr_raw = init_mgr
+            .initiate_link(resp_dh, LinkAutoActions::default())
+            .unwrap();
+        let lr_pkt = RawPacket::parse(&lr_raw).unwrap();
+        let proof_raw = resp_mgr
+            .handle_link_request(&lr_pkt, &responder_identity)
+            .unwrap();
+        let proof_pkt = RawPacket::parse(&proof_raw).unwrap();
+        let rtt_raw = init_mgr.handle_lrproof(&proof_pkt).unwrap();
+        let rtt_pkt = RawPacket::parse(&rtt_raw).unwrap();
+        let link_id = resp_mgr.handle_lrrtt(&rtt_pkt).unwrap();
+
+        // send_raw_with_context should NOT encrypt
+        let raw_data = b"unencrypted resource part";
+        let raw_pkt_bytes = init_mgr
+            .send_raw_with_context(&link_id, raw_data, ContextType::Resource)
+            .unwrap();
+        let raw_pkt = RawPacket::parse(&raw_pkt_bytes).unwrap();
+
+        // get_raw_link_data should return data as-is
+        let received = resp_mgr.get_raw_link_data(&raw_pkt).unwrap();
+        assert_eq!(received, raw_data);
     }
 }

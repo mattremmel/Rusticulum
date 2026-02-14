@@ -426,7 +426,7 @@ mod tests {
         let data: Vec<u8> = (0..2000u16).map(|i| (i % 256) as u8).collect();
 
         // Full transfer
-        let (resource_hash, adv_bytes) = sender_mgr.prepare_outgoing(sender_link, &data, &key).unwrap();
+        let (_resource_hash, adv_bytes) = sender_mgr.prepare_outgoing(sender_link, &data, &key).unwrap();
         let (_recv_hash, request_bytes) = receiver_mgr.accept_advertisement(receiver_link, &adv_bytes).unwrap();
         let (_link, parts) = sender_mgr.handle_part_request(&request_bytes).unwrap();
 
@@ -446,5 +446,114 @@ mod tests {
 
         let valid = sender_mgr.handle_proof(&proof_bytes).unwrap();
         assert!(valid);
+    }
+
+    #[test]
+    fn prepare_outgoing_returns_hash_and_adv() {
+        let mut mgr = ResourceManager::new();
+        let link_id = LinkId::new([0x33; 16]);
+        let key = make_test_derived_key();
+
+        let (resource_hash, adv_bytes) =
+            mgr.prepare_outgoing(link_id, b"test data", &key).unwrap();
+
+        assert_ne!(resource_hash, [0u8; 32]);
+        assert!(!adv_bytes.is_empty());
+        assert!(mgr.outgoing.contains_key(&resource_hash));
+    }
+
+    #[test]
+    fn accept_advertisement_stores_state() {
+        let mut sender_mgr = ResourceManager::new();
+        let mut receiver_mgr = ResourceManager::new();
+        let sender_link = LinkId::new([0x44; 16]);
+        let receiver_link = LinkId::new([0x55; 16]);
+        let key = make_test_derived_key();
+
+        let (_hash, adv_bytes) = sender_mgr
+            .prepare_outgoing(sender_link, b"accept test", &key)
+            .unwrap();
+
+        assert!(!receiver_mgr.has_incoming(&receiver_link));
+        let (_recv_hash, _request) = receiver_mgr
+            .accept_advertisement(receiver_link, &adv_bytes)
+            .unwrap();
+        assert!(receiver_mgr.has_incoming(&receiver_link));
+    }
+
+    #[test]
+    fn receive_part_returns_completion() {
+        let mut sender_mgr = ResourceManager::new();
+        let mut receiver_mgr = ResourceManager::new();
+        let sender_link = LinkId::new([0x66; 16]);
+        let receiver_link = LinkId::new([0x77; 16]);
+        let key = make_test_derived_key();
+
+        let data = b"completion test data";
+        let (_hash, adv_bytes) = sender_mgr
+            .prepare_outgoing(sender_link, data, &key)
+            .unwrap();
+        let (_recv_hash, request_bytes) = receiver_mgr
+            .accept_advertisement(receiver_link, &adv_bytes)
+            .unwrap();
+        let (_link, parts) = sender_mgr.handle_part_request(&request_bytes).unwrap();
+
+        let mut final_result = None;
+        for part in &parts {
+            final_result = Some(receiver_mgr.receive_part(&receiver_link, part).unwrap());
+        }
+        assert!(final_result.unwrap().all_received);
+    }
+
+    #[test]
+    fn handle_part_request_unknown_hash() {
+        let mut mgr = ResourceManager::new();
+        // Construct a fake request with a resource hash that doesn't exist
+        // Format: 0x00 flag + resource_hash(32) + map_hashes
+        let mut fake_request = vec![0x00u8];
+        fake_request.extend_from_slice(&[0xDE; 32]);
+        fake_request.extend_from_slice(&[0xAD; 4]); // one map hash
+
+        let result = mgr.handle_part_request(&fake_request);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn handle_proof_verifies() {
+        let mut sender_mgr = ResourceManager::new();
+        let mut receiver_mgr = ResourceManager::new();
+        let sender_link = LinkId::new([0x88; 16]);
+        let receiver_link = LinkId::new([0x99; 16]);
+        let key = make_test_derived_key();
+
+        let (resource_hash, adv_bytes) = sender_mgr
+            .prepare_outgoing(sender_link, b"proof test", &key)
+            .unwrap();
+        let (_recv_hash, request_bytes) = receiver_mgr
+            .accept_advertisement(receiver_link, &adv_bytes)
+            .unwrap();
+        let (_link, parts) = sender_mgr.handle_part_request(&request_bytes).unwrap();
+        for part in &parts {
+            receiver_mgr.receive_part(&receiver_link, part).unwrap();
+        }
+        let (_data, proof_bytes) = receiver_mgr
+            .assemble_and_prove(&receiver_link, &key)
+            .unwrap();
+
+        let valid = sender_mgr.handle_proof(&proof_bytes).unwrap();
+        assert!(valid);
+        assert!(sender_mgr.is_complete(&resource_hash));
+    }
+
+    #[test]
+    fn not_complete_before_proof() {
+        let mut mgr = ResourceManager::new();
+        let link_id = LinkId::new([0xAB; 16]);
+        let key = make_test_derived_key();
+
+        let (resource_hash, _adv) = mgr
+            .prepare_outgoing(link_id, b"not complete test", &key)
+            .unwrap();
+        assert!(!mgr.is_complete(&resource_hash));
     }
 }

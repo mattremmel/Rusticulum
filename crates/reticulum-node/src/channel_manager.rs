@@ -597,4 +597,101 @@ mod tests {
             .is_none());
         assert!(mgr.handle_channel_data(&link_id, b"test").is_none());
     }
+
+    #[test]
+    fn test_handle_channel_data_unknown_msg_type() {
+        let mut mgr = ChannelManager::new();
+        let link_id = LinkId::new([0xA1; 16]);
+        mgr.register_link(link_id, 0.05);
+
+        // Build envelope with an unusual msg_type
+        let plaintext = mgr
+            .build_channel_message(&link_id, 0xBEEF, b"unusual")
+            .unwrap();
+
+        let action = mgr.handle_channel_data(&link_id, &plaintext).unwrap();
+        match action {
+            ChannelAction::MessageReceived { msg_type, payload } => {
+                assert_eq!(msg_type, 0xBEEF);
+                assert_eq!(payload, b"unusual");
+            }
+            _ => panic!("expected MessageReceived for unknown msg_type"),
+        }
+    }
+
+    #[test]
+    fn test_request_handler_no_matching_path() {
+        let mut mgr = ChannelManager::new();
+        let link_id = LinkId::new([0xA2; 16]);
+        mgr.register_link(link_id, 0.05);
+
+        // Register handler for /test/echo but send request to /test/other
+        mgr.register_request_handler("/test/echo", |data| data.to_vec());
+
+        let request_bytes = mgr.build_request(&link_id, "/test/other", b"data").unwrap();
+        let fake_hashable = b"fake_hashable_part_for_test_1234567890abcdef";
+
+        let response = mgr.handle_request(&link_id, &request_bytes, fake_hashable);
+        assert!(response.is_none());
+    }
+
+    #[test]
+    fn test_response_for_unknown_request_id() {
+        let mut mgr = ChannelManager::new();
+        let link_id = LinkId::new([0xA3; 16]);
+        mgr.register_link(link_id, 0.05);
+
+        // Build a response with a request_id we never registered
+        let response = Response {
+            request_id: RequestId::new(TruncatedHash::new([0xDEu8; 16])),
+            data: Value::Binary(b"orphan response".to_vec()),
+        };
+        let response_bytes = response.to_msgpack();
+
+        // Should not panic, just log a debug message
+        mgr.handle_response(&link_id, &response_bytes);
+
+        // No pending requests should exist
+        assert!(mgr.pending_requests.is_empty());
+    }
+
+    #[test]
+    fn test_multiple_stream_ids() {
+        let mut mgr = ChannelManager::new();
+        let link_id = LinkId::new([0xA4; 16]);
+        mgr.register_link(link_id, 0.05);
+
+        // Stream 0: partial data
+        let chunk0 = mgr
+            .build_stream_message(&link_id, 0, b"stream-0-part1", false)
+            .unwrap();
+        let action0 = mgr.handle_channel_data(&link_id, &chunk0);
+        assert!(action0.is_none()); // accumulating
+
+        // Stream 1: complete in one chunk
+        let chunk1 = mgr
+            .build_stream_message(&link_id, 1, b"stream-1-complete", true)
+            .unwrap();
+        let action1 = mgr.handle_channel_data(&link_id, &chunk1).unwrap();
+        match action1 {
+            ChannelAction::BufferComplete { stream_id, data } => {
+                assert_eq!(stream_id, 1);
+                assert_eq!(data, b"stream-1-complete");
+            }
+            _ => panic!("expected BufferComplete for stream 1"),
+        }
+
+        // Stream 0: finish
+        let chunk0_final = mgr
+            .build_stream_message(&link_id, 0, b"-part2", true)
+            .unwrap();
+        let action0_final = mgr.handle_channel_data(&link_id, &chunk0_final).unwrap();
+        match action0_final {
+            ChannelAction::BufferComplete { stream_id, data } => {
+                assert_eq!(stream_id, 0);
+                assert_eq!(data, b"stream-0-part1-part2");
+            }
+            _ => panic!("expected BufferComplete for stream 0"),
+        }
+    }
 }

@@ -24,6 +24,7 @@ use reticulum_interfaces::local::{
 
 use crate::interface_planning::{InterfaceSpec, plan_all_interfaces};
 use crate::maintenance_ops;
+use crate::node_init;
 
 use reticulum_core::announce::make_random_hash;
 use reticulum_core::constants::PacketType;
@@ -109,8 +110,10 @@ impl Node {
     pub fn new(config: NodeConfig) -> Self {
         let router = PacketRouter::new();
 
-        let ifac_config = if config.node.network_name.is_some() || config.node.network_key.is_some()
-        {
+        let ifac_config = if node_init::plan_ifac_config(
+            config.node.network_name.as_deref(),
+            config.node.network_key.as_deref(),
+        ) {
             Some(IfacConfig::new(
                 config.node.network_name.as_deref(),
                 config.node.network_key.as_deref(),
@@ -121,21 +124,27 @@ impl Node {
         };
 
         // Initialize storage (non-fatal)
-        let storage = if config.node.enable_storage {
-            let result = if let Some(ref path) = config.node.storage_path {
-                Storage::new(std::path::PathBuf::from(path))
-            } else {
-                Storage::default_path()
-            };
-            match result {
+        let storage = match node_init::plan_storage_init(
+            config.node.enable_storage,
+            config.node.storage_path.as_deref(),
+        ) {
+            node_init::StorageInitPlan::UseCustomPath(path) => {
+                match Storage::new(std::path::PathBuf::from(path)) {
+                    Ok(s) => Some(s),
+                    Err(e) => {
+                        tracing::warn!("failed to initialize storage: {e}");
+                        None
+                    }
+                }
+            }
+            node_init::StorageInitPlan::UseDefault => match Storage::default_path() {
                 Ok(s) => Some(s),
                 Err(e) => {
                     tracing::warn!("failed to initialize storage: {e}");
                     None
                 }
-            }
-        } else {
-            None
+            },
+            node_init::StorageInitPlan::Disabled => None,
         };
 
         let link_manager = LinkManager::new(config.link_targets.clone());
@@ -462,14 +471,13 @@ impl Node {
         let mut maintenance_interval = tokio::time::interval(std::time::Duration::from_secs(1));
         let mut cull_interval = tokio::time::interval(std::time::Duration::from_secs(5));
 
-        let persist_secs = self.config.node.persist_interval;
-        let persist_enabled = persist_secs > 0 && self.storage.is_some();
+        let persist_cfg = node_init::compute_persist_config(
+            self.config.node.persist_interval,
+            self.storage.is_some(),
+        );
+        let persist_enabled = persist_cfg.enabled;
         let mut persist_interval =
-            tokio::time::interval(std::time::Duration::from_secs(if persist_enabled {
-                persist_secs
-            } else {
-                3600
-            }));
+            tokio::time::interval(std::time::Duration::from_secs(persist_cfg.interval_secs));
 
         // Don't fire immediately
         maintenance_interval.tick().await;
