@@ -29,6 +29,7 @@ use crate::node_init;
 use reticulum_core::announce::make_random_hash;
 use reticulum_core::constants::PacketType;
 use reticulum_core::packet::context::ContextType;
+use reticulum_protocol::link::constants::KEEPALIVE_MARKER;
 use reticulum_core::packet::wire::RawPacket;
 use reticulum_core::types::TruncatedHash;
 use reticulum_transport::ifac::{IfacConfig, IfacCredentials};
@@ -1015,7 +1016,7 @@ impl Node {
                     // If we're responder and data is 0xFF (initiator keepalive), echo 0xFE
                     if self.link_manager.get_link_role(&link_id)
                         == Some(reticulum_protocol::link::types::LinkRole::Responder)
-                        && data == [0xFF]
+                        && data == [KEEPALIVE_MARKER]
                         && let Some(raw) = self.link_manager.build_keepalive_echo(&link_id)
                     {
                         self.broadcast_to_interfaces(None, &raw).await;
@@ -1393,9 +1394,13 @@ impl Node {
         let link_id = extract_link_id(packet);
 
         // Build input snapshot for the pure decision function
+        use crate::resource_manager::PartReceptionResult;
         let (receive_ok, all_received, receive_error) =
             match self.resource_manager.receive_part(&link_id, &plaintext) {
-                Ok(result) => (true, result.all_received, None),
+                Ok(PartReceptionResult::Complete) => (true, true, None),
+                Ok(PartReceptionResult::NeedMore(_) | PartReceptionResult::Unmatched) => {
+                    (true, false, None)
+                }
                 Err(e) => (false, false, Some(e.to_string())),
             };
 

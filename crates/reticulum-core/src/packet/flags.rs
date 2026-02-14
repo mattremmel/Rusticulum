@@ -15,6 +15,13 @@
 use crate::constants::{DestinationType, HeaderType, PacketType, TransportType};
 use crate::error::PacketError;
 
+const HEADER_TYPE_SHIFT: u32 = 6;
+const CONTEXT_FLAG_SHIFT: u32 = 5;
+const TRANSPORT_TYPE_SHIFT: u32 = 4;
+const DEST_TYPE_SHIFT: u32 = 2;
+const ONE_BIT_MASK: u8 = 0x01;
+const TWO_BIT_MASK: u8 = 0x03;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PacketFlags {
     pub header_type: HeaderType,
@@ -26,11 +33,11 @@ pub struct PacketFlags {
 
 impl PacketFlags {
     pub fn from_byte(byte: u8) -> Result<Self, PacketError> {
-        let header_type = HeaderType::from_u8((byte >> 6) & 0x01)?;
-        let context_flag = (byte >> 5) & 0x01 != 0;
-        let transport_type = TransportType::from_u8((byte >> 4) & 0x01)?;
-        let destination_type = DestinationType::from_u8((byte >> 2) & 0x03)?;
-        let packet_type = PacketType::from_u8(byte & 0x03)?;
+        let header_type = HeaderType::from_u8((byte >> HEADER_TYPE_SHIFT) & ONE_BIT_MASK)?;
+        let context_flag = (byte >> CONTEXT_FLAG_SHIFT) & ONE_BIT_MASK != 0;
+        let transport_type = TransportType::from_u8((byte >> TRANSPORT_TYPE_SHIFT) & ONE_BIT_MASK)?;
+        let destination_type = DestinationType::from_u8((byte >> DEST_TYPE_SHIFT) & TWO_BIT_MASK)?;
+        let packet_type = PacketType::from_u8(byte & TWO_BIT_MASK)?;
 
         Ok(PacketFlags {
             header_type,
@@ -42,10 +49,10 @@ impl PacketFlags {
     }
 
     pub fn to_byte(&self) -> u8 {
-        ((self.header_type as u8) << 6)
-            | ((self.context_flag as u8) << 5)
-            | ((self.transport_type as u8) << 4)
-            | ((self.destination_type as u8) << 2)
+        ((self.header_type as u8) << HEADER_TYPE_SHIFT)
+            | ((self.context_flag as u8) << CONTEXT_FLAG_SHIFT)
+            | ((self.transport_type as u8) << TRANSPORT_TYPE_SHIFT)
+            | ((self.destination_type as u8) << DEST_TYPE_SHIFT)
             | (self.packet_type as u8)
     }
 }

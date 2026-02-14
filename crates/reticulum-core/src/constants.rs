@@ -21,6 +21,11 @@ pub const RANDOM_HASH_LENGTH: usize = 10;
 pub const TOKEN_OVERHEAD: usize = 48;
 pub const RATCHETSIZE: usize = 32;
 
+// Flag masking
+/// Lower nibble mask for extracting destination_type + packet_type from flags byte.
+/// Used when computing hashable parts and transforming transport headers.
+pub const FLAGS_LOWER_NIBBLE_MASK: u8 = 0x0F;
+
 // Announce sizes
 pub const ANNOUNCE_MIN_PAYLOAD: usize = KEYSIZE + NAME_HASH_LENGTH + RANDOM_HASH_LENGTH + SIGLENGTH; // 148
 

@@ -58,3 +58,6 @@ pub const FAST_RATE_THRESHOLD: u16 = 10;
 
 /// Window flexibility parameter.
 pub const WINDOW_FLEXIBILITY: u16 = 4;
+
+/// Maximum channel MDU (payload capped at u16 max due to 2-byte length field).
+pub const MAX_CHANNEL_MDU: usize = 0xFFFF;

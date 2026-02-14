@@ -6,7 +6,9 @@
 extern crate alloc;
 use alloc::vec::Vec;
 
-use crate::constants::{HEADER_1_SIZE, HEADER_2_SIZE, HeaderType, TRUNCATED_HASHLENGTH};
+use crate::constants::{
+    FLAGS_LOWER_NIBBLE_MASK, HEADER_1_SIZE, HEADER_2_SIZE, HeaderType, TRUNCATED_HASHLENGTH,
+};
 use crate::error::PacketError;
 use crate::packet::context::ContextType;
 use crate::packet::flags::PacketFlags;
@@ -112,7 +114,7 @@ impl RawPacket {
     /// transport_id stripped for HEADER_2.
     /// Result: masked_flags(1) + destination(16) + context(1) + data
     pub fn hashable_part(&self) -> Vec<u8> {
-        let masked_flags = self.flags.to_byte() & 0x0F;
+        let masked_flags = self.flags.to_byte() & FLAGS_LOWER_NIBBLE_MASK;
 
         let mut result = Vec::with_capacity(1 + TRUNCATED_HASHLENGTH + 1 + self.data.len());
         result.push(masked_flags);

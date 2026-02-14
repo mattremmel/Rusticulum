@@ -2,7 +2,8 @@
 
 use reticulum_core::announce::Announce;
 use reticulum_core::constants::{
-    HEADER_1_SIZE, HEADER_2_SIZE, HeaderType, PacketType, TRUNCATED_HASHLENGTH, TransportType,
+    FLAGS_LOWER_NIBBLE_MASK, HEADER_1_SIZE, HEADER_2_SIZE, HeaderType, PacketType,
+    TRUNCATED_HASHLENGTH, TransportType,
 };
 use reticulum_core::packet::flags::PacketFlags;
 use reticulum_core::packet::wire::RawPacket;
@@ -43,7 +44,7 @@ pub fn inject_transport_header(
 
     // New flags: HEADER_2, TRANSPORT, keep lower 4 bits
     let new_flags =
-        (HeaderType::Header2 as u8) << 6 | (TransportType::Transport as u8) << 4 | (raw[0] & 0x0F);
+        (HeaderType::Header2 as u8) << 6 | (TransportType::Transport as u8) << 4 | (raw[0] & FLAGS_LOWER_NIBBLE_MASK);
 
     let mut result = Vec::with_capacity(raw.len() + TRUNCATED_HASHLENGTH);
     result.push(new_flags);
@@ -73,7 +74,7 @@ pub fn strip_transport_header(raw: &[u8], hops: u8) -> Result<Vec<u8>, RouterErr
 
     // New flags: HEADER_1, BROADCAST, keep lower 4 bits
     let new_flags =
-        (HeaderType::Header1 as u8) << 6 | (TransportType::Broadcast as u8) << 4 | (raw[0] & 0x0F);
+        (HeaderType::Header1 as u8) << 6 | (TransportType::Broadcast as u8) << 4 | (raw[0] & FLAGS_LOWER_NIBBLE_MASK);
 
     let mut result = Vec::with_capacity(raw.len() - TRUNCATED_HASHLENGTH);
     result.push(new_flags);

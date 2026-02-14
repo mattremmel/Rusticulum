@@ -5,6 +5,7 @@
 //! or send packets. The Node mediates those via LinkManager.
 
 use std::collections::HashMap;
+use std::fmt;
 
 use reticulum_core::types::LinkId;
 use reticulum_protocol::link::types::DerivedKey;
@@ -14,6 +15,35 @@ use reticulum_protocol::resource::hashmap::ResourceHashmap;
 use reticulum_protocol::resource::transfer::prepare_resource;
 
 use crate::resource_ops;
+
+/// Errors from resource transfer operations.
+#[derive(Debug)]
+pub enum ResourceManagerError {
+    /// The resource hash is not known in any transfer table.
+    UnknownResource(String),
+    /// No incoming transfer exists for the given link.
+    NoIncomingTransfer(String),
+    /// Resource preparation failed.
+    Preparation(String),
+    /// Resource assembly failed.
+    Assembly(String),
+    /// Payload could not be decoded.
+    InvalidPayload(String),
+}
+
+impl fmt::Display for ResourceManagerError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::UnknownResource(h) => write!(f, "unknown resource hash: {h}"),
+            Self::NoIncomingTransfer(l) => write!(f, "no incoming transfer for link: {l}"),
+            Self::Preparation(e) => write!(f, "resource preparation failed: {e}"),
+            Self::Assembly(e) => write!(f, "resource assembly failed: {e}"),
+            Self::InvalidPayload(e) => write!(f, "invalid payload: {e}"),
+        }
+    }
+}
+
+impl std::error::Error for ResourceManagerError {}
 
 /// State of an outgoing resource transfer.
 #[derive(Debug)]
@@ -50,12 +80,15 @@ struct IncomingTransfer {
     random_hash: [u8; 4],
 }
 
-/// Result from receive_part when all parts have been received.
-pub struct PartComplete {
-    /// If true, more parts are still needed — send this request.
-    pub needs_more_parts: Option<Vec<u8>>,
-    /// If true, all parts received — ready to assemble.
-    pub all_received: bool,
+/// Result of receiving a resource part.
+#[derive(Debug)]
+pub enum PartReceptionResult {
+    /// More parts needed. Contains optional follow-up request bytes.
+    NeedMore(Option<Vec<u8>>),
+    /// All parts received, ready for assembly.
+    Complete,
+    /// Part didn't match any expected hash (ignored).
+    Unmatched,
 }
 
 /// Manages resource transfers for the node.
@@ -84,7 +117,7 @@ impl ResourceManager {
         link_id: LinkId,
         data: &[u8],
         derived_key: &DerivedKey,
-    ) -> Result<([u8; 32], Vec<u8>), String> {
+    ) -> Result<([u8; 32], Vec<u8>), ResourceManagerError> {
         // Generate random IV and random_hash for this resource
         use rand::RngCore;
         let mut rng = rand::thread_rng();
@@ -105,7 +138,7 @@ impl ResourceManager {
             None,  // no original_hash override
             None,  // no request_id
         )
-        .map_err(|e| format!("prepare_resource failed: {e}"))?;
+        .map_err(|e| ResourceManagerError::Preparation(e.to_string()))?;
 
         let resource_hash = prepared.resource_hash;
         let adv_bytes = prepared.advertisement.to_msgpack();
@@ -145,23 +178,22 @@ impl ResourceManager {
     pub fn handle_part_request(
         &mut self,
         request_data: &[u8],
-    ) -> Result<(LinkId, Vec<Vec<u8>>), String> {
-        let selection = resource_ops::select_parts_for_request(request_data, &[])?;
+    ) -> Result<(LinkId, Vec<Vec<u8>>), ResourceManagerError> {
+        let selection = resource_ops::select_parts_for_request(request_data, &[])
+            .map_err(ResourceManagerError::InvalidPayload)?;
 
         let transfer = self
             .outgoing
             .get_mut(&selection.resource_hash)
             .ok_or_else(|| {
-                format!(
-                    "unknown resource hash: {}",
-                    hex::encode(selection.resource_hash)
-                )
+                ResourceManagerError::UnknownResource(hex::encode(selection.resource_hash))
             })?;
 
         transfer.state = OutgoingState::Transferring;
 
         // Re-select with the actual parts now that we've validated the resource hash
-        let selection = resource_ops::select_parts_for_request(request_data, &transfer.parts)?;
+        let selection = resource_ops::select_parts_for_request(request_data, &transfer.parts)
+            .map_err(ResourceManagerError::InvalidPayload)?;
 
         tracing::info!(
             resource_hash = %hex::encode(selection.resource_hash),
@@ -175,9 +207,10 @@ impl ResourceManager {
     /// Handle a proof from the receiver.
     ///
     /// Returns true if the proof is valid and the transfer is complete.
-    pub fn handle_proof(&mut self, proof_data: &[u8]) -> Result<bool, String> {
+    pub fn handle_proof(&mut self, proof_data: &[u8]) -> Result<bool, ResourceManagerError> {
         // Peek at the resource hash to find the transfer (validate with dummy first)
-        let peek = resource_ops::validate_resource_proof(proof_data, &[0u8; 32])?;
+        let peek = resource_ops::validate_resource_proof(proof_data, &[0u8; 32])
+            .map_err(ResourceManagerError::InvalidPayload)?;
         let resource_hash = match &peek {
             resource_ops::ProofValidation::Valid { resource_hash }
             | resource_ops::ProofValidation::Invalid { resource_hash } => *resource_hash,
@@ -186,10 +219,13 @@ impl ResourceManager {
         let transfer = self
             .outgoing
             .get_mut(&resource_hash)
-            .ok_or_else(|| format!("unknown resource hash: {}", hex::encode(resource_hash)))?;
+            .ok_or_else(|| {
+                ResourceManagerError::UnknownResource(hex::encode(resource_hash))
+            })?;
 
         let validation =
-            resource_ops::validate_resource_proof(proof_data, &transfer.expected_proof)?;
+            resource_ops::validate_resource_proof(proof_data, &transfer.expected_proof)
+                .map_err(ResourceManagerError::InvalidPayload)?;
 
         match validation {
             resource_ops::ProofValidation::Valid { resource_hash } => {
@@ -218,8 +254,9 @@ impl ResourceManager {
         &mut self,
         link_id: LinkId,
         adv_bytes: &[u8],
-    ) -> Result<([u8; 32], Vec<u8>), String> {
-        let parsed = resource_ops::parse_advertisement(adv_bytes)?;
+    ) -> Result<([u8; 32], Vec<u8>), ResourceManagerError> {
+        let parsed = resource_ops::parse_advertisement(adv_bytes)
+            .map_err(ResourceManagerError::InvalidPayload)?;
 
         tracing::info!(
             resource_hash = %hex::encode(parsed.resource_hash),
@@ -258,12 +295,9 @@ impl ResourceManager {
         &mut self,
         link_id: &LinkId,
         part_data: &[u8],
-    ) -> Result<PartComplete, String> {
+    ) -> Result<PartReceptionResult, ResourceManagerError> {
         let transfer = self.incoming.get_mut(link_id).ok_or_else(|| {
-            format!(
-                "no incoming transfer for link {}",
-                hex::encode(link_id.as_ref())
-            )
+            ResourceManagerError::NoIncomingTransfer(hex::encode(link_id.as_ref()))
         })?;
 
         // Find which part this is by matching its map hash
@@ -283,22 +317,18 @@ impl ResourceManager {
                     "received resource part"
                 );
 
-                let all_received = transfer.received_count == transfer.parts.len();
-
-                Ok(PartComplete {
-                    needs_more_parts: None, // MVP: we requested all upfront
-                    all_received,
-                })
+                if transfer.received_count == transfer.parts.len() {
+                    Ok(PartReceptionResult::Complete)
+                } else {
+                    Ok(PartReceptionResult::NeedMore(None)) // MVP: we requested all upfront
+                }
             }
             None => {
                 tracing::warn!(
                     link_id = %hex::encode(link_id.as_ref()),
                     "received unmatched resource part"
                 );
-                Ok(PartComplete {
-                    needs_more_parts: None,
-                    all_received: false,
-                })
+                Ok(PartReceptionResult::Unmatched)
             }
         }
     }
@@ -310,12 +340,9 @@ impl ResourceManager {
         &mut self,
         link_id: &LinkId,
         derived_key: &DerivedKey,
-    ) -> Result<(Vec<u8>, Vec<u8>), String> {
+    ) -> Result<(Vec<u8>, Vec<u8>), ResourceManagerError> {
         let transfer = self.incoming.get(link_id).ok_or_else(|| {
-            format!(
-                "no incoming transfer for link {}",
-                hex::encode(link_id.as_ref())
-            )
+            ResourceManagerError::NoIncomingTransfer(hex::encode(link_id.as_ref()))
         })?;
 
         let (data, proof_bytes) = resource_ops::collect_and_assemble(
@@ -324,7 +351,8 @@ impl ResourceManager {
             &transfer.random_hash,
             &transfer.resource_hash,
             transfer.flags.compressed,
-        )?;
+        )
+        .map_err(ResourceManagerError::Assembly)?;
 
         tracing::info!(
             resource_hash = %hex::encode(transfer.resource_hash),
@@ -447,14 +475,14 @@ mod tests {
             parts.len()
         );
 
-        let mut all_received = false;
+        let mut completed = false;
         for part in &parts {
             let result = receiver_mgr.receive_part(&receiver_link, part).unwrap();
-            if result.all_received {
-                all_received = true;
+            if matches!(result, PartReceptionResult::Complete) {
+                completed = true;
             }
         }
-        assert!(all_received);
+        assert!(completed);
 
         let (received_data, proof_bytes) = receiver_mgr
             .assemble_and_prove(&receiver_link, &key)
@@ -518,7 +546,7 @@ mod tests {
         for part in &parts {
             final_result = Some(receiver_mgr.receive_part(&receiver_link, part).unwrap());
         }
-        assert!(final_result.unwrap().all_received);
+        assert!(matches!(final_result.unwrap(), PartReceptionResult::Complete));
     }
 
     #[test]
@@ -668,14 +696,14 @@ mod tests {
         assert!(parts.len() > 1, "need multiple parts for this test");
 
         // Deliver parts in reverse order
-        let mut all_received = false;
+        let mut completed = false;
         for part in parts.iter().rev() {
             let result = receiver_mgr.receive_part(&receiver_link, part).unwrap();
-            if result.all_received {
-                all_received = true;
+            if matches!(result, PartReceptionResult::Complete) {
+                completed = true;
             }
         }
-        assert!(all_received);
+        assert!(completed);
 
         let (received_data, proof) = receiver_mgr
             .assemble_and_prove(&receiver_link, &key)
@@ -862,7 +890,7 @@ mod tests {
         let garbage = vec![0xDE; 100];
         let result = receiver_mgr.receive_part(&receiver_link, &garbage).unwrap();
         assert!(
-            !result.all_received,
+            matches!(result, PartReceptionResult::Unmatched),
             "garbage part should not complete transfer"
         );
     }
@@ -890,7 +918,7 @@ mod tests {
         let result = receiver_mgr
             .receive_part(&receiver_link, &parts[0])
             .unwrap();
-        assert!(!result.all_received);
+        assert!(matches!(result, PartReceptionResult::NeedMore(_)));
 
         // Attempt assembly with incomplete data — should fail
         let assembly = receiver_mgr.assemble_and_prove(&receiver_link, &key);

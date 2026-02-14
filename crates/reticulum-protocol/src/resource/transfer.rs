@@ -19,6 +19,7 @@ use super::advertisement::{ResourceAdvertisement, ResourceFlags};
 use super::constants::{RANDOM_HASH_SIZE, SDU};
 use super::hashmap::ResourceHashmap;
 use crate::error::ResourceError;
+use crate::resource::constants::{PART_REQUEST_EXHAUSTED, PART_REQUEST_NORMAL};
 
 // ------------------------------------------------------------------ //
 // Types
@@ -221,12 +222,12 @@ pub fn encode_part_request(
 ) -> Vec<u8> {
     let mut buf = Vec::new();
     if exhausted {
-        buf.push(0xFF);
+        buf.push(PART_REQUEST_EXHAUSTED);
         if let Some(lmh) = last_map_hash {
             buf.extend_from_slice(lmh);
         }
     } else {
-        buf.push(0x00);
+        buf.push(PART_REQUEST_NORMAL);
     }
     buf.extend_from_slice(resource_hash);
     for hash in map_hashes {
@@ -241,7 +242,7 @@ pub fn decode_part_request(data: &[u8]) -> Result<PartRequest, ResourceError> {
         return Err(ResourceError::InvalidPayload("empty part request".into()));
     }
 
-    let exhausted = data[0] == 0xFF;
+    let exhausted = data[0] == PART_REQUEST_EXHAUSTED;
     let (offset, last_map_hash) = if exhausted {
         if data.len() < 1 + 4 + 32 {
             return Err(ResourceError::InvalidPayload(

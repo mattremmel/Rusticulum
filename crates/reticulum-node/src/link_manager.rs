@@ -13,6 +13,7 @@ use reticulum_core::packet::context::ContextType;
 use reticulum_core::packet::wire::RawPacket;
 use reticulum_core::types::{DestinationHash, LinkId};
 
+use reticulum_protocol::link::constants::{KEEPALIVE_ECHO_MARKER, KEEPALIVE_MARKER};
 use reticulum_protocol::link::state::{LinkActive, LinkHandshake, LinkPending};
 use reticulum_protocol::link::types::{LinkMode, LinkRole};
 
@@ -658,7 +659,7 @@ impl LinkManager {
 
         let mut packets = Vec::new();
         for link_id in due_link_ids {
-            if let Some(raw) = self.send_raw_with_context(&link_id, &[0xFF], ContextType::Keepalive)
+            if let Some(raw) = self.send_raw_with_context(&link_id, &[KEEPALIVE_MARKER], ContextType::Keepalive)
             {
                 tracing::debug!(
                     link_id = %hex::encode(link_id.as_ref()),
@@ -679,7 +680,7 @@ impl LinkManager {
         if role != LinkRole::Responder {
             return None;
         }
-        self.send_raw_with_context(link_id, &[0xFE], ContextType::Keepalive)
+        self.send_raw_with_context(link_id, &[KEEPALIVE_ECHO_MARKER], ContextType::Keepalive)
     }
 
     /// Check link health: mark stale links, return link_ids that should be torn down.

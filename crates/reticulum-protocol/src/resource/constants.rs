@@ -106,3 +106,13 @@ pub const WATCHDOG_MAX_SLEEP: u32 = 1;
 
 /// Maximum grace time (seconds) for response resources.
 pub const RESPONSE_MAX_GRACE_TIME: u32 = 10;
+
+// ------------------------------------------------------------------ //
+// Part request flags
+// ------------------------------------------------------------------ //
+
+/// Flag byte for a normal (non-exhausted) part request.
+pub const PART_REQUEST_NORMAL: u8 = 0x00;
+
+/// Flag byte for an exhausted part request (receiver gave up retrying).
+pub const PART_REQUEST_EXHAUSTED: u8 = 0xFF;

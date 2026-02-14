@@ -452,7 +452,7 @@ impl ChannelState {
     /// `min(outlet_mdu - ENVELOPE_OVERHEAD, 0xFFFF)`.
     pub fn channel_mdu(outlet_mdu: usize) -> usize {
         let raw = outlet_mdu.saturating_sub(ENVELOPE_OVERHEAD);
-        raw.min(0xFFFF)
+        raw.min(MAX_CHANNEL_MDU)
     }
 
     // ------------------------------------------------------------------ //

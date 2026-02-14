@@ -58,3 +58,9 @@ pub const TOKEN_OVERHEAD: usize = 48;
 
 /// Default keepalive interval (same as KEEPALIVE_MAX).
 pub const KEEPALIVE_DEFAULT: f64 = 360.0;
+
+/// Data byte sent by the initiator in a keepalive packet.
+pub const KEEPALIVE_MARKER: u8 = 0xFF;
+
+/// Data byte sent by the responder echoing a keepalive.
+pub const KEEPALIVE_ECHO_MARKER: u8 = 0xFE;
