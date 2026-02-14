@@ -541,6 +541,22 @@ impl Node {
                             self.broadcast_to_interfaces(exclude, &out).await;
                         }
                     }
+
+                    // Send keepalives for initiator links that are due
+                    let keepalive_packets = self.link_manager.collect_keepalive_packets();
+                    for raw in &keepalive_packets {
+                        self.broadcast_to_interfaces(None, raw).await;
+                    }
+
+                    // Check link health: mark stale, teardown dead links
+                    let teardown_ids = self.link_manager.check_link_health();
+                    for link_id in &teardown_ids {
+                        tracing::info!(
+                            link_id = %hex::encode(link_id.as_ref()),
+                            "link_teardown_timeout"
+                        );
+                        self.channel_manager.remove_link(link_id);
+                    }
                 }
 
                 _ = cull_interval.tick() => {
@@ -721,11 +737,16 @@ impl Node {
         };
 
         // Deduplication + hop limit
+        // Some contexts (Keepalive, Resource, Channel, etc.) bypass dedup
+        // to match Python's Transport.packet_filter behavior.
+        let dedup_exempt = inbound_triage::bypasses_dedup(packet.context);
         let hash = packet.packet_hash();
-        if let Some(reason) = inbound_triage::should_drop_early(
-            self.router.hashlist_mut().insert(hash),
-            packet.hops,
-        ) {
+        let is_new = if dedup_exempt {
+            true
+        } else {
+            self.router.hashlist_mut().insert(hash)
+        };
+        if let Some(reason) = inbound_triage::should_drop_early(is_new, packet.hops) {
             tracing::trace!(id = from_iface.0, reason = ?reason, "packet dropped");
             return;
         }
@@ -942,6 +963,28 @@ impl Node {
                     return true;
                 }
                 false
+            }
+
+            LinkPacketKind::Keepalive => {
+                // Keepalive packets are NOT encrypted (raw passthrough like Resource)
+                if let Some(data) = self.link_manager.get_raw_link_data(packet) {
+                    let link_id = extract_link_id(packet);
+                    // If we're responder and data is 0xFF (initiator keepalive), echo 0xFE
+                    if self.link_manager.get_link_role(&link_id)
+                        == Some(reticulum_protocol::link::types::LinkRole::Responder)
+                        && data == [0xFF]
+                        && let Some(raw) = self.link_manager.build_keepalive_echo(&link_id)
+                    {
+                        self.broadcast_to_interfaces(None, &raw).await;
+                    }
+                    tracing::debug!(
+                        link_id = %hex::encode(link_id.as_ref()),
+                        "keepalive_processed"
+                    );
+                    true
+                } else {
+                    false
+                }
             }
 
             LinkPacketKind::ResourceAdvertisement => self.handle_resource_adv(packet).await,

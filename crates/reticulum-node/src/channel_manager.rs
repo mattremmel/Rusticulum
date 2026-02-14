@@ -71,6 +71,16 @@ impl ChannelManager {
         }
     }
 
+    /// Remove all state for a torn-down link.
+    pub fn remove_link(&mut self, link_id: &LinkId) {
+        self.channels.remove(link_id);
+        self.auto_channel_queue.remove(link_id);
+        self.auto_buffer_queue.remove(link_id);
+        self.auto_request_queue.remove(link_id);
+        // Remove any pending requests associated with this link
+        self.pending_requests.retain(|_, (lid, _)| lid != link_id);
+    }
+
     /// Register a link for channel communication.
     pub fn register_link(&mut self, link_id: LinkId, rtt: f64) {
         tracing::debug!(

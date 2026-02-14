@@ -4,6 +4,7 @@
 //! packet-type routing decisions can be tested without a running Node.
 
 use reticulum_core::constants::PacketType;
+use reticulum_core::packet::context::ContextType;
 use reticulum_transport::path::constants::PATHFINDER_M;
 
 /// Reason a packet should be dropped before full processing.
@@ -30,6 +31,22 @@ pub fn should_drop_early(is_new: bool, hops: u8) -> Option<EarlyDropReason> {
         return Some(EarlyDropReason::HopLimitReached);
     }
     None
+}
+
+/// Whether a packet context should bypass deduplication.
+///
+/// Matches Python's `Transport.packet_filter` which returns `True` early
+/// for these contexts before checking the hashlist. Without this exemption,
+/// keepalive packets (always identical data) would be deduped after the first.
+pub fn bypasses_dedup(context: ContextType) -> bool {
+    matches!(
+        context,
+        ContextType::Keepalive
+            | ContextType::Resource
+            | ContextType::ResourceReq
+            | ContextType::ResourcePrf
+            | ContextType::Channel
+    )
 }
 
 /// High-level classification of an inbound packet.
@@ -137,5 +154,42 @@ mod tests {
             classify_inbound(PacketType::Proof),
             InboundAction::HandleLinkPacket
         );
+    }
+
+    // --- bypasses_dedup ---
+
+    #[test]
+    fn keepalive_bypasses_dedup() {
+        assert!(bypasses_dedup(ContextType::Keepalive));
+    }
+
+    #[test]
+    fn resource_bypasses_dedup() {
+        assert!(bypasses_dedup(ContextType::Resource));
+    }
+
+    #[test]
+    fn resource_req_bypasses_dedup() {
+        assert!(bypasses_dedup(ContextType::ResourceReq));
+    }
+
+    #[test]
+    fn resource_prf_bypasses_dedup() {
+        assert!(bypasses_dedup(ContextType::ResourcePrf));
+    }
+
+    #[test]
+    fn channel_bypasses_dedup() {
+        assert!(bypasses_dedup(ContextType::Channel));
+    }
+
+    #[test]
+    fn normal_data_does_not_bypass_dedup() {
+        assert!(!bypasses_dedup(ContextType::None));
+    }
+
+    #[test]
+    fn announce_does_not_bypass_dedup() {
+        assert!(!bypasses_dedup(ContextType::ResourceAdv));
     }
 }

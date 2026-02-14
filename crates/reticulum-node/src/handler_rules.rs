@@ -30,6 +30,8 @@ pub fn needs_link_encryption(kind: LinkPacketKind) -> bool {
         | LinkPacketKind::ChannelData
         | LinkPacketKind::Request
         | LinkPacketKind::Response => true,
+        // Keepalive packets are NOT encrypted (raw passthrough, like Resource)
+        LinkPacketKind::Keepalive => false,
         // Delivery proofs are not encrypted data
         LinkPacketKind::DeliveryProof => false,
         LinkPacketKind::Unknown => false,
@@ -66,6 +68,7 @@ pub fn describe_handler(kind: LinkPacketKind) -> &'static str {
         LinkPacketKind::ChannelData => "channel (encrypted+proof)",
         LinkPacketKind::Request => "request (encrypted)",
         LinkPacketKind::Response => "response (encrypted)",
+        LinkPacketKind::Keepalive => "keepalive (raw/unencrypted)",
         LinkPacketKind::DeliveryProof => "delivery_proof",
         LinkPacketKind::Unknown => "unknown",
     }
@@ -243,6 +246,7 @@ mod tests {
             LinkPacketKind::ChannelData,
             LinkPacketKind::Request,
             LinkPacketKind::Response,
+            LinkPacketKind::Keepalive,
             LinkPacketKind::DeliveryProof,
             LinkPacketKind::Unknown,
         ];
@@ -282,5 +286,23 @@ mod tests {
     fn channel_description_indicates_proof() {
         let desc = describe_handler(LinkPacketKind::ChannelData);
         assert!(desc.contains("proof"));
+    }
+
+    // === Keepalive rules ===
+
+    #[test]
+    fn keepalive_not_encrypted() {
+        assert!(!needs_link_encryption(LinkPacketKind::Keepalive));
+    }
+
+    #[test]
+    fn keepalive_no_proof() {
+        assert!(!needs_delivery_proof(LinkPacketKind::Keepalive));
+    }
+
+    #[test]
+    fn keepalive_not_raw_data() {
+        // Keepalive uses raw passthrough but is not the "raw data" context (Resource)
+        assert!(!uses_raw_data(LinkPacketKind::Keepalive));
     }
 }

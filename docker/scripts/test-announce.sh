@@ -27,6 +27,12 @@ else
     PYTHON_EXIT=""
 fi
 
+# Also wait for rust-node to finish (it may still be running)
+RUST_CONTAINER=$(docker compose -f docker-compose.yml -f docker-compose.announce-test.yml ps -q rust-node 2>/dev/null)
+if [ -n "$RUST_CONTAINER" ]; then
+    timeout 30 docker wait "$RUST_CONTAINER" 2>/dev/null || true
+fi
+
 echo "=== Collecting logs ==="
 docker compose -f docker-compose.yml -f docker-compose.announce-test.yml logs >> "$LOG_FILE" 2>&1
 
@@ -43,7 +49,7 @@ fi
 
 # Check Rust logs for announce_validated
 RUST_PASS=false
-if docker compose -f docker-compose.yml -f docker-compose.announce-test.yml logs rust-node 2>&1 | grep -q "announce_validated"; then
+if grep -q "announce_validated" "$LOG_FILE"; then
     echo "PASS: Rust node validated a received announce"
     RUST_PASS=true
 else

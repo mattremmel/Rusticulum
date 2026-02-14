@@ -13,12 +13,20 @@ docker compose -f docker-compose.multihop-test.yml up -d --build 2>&1 | tee "$LO
 echo "=== Waiting for Rust nodes to process announces (90s) ==="
 sleep 90
 
+# Wait for all containers to finish (they may still be running)
+for SVC in rust-a rust-b python-relay; do
+    CTR=$(docker compose -f docker-compose.multihop-test.yml ps -q "$SVC" 2>/dev/null)
+    if [ -n "$CTR" ]; then
+        timeout 30 docker wait "$CTR" 2>/dev/null || true
+    fi
+done
+
 echo "=== Collecting logs ==="
 docker compose -f docker-compose.multihop-test.yml logs >> "$LOG_FILE" 2>&1
 
 # Check Rust-B received announce from Rust-A (through Python relay)
 RUST_B_ANNOUNCE=false
-if docker compose -f docker-compose.multihop-test.yml logs rust-b 2>&1 | grep -q "announce_validated"; then
+if grep -q "rust-b.*announce_validated" "$LOG_FILE"; then
     echo "PASS: Rust-B received announce from Rust-A through relay"
     RUST_B_ANNOUNCE=true
 else
@@ -28,14 +36,14 @@ fi
 # Check Rust-A received announce from Rust-B's discovery (Rust-B doesn't announce,
 # but Rust-A's announce should reach Rust-B)
 RUST_A_ANNOUNCE=false
-if docker compose -f docker-compose.multihop-test.yml logs rust-a 2>&1 | grep -q "announce_validated"; then
+if grep -q "rust-a.*announce_validated" "$LOG_FILE"; then
     echo "INFO: Rust-A also received an announce (may be from relay)"
     RUST_A_ANNOUNCE=true
 fi
 
 # Check link establishment
 RUST_B_LINK=false
-if docker compose -f docker-compose.multihop-test.yml logs rust-b 2>&1 | grep -q "link_established"; then
+if grep -q "rust-b.*link_established" "$LOG_FILE"; then
     echo "PASS: Rust-B established a link"
     RUST_B_LINK=true
 else
@@ -43,7 +51,7 @@ else
 fi
 
 RUST_A_LINK=false
-if docker compose -f docker-compose.multihop-test.yml logs rust-a 2>&1 | grep -q "link_established"; then
+if grep -q "rust-a.*link_established" "$LOG_FILE"; then
     echo "PASS: Rust-A established a link"
     RUST_A_LINK=true
 else
@@ -52,7 +60,7 @@ fi
 
 # Check data exchange
 RUST_A_DATA=false
-if docker compose -f docker-compose.multihop-test.yml logs rust-a 2>&1 | grep -q "link_data_received"; then
+if grep -q "rust-a.*link_data_received" "$LOG_FILE"; then
     echo "PASS: Rust-A received link data"
     RUST_A_DATA=true
 else
@@ -60,7 +68,7 @@ else
 fi
 
 RUST_B_DATA=false
-if docker compose -f docker-compose.multihop-test.yml logs rust-b 2>&1 | grep -q "link_data_sent"; then
+if grep -q "rust-b.*link_data_sent" "$LOG_FILE"; then
     echo "PASS: Rust-B sent link data"
     RUST_B_DATA=true
 else

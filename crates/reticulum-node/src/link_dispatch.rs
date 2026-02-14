@@ -32,6 +32,8 @@ pub enum LinkPacketKind {
     Request,
     /// Response message (link-encrypted, not auto-proved).
     Response,
+    /// Link keepalive (data=0xFF from initiator, data=0xFE echo from responder).
+    Keepalive,
     /// Packet delivery proof.
     DeliveryProof,
     /// Unrecognized combination of packet type / context / dest type.
@@ -76,6 +78,9 @@ pub fn classify_link_packet(
         }
         (PacketType::Data, ContextType::Response, DestinationType::Link) => {
             LinkPacketKind::Response
+        }
+        (PacketType::Data, ContextType::Keepalive, DestinationType::Link) => {
+            LinkPacketKind::Keepalive
         }
         (PacketType::Proof, ContextType::None, DestinationType::Link) => {
             LinkPacketKind::DeliveryProof
@@ -173,6 +178,14 @@ mod tests {
         assert_eq!(
             classify_link_packet(PacketType::Data, ContextType::Response, DestinationType::Link),
             LinkPacketKind::Response,
+        );
+    }
+
+    #[test]
+    fn keepalive() {
+        assert_eq!(
+            classify_link_packet(PacketType::Data, ContextType::Keepalive, DestinationType::Link),
+            LinkPacketKind::Keepalive,
         );
     }
 

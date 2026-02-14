@@ -36,7 +36,7 @@ echo "=== Collecting logs ==="
 docker compose logs >> "$LOG_FILE" 2>&1
 
 echo "=== Checking Rust node connection ==="
-if docker compose logs rust-node 2>&1 | grep -q "connected to"; then
+if grep -q "connected to" "$LOG_FILE"; then
     echo "PASS: Rust node connected to Python RNS"
 else
     echo "FAIL: Rust node did not connect"

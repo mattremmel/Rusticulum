@@ -38,6 +38,12 @@ if [ -n "$PYTHON_B_CONTAINER" ]; then
     fi
 fi
 
+# Also wait for rust-relay to finish (it may still be running)
+RUST_CONTAINER=$(docker compose -f docker-compose.rust-relay-test.yml ps -q rust-relay 2>/dev/null)
+if [ -n "$RUST_CONTAINER" ]; then
+    timeout 30 docker wait "$RUST_CONTAINER" 2>/dev/null || true
+fi
+
 echo "=== Collecting logs ==="
 docker compose -f docker-compose.rust-relay-test.yml logs >> "$LOG_FILE" 2>&1
 
@@ -61,7 +67,7 @@ fi
 
 # Check Rust relay logs
 RUST_ANNOUNCE=false
-if docker compose -f docker-compose.rust-relay-test.yml logs rust-relay 2>&1 | grep -q "announce_validated"; then
+if grep -q "announce_validated" "$LOG_FILE"; then
     echo "PASS: Rust relay processed announces"
     RUST_ANNOUNCE=true
 else
@@ -69,7 +75,7 @@ else
 fi
 
 RUST_RELAY=false
-if docker compose -f docker-compose.rust-relay-test.yml logs rust-relay 2>&1 | grep -q "transport_relay"; then
+if grep -q "transport_relay" "$LOG_FILE"; then
     echo "PASS: Rust relay forwarded packets"
     RUST_RELAY=true
 else

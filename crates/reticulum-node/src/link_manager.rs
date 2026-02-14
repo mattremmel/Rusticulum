@@ -14,7 +14,7 @@ use reticulum_core::packet::wire::RawPacket;
 use reticulum_core::types::{DestinationHash, LinkId};
 
 use reticulum_protocol::link::state::{LinkActive, LinkHandshake, LinkPending};
-use reticulum_protocol::link::types::LinkMode;
+use reticulum_protocol::link::types::{LinkMode, LinkRole};
 
 use crate::link_initiation::{self, queue_auto_actions};
 use crate::link_lifecycle;
@@ -579,6 +579,98 @@ impl LinkManager {
         let proof_data = build_delivery_proof_data(&hash_bytes, ed25519_seed);
 
         Some(build_proof_packet(link_id, proof_data))
+    }
+    /// Get the role (Initiator/Responder) for an active link.
+    pub fn get_link_role(&self, link_id: &LinkId) -> Option<LinkRole> {
+        self.active_links.get(link_id).map(|a| a.role)
+    }
+
+    /// Collect keepalive packets for all initiator links that are due.
+    ///
+    /// Only the initiator sends keepalives (data=`0xFF`, context=Keepalive).
+    /// Keepalive packets are NOT link-encrypted (Python Packet.pack passes through raw).
+    /// Returns raw packet bytes for each keepalive to broadcast.
+    pub fn collect_keepalive_packets(&mut self) -> Vec<Vec<u8>> {
+        let due_link_ids: Vec<LinkId> = self
+            .active_links
+            .iter()
+            .filter(|(_, active)| {
+                active.role == LinkRole::Initiator && active.should_send_keepalive()
+            })
+            .map(|(id, _)| *id)
+            .collect();
+
+        let mut packets = Vec::new();
+        for link_id in due_link_ids {
+            if let Some(raw) = self.send_raw_with_context(
+                &link_id,
+                &[0xFF],
+                ContextType::Keepalive,
+            ) {
+                tracing::debug!(
+                    link_id = %hex::encode(link_id.as_ref()),
+                    "keepalive_sent"
+                );
+                packets.push(raw);
+            }
+        }
+        packets
+    }
+
+    /// Build a keepalive echo packet (data=`0xFE`) for a responder link.
+    ///
+    /// Keepalive packets are NOT link-encrypted (Python Packet.pack passes through raw).
+    /// Returns None if the link is not active or is not a responder.
+    pub fn build_keepalive_echo(&mut self, link_id: &LinkId) -> Option<Vec<u8>> {
+        let role = self.active_links.get(link_id)?.role;
+        if role != LinkRole::Responder {
+            return None;
+        }
+        self.send_raw_with_context(link_id, &[0xFE], ContextType::Keepalive)
+    }
+
+    /// Check link health: mark stale links, return link_ids that should be torn down.
+    pub fn check_link_health(&mut self) -> Vec<LinkId> {
+        // First pass: mark stale
+        let stale_ids: Vec<LinkId> = self
+            .active_links
+            .iter()
+            .filter(|(_, active)| active.should_go_stale())
+            .map(|(id, _)| *id)
+            .collect();
+
+        for link_id in &stale_ids {
+            if let Some(active) = self.active_links.get_mut(link_id) {
+                tracing::info!(
+                    link_id = %hex::encode(link_id.as_ref()),
+                    "link_stale"
+                );
+                active.mark_stale();
+            }
+        }
+
+        // Second pass: collect teardowns
+        let teardown_ids: Vec<LinkId> = self
+            .active_links
+            .iter()
+            .filter(|(_, active)| active.should_teardown())
+            .map(|(id, _)| *id)
+            .collect();
+
+        for link_id in &teardown_ids {
+            self.teardown_link(link_id);
+        }
+
+        teardown_ids
+    }
+
+    /// Remove a link from all internal state.
+    fn teardown_link(&mut self, link_id: &LinkId) {
+        self.active_links.remove(link_id);
+        self.signing_keys.remove(link_id);
+        // Remove from linked_destinations if this was the only link to that dest
+        // (We don't track dest_hash per active link, so just leave it for now —
+        //  linked_destinations is advisory and will be cleaned on next announce)
     }
 }
 
@@ -1525,5 +1617,155 @@ mod tests {
         // The entry should store the correct destination hash
         let (_, (_, stored_dest)) = init_mgr.pending_initiator.iter().next().unwrap();
         assert_eq!(*stored_dest, resp_dh);
+    }
+
+    // --- Keepalive tests ---
+
+    #[test]
+    fn test_get_link_role_initiator() {
+        let (init_mgr, _resp_mgr, link_id, _) = perform_full_handshake("role_init");
+        assert_eq!(init_mgr.get_link_role(&link_id), Some(LinkRole::Initiator));
+    }
+
+    #[test]
+    fn test_get_link_role_responder() {
+        let (_init_mgr, resp_mgr, link_id, _) = perform_full_handshake("role_resp");
+        assert_eq!(resp_mgr.get_link_role(&link_id), Some(LinkRole::Responder));
+    }
+
+    #[test]
+    fn test_get_link_role_unknown() {
+        let mgr = LinkManager::new(vec![]);
+        assert_eq!(mgr.get_link_role(&LinkId::new([0xAA; 16])), None);
+    }
+
+    #[test]
+    fn test_collect_keepalive_initiator_only() {
+        let (mut init_mgr, mut resp_mgr, link_id, _) =
+            perform_full_handshake("ka_init_only");
+
+        // Force the link's last_outbound to be old enough to trigger keepalive
+        // by setting keepalive to 0 (always due)
+        init_mgr.active_links.get_mut(&link_id).unwrap().keepalive = 0.0;
+        resp_mgr.active_links.get_mut(&link_id).unwrap().keepalive = 0.0;
+
+        // Initiator should produce keepalive packets
+        let init_packets = init_mgr.collect_keepalive_packets();
+        assert_eq!(init_packets.len(), 1, "initiator should send 1 keepalive");
+
+        // Responder should NOT produce keepalive packets (only initiator sends)
+        let resp_packets = resp_mgr.collect_keepalive_packets();
+        assert!(resp_packets.is_empty(), "responder should not send keepalives");
+    }
+
+    #[test]
+    fn test_collect_keepalive_not_yet_due() {
+        let (mut init_mgr, _, link_id, _) = perform_full_handshake("ka_not_due");
+
+        // With default keepalive (≥5s), it shouldn't be due right after handshake
+        // since last_outbound was just set during the LRRTT
+        let active = init_mgr.active_links.get(&link_id).unwrap();
+        assert!(
+            active.keepalive >= 5.0,
+            "keepalive should be at least 5s, got {}",
+            active.keepalive
+        );
+
+        let packets = init_mgr.collect_keepalive_packets();
+        assert!(packets.is_empty(), "keepalive should not be due immediately");
+    }
+
+    #[test]
+    fn test_build_keepalive_echo_responder() {
+        let (_init_mgr, mut resp_mgr, link_id, _) = perform_full_handshake("ka_echo");
+
+        // Responder should produce echo packets
+        let echo = resp_mgr.build_keepalive_echo(&link_id);
+        assert!(echo.is_some(), "responder should produce keepalive echo");
+
+        // Verify it's a valid packet with Keepalive context
+        let raw = echo.unwrap();
+        let pkt = RawPacket::parse(&raw).unwrap();
+        assert_eq!(pkt.context, ContextType::Keepalive);
+    }
+
+    #[test]
+    fn test_build_keepalive_echo_initiator_returns_none() {
+        let (mut init_mgr, _, link_id, _) = perform_full_handshake("ka_echo_init");
+
+        // Initiator should NOT produce echo (only responder echoes)
+        let echo = init_mgr.build_keepalive_echo(&link_id);
+        assert!(echo.is_none(), "initiator should not echo keepalives");
+    }
+
+    #[test]
+    fn test_check_link_health_stale_detection() {
+        let (mut init_mgr, _, link_id, _) = perform_full_handshake("ka_stale");
+
+        // Set stale_time to 0 so it triggers immediately
+        let active = init_mgr.active_links.get_mut(&link_id).unwrap();
+        active.stale_time = 0.0;
+
+        // Should detect stale but not tear down yet (stale_since just set)
+        let teardowns = init_mgr.check_link_health();
+        assert!(teardowns.is_empty(), "should not teardown immediately on stale");
+
+        // Link should now be marked stale
+        let active = init_mgr.active_links.get(&link_id).unwrap();
+        assert!(active.is_stale, "link should be marked stale");
+    }
+
+    #[test]
+    fn test_check_link_health_teardown() {
+        let (mut init_mgr, _, link_id, _) = perform_full_handshake("ka_teardown");
+
+        // Set keepalive to 0 and stale_time to 0 so it goes stale immediately
+        let active = init_mgr.active_links.get_mut(&link_id).unwrap();
+        active.stale_time = 0.0;
+        active.keepalive = 0.0;
+
+        // First call: marks stale
+        let _ = init_mgr.check_link_health();
+        assert!(init_mgr.active_links.contains_key(&link_id));
+
+        // Manually set stale_since to the past so teardown triggers
+        let active = init_mgr.active_links.get_mut(&link_id).unwrap();
+        active.stale_since = Some(std::time::Instant::now() - std::time::Duration::from_secs(60));
+
+        // Second call: should teardown
+        let teardowns = init_mgr.check_link_health();
+        assert!(teardowns.contains(&link_id), "should include torn-down link");
+        assert!(
+            !init_mgr.active_links.contains_key(&link_id),
+            "link should be removed after teardown"
+        );
+    }
+
+    #[test]
+    fn test_keepalive_record_inbound_resets_stale() {
+        let (mut init_mgr, _, link_id, _) = perform_full_handshake("ka_unstale");
+
+        // Make link stale
+        let active = init_mgr.active_links.get_mut(&link_id).unwrap();
+        active.mark_stale();
+        assert!(active.is_stale);
+
+        // Receiving inbound data should reset stale
+        active.record_inbound(10);
+        assert!(!active.is_stale, "record_inbound should reset stale");
+        assert!(active.stale_since.is_none());
+    }
+
+    #[test]
+    fn test_teardown_removes_signing_key() {
+        let (mut init_mgr, _, link_id, _) = perform_full_handshake("ka_teardown_key");
+
+        assert!(init_mgr.signing_keys.contains_key(&link_id));
+        assert!(init_mgr.active_links.contains_key(&link_id));
+
+        init_mgr.teardown_link(&link_id);
+
+        assert!(!init_mgr.signing_keys.contains_key(&link_id));
+        assert!(!init_mgr.active_links.contains_key(&link_id));
     }
 }

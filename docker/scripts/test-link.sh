@@ -27,6 +27,12 @@ else
     PYTHON_EXIT=""
 fi
 
+# Also wait for rust-node to finish (it may still be running)
+RUST_CONTAINER=$(docker compose -f docker-compose.yml -f docker-compose.link-test.yml ps -q rust-node 2>/dev/null)
+if [ -n "$RUST_CONTAINER" ]; then
+    timeout 30 docker wait "$RUST_CONTAINER" 2>/dev/null || true
+fi
+
 echo "=== Collecting logs ==="
 docker compose -f docker-compose.yml -f docker-compose.link-test.yml logs >> "$LOG_FILE" 2>&1
 
@@ -43,7 +49,7 @@ fi
 
 # Check Rust logs for link_established
 RUST_LINK_ESTABLISHED=false
-if docker compose -f docker-compose.yml -f docker-compose.link-test.yml logs rust-node 2>&1 | grep -q "link_established"; then
+if grep -q "link_established" "$LOG_FILE"; then
     echo "PASS: Rust node established a link"
     RUST_LINK_ESTABLISHED=true
 else
@@ -52,7 +58,7 @@ fi
 
 # Check Rust logs for link_data_received
 RUST_DATA_RECEIVED=false
-if docker compose -f docker-compose.yml -f docker-compose.link-test.yml logs rust-node 2>&1 | grep -q "link_data_received"; then
+if grep -q "link_data_received" "$LOG_FILE"; then
     echo "PASS: Rust node received link data"
     RUST_DATA_RECEIVED=true
 else
@@ -61,7 +67,7 @@ fi
 
 # Check Rust logs for link_data_sent
 RUST_DATA_SENT=false
-if docker compose -f docker-compose.yml -f docker-compose.link-test.yml logs rust-node 2>&1 | grep -q "link_data_sent"; then
+if grep -q "link_data_sent" "$LOG_FILE"; then
     echo "PASS: Rust node sent link data"
     RUST_DATA_SENT=true
 else

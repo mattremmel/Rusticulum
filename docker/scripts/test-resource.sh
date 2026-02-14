@@ -26,6 +26,12 @@ else
     PYTHON_EXIT=""
 fi
 
+# Also wait for rust-node to finish (it may still be running)
+RUST_CONTAINER=$(docker compose -f docker-compose.yml -f docker-compose.resource-test.yml ps -q rust-node 2>/dev/null)
+if [ -n "$RUST_CONTAINER" ]; then
+    timeout 30 docker wait "$RUST_CONTAINER" 2>/dev/null || true
+fi
+
 echo "=== Collecting logs ==="
 docker compose -f docker-compose.yml -f docker-compose.resource-test.yml logs >> "$LOG_FILE" 2>&1
 
@@ -42,7 +48,7 @@ fi
 
 # Check Rust logs for resource_received
 RUST_RESOURCE_RECEIVED=false
-if docker compose -f docker-compose.yml -f docker-compose.resource-test.yml logs rust-node 2>&1 | grep -q "resource_received"; then
+if grep -q "resource_received" "$LOG_FILE"; then
     echo "PASS: Rust node received a resource"
     RUST_RESOURCE_RECEIVED=true
 else
@@ -51,7 +57,7 @@ fi
 
 # Check Rust logs for resource_proof_verified
 RUST_PROOF_VERIFIED=false
-if docker compose -f docker-compose.yml -f docker-compose.resource-test.yml logs rust-node 2>&1 | grep -q "resource_proof_verified"; then
+if grep -q "resource_proof_verified" "$LOG_FILE"; then
     echo "PASS: Rust node's resource proof was verified"
     RUST_PROOF_VERIFIED=true
 else
@@ -60,7 +66,7 @@ fi
 
 # Check Rust logs for link_established
 RUST_LINK_ESTABLISHED=false
-if docker compose -f docker-compose.yml -f docker-compose.resource-test.yml logs rust-node 2>&1 | grep -q "link_established"; then
+if grep -q "link_established" "$LOG_FILE"; then
     echo "PASS: Rust node established a link"
     RUST_LINK_ESTABLISHED=true
 else
