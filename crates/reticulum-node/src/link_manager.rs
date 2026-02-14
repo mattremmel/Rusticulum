@@ -89,6 +89,8 @@ pub struct LinkManager {
     auto_buffer_queue: HashMap<LinkId, String>,
     /// Auto-request to send after link establishment (link_id → (path, data))
     auto_request_queue: HashMap<LinkId, (String, String)>,
+    /// Reverse map: link_id → dest_hash (for cleanup on teardown)
+    link_dest_map: HashMap<LinkId, DestinationHash>,
 }
 
 impl LinkManager {
@@ -109,6 +111,7 @@ impl LinkManager {
             auto_channel_queue: HashMap::new(),
             auto_buffer_queue: HashMap::new(),
             auto_request_queue: HashMap::new(),
+            link_dest_map: HashMap::new(),
         }
     }
 
@@ -370,6 +373,7 @@ impl LinkManager {
 
                 self.active_links.insert(activated_link_id, active);
                 self.linked_destinations.insert(dest_hash);
+                self.link_dest_map.insert(activated_link_id, dest_hash);
                 self.signing_keys.insert(activated_link_id, ed25519_seed);
 
                 Some(rtt_raw)
@@ -435,6 +439,40 @@ impl LinkManager {
                 None
             }
         }
+    }
+
+    /// Handle incoming LinkClose (teardown) packet.
+    ///
+    /// Decrypts the data and verifies it equals the link_id.
+    /// Returns true if the link was successfully torn down.
+    pub fn handle_link_close(&mut self, packet: &RawPacket) -> bool {
+        let link_id = dest_hash_to_link_id(&packet.destination);
+        let active = match self.active_links.get_mut(&link_id) {
+            Some(a) => a,
+            None => return false,
+        };
+
+        let plaintext = match active.decrypt(&packet.data) {
+            Ok(pt) => pt,
+            Err(e) => {
+                tracing::warn!(
+                    link_id = %hex::encode(link_id.as_ref()),
+                    "failed to decrypt link close: {e}"
+                );
+                return false;
+            }
+        };
+
+        if plaintext.as_slice() != link_id.as_ref() {
+            tracing::warn!(
+                link_id = %hex::encode(link_id.as_ref()),
+                "link close verification failed: plaintext does not match link_id"
+            );
+            return false;
+        }
+
+        self.teardown_link(&link_id);
+        true
     }
 
     /// Encrypt and build a data packet for an active link.
@@ -668,9 +706,9 @@ impl LinkManager {
     fn teardown_link(&mut self, link_id: &LinkId) {
         self.active_links.remove(link_id);
         self.signing_keys.remove(link_id);
-        // Remove from linked_destinations if this was the only link to that dest
-        // (We don't track dest_hash per active link, so just leave it for now —
-        //  linked_destinations is advisory and will be cleaned on next announce)
+        if let Some(dest_hash) = self.link_dest_map.remove(link_id) {
+            self.linked_destinations.remove(&dest_hash);
+        }
     }
 }
 
@@ -1767,5 +1805,36 @@ mod tests {
 
         assert!(!init_mgr.signing_keys.contains_key(&link_id));
         assert!(!init_mgr.active_links.contains_key(&link_id));
+    }
+
+    #[test]
+    fn test_teardown_cleans_linked_destinations() {
+        let (mut init_mgr, _, link_id, _) = perform_full_handshake("teardown_dest_cleanup");
+
+        // After handshake, linked_destinations should contain the dest
+        assert!(!init_mgr.linked_destinations.is_empty());
+        assert!(init_mgr.link_dest_map.contains_key(&link_id));
+
+        init_mgr.teardown_link(&link_id);
+
+        // After teardown, linked_destinations and link_dest_map should be clean
+        assert!(init_mgr.linked_destinations.is_empty());
+        assert!(!init_mgr.link_dest_map.contains_key(&link_id));
+    }
+
+    #[test]
+    fn test_relink_allowed_after_teardown() {
+        let (mut init_mgr, _, link_id, _) = perform_full_handshake("relink_after_teardown");
+
+        // Get the dest_hash before teardown
+        let dest_hash = *init_mgr.link_dest_map.get(&link_id).unwrap();
+
+        // Before teardown: has_link_to_dest should return true
+        assert!(init_mgr.has_link_to_dest(&dest_hash));
+
+        init_mgr.teardown_link(&link_id);
+
+        // After teardown: has_link_to_dest should return false
+        assert!(!init_mgr.has_link_to_dest(&dest_hash));
     }
 }

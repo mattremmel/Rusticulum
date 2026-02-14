@@ -34,6 +34,8 @@ pub enum LinkPacketKind {
     Response,
     /// Link keepalive (data=0xFF from initiator, data=0xFE echo from responder).
     Keepalive,
+    /// Link close/teardown (encrypted, plaintext = link_id).
+    LinkClose,
     /// Packet delivery proof.
     DeliveryProof,
     /// Unrecognized combination of packet type / context / dest type.
@@ -81,6 +83,9 @@ pub fn classify_link_packet(
         }
         (PacketType::Data, ContextType::Keepalive, DestinationType::Link) => {
             LinkPacketKind::Keepalive
+        }
+        (PacketType::Data, ContextType::LinkClose, DestinationType::Link) => {
+            LinkPacketKind::LinkClose
         }
         (PacketType::Proof, ContextType::None, DestinationType::Link) => {
             LinkPacketKind::DeliveryProof
@@ -186,6 +191,14 @@ mod tests {
         assert_eq!(
             classify_link_packet(PacketType::Data, ContextType::Keepalive, DestinationType::Link),
             LinkPacketKind::Keepalive,
+        );
+    }
+
+    #[test]
+    fn link_close() {
+        assert_eq!(
+            classify_link_packet(PacketType::Data, ContextType::LinkClose, DestinationType::Link),
+            LinkPacketKind::LinkClose,
         );
     }
 

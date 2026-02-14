@@ -995,6 +995,20 @@ impl Node {
             LinkPacketKind::Request => self.handle_request_packet(packet).await,
             LinkPacketKind::Response => self.handle_response_packet(packet).await,
 
+            LinkPacketKind::LinkClose => {
+                let link_id = extract_link_id(packet);
+                if self.link_manager.handle_link_close(packet) {
+                    tracing::info!(
+                        link_id = %hex::encode(link_id.as_ref()),
+                        "link_closed_by_remote"
+                    );
+                    self.channel_manager.remove_link(&link_id);
+                    true
+                } else {
+                    false
+                }
+            }
+
             LinkPacketKind::DeliveryProof => {
                 if self.link_manager.has_pending_or_active(&packet.destination) {
                     tracing::debug!(

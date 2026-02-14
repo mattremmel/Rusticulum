@@ -24,6 +24,7 @@ pub fn needs_link_encryption(kind: LinkPacketKind) -> bool {
         | LinkPacketKind::LinkRtt => false,
         // Plain link data and all other contexts use link encryption
         LinkPacketKind::LinkData
+        | LinkPacketKind::LinkClose
         | LinkPacketKind::ResourceAdvertisement
         | LinkPacketKind::ResourceRequest
         | LinkPacketKind::ResourceProof
@@ -68,6 +69,7 @@ pub fn describe_handler(kind: LinkPacketKind) -> &'static str {
         LinkPacketKind::ChannelData => "channel (encrypted+proof)",
         LinkPacketKind::Request => "request (encrypted)",
         LinkPacketKind::Response => "response (encrypted)",
+        LinkPacketKind::LinkClose => "link_close (encrypted)",
         LinkPacketKind::Keepalive => "keepalive (raw/unencrypted)",
         LinkPacketKind::DeliveryProof => "delivery_proof",
         LinkPacketKind::Unknown => "unknown",
@@ -246,6 +248,7 @@ mod tests {
             LinkPacketKind::ChannelData,
             LinkPacketKind::Request,
             LinkPacketKind::Response,
+            LinkPacketKind::LinkClose,
             LinkPacketKind::Keepalive,
             LinkPacketKind::DeliveryProof,
             LinkPacketKind::Unknown,
