@@ -50,8 +50,10 @@ use crate::link_response;
 use crate::packet_helpers::{
     apply_ifac, extract_link_id, extract_request_id, format_data_preview, verify_ifac,
 };
+use crate::packet_outcome;
 use crate::post_transfer_drain;
 use crate::resource_assembly;
+use crate::transmit_filter;
 use crate::resource_manager::ResourceManager;
 use crate::routing::{self, TableMutation, TransportAction};
 use crate::storage::Storage;
@@ -587,7 +589,13 @@ impl Node {
     /// Broadcast raw bytes to all interfaces, optionally excluding one.
     async fn broadcast_to_interfaces(&self, exclude: Option<InterfaceId>, raw: &[u8]) {
         for (&iface_id, iface) in &self.interfaces {
-            if Some(iface_id) == exclude || !iface.can_transmit() || !iface.is_connected() {
+            let decision = transmit_filter::should_transmit_broadcast(
+                iface_id,
+                exclude,
+                iface.can_transmit(),
+                iface.is_connected(),
+            );
+            if let transmit_filter::TransmitDecision::Skip { .. } = decision {
                 continue;
             }
 
@@ -607,17 +615,25 @@ impl Node {
 
     /// Transmit raw bytes to a specific interface (with IFAC application).
     async fn transmit_to_interface(&self, iface_id: InterfaceId, raw: &[u8]) {
-        let iface = match self.interfaces.get(&iface_id) {
-            Some(i) => i,
-            None => {
-                tracing::warn!(id = iface_id.0, "transmit_to_interface: interface not found");
-                return;
-            }
+        let (found, can_tx, connected) = match self.interfaces.get(&iface_id) {
+            Some(i) => (true, i.can_transmit(), i.is_connected()),
+            None => (false, false, false),
         };
 
-        if !iface.can_transmit() || !iface.is_connected() {
-            tracing::debug!(id = iface_id.0, "transmit_to_interface: interface not available");
-            return;
+        let decision = transmit_filter::should_transmit_targeted(found, can_tx, connected);
+        match decision {
+            transmit_filter::TransmitDecision::Skip { reason } => {
+                match reason {
+                    transmit_filter::SkipReason::NotFound => {
+                        tracing::warn!(id = iface_id.0, "transmit_to_interface: interface not found");
+                    }
+                    _ => {
+                        tracing::debug!(id = iface_id.0, "transmit_to_interface: interface not available");
+                    }
+                }
+                return;
+            }
+            transmit_filter::TransmitDecision::Transmit => {}
         }
 
         let outbound = match apply_ifac(self.ifac_config.as_ref(), raw) {
@@ -628,7 +644,7 @@ impl Node {
             }
         };
 
-        if let Err(e) = iface.transmit(&outbound).await {
+        if let Err(e) = self.interfaces[&iface_id].transmit(&outbound).await {
             tracing::warn!(id = iface_id.0, "transmit failed: {e}");
         }
     }
@@ -1166,28 +1182,37 @@ impl Node {
 
     /// Handle incoming resource advertisement.
     async fn handle_resource_adv(&mut self, packet: &RawPacket) -> bool {
-        if !self.link_manager.has_pending_or_active(&packet.destination) {
-            return false;
-        }
-        let plaintext = match self.link_manager.handle_link_data(packet) {
-            Some(pt) => pt,
-            None => return false,
+        let has_link = self.link_manager.has_pending_or_active(&packet.destination);
+        let plaintext = if has_link {
+            self.link_manager.handle_link_data(packet)
+        } else {
+            None
         };
 
         let link_id = extract_link_id(packet);
 
-        match self
-            .resource_manager
-            .accept_advertisement(link_id, &plaintext)
-        {
-            Ok((resource_hash, request_bytes)) => {
+        let accept_result = plaintext.as_ref().map(|pt| {
+            self.resource_manager
+                .accept_advertisement(link_id, pt)
+                .map_err(|e| e.to_string())
+        });
+
+        let outcome = packet_outcome::plan_resource_adv(
+            has_link,
+            plaintext.as_deref(),
+            accept_result,
+        );
+
+        match outcome {
+            packet_outcome::ResourceAdvOutcome::Accepted {
+                resource_hash,
+                request_bytes,
+            } => {
                 tracing::info!(
                     resource_hash = %hex::encode(resource_hash),
                     link_id = %hex::encode(link_id.as_ref()),
                     "accepted resource advertisement, sending part request"
                 );
-
-                // Send part request
                 if let Some(raw) = self.link_manager.encrypt_and_send_with_context(
                     &link_id,
                     &request_bytes,
@@ -1197,34 +1222,43 @@ impl Node {
                 }
                 true
             }
-            Err(e) => {
-                tracing::warn!("failed to accept resource advertisement: {e}");
+            packet_outcome::ResourceAdvOutcome::Rejected { error } => {
+                tracing::warn!("failed to accept resource advertisement: {error}");
                 false
             }
+            packet_outcome::ResourceAdvOutcome::NotForUs => false,
+            packet_outcome::ResourceAdvOutcome::DecryptFailed => false,
         }
     }
 
     /// Handle incoming resource part request.
     async fn handle_resource_req(&mut self, packet: &RawPacket) -> bool {
-        if !self.link_manager.has_pending_or_active(&packet.destination) {
-            return false;
-        }
-        let plaintext = match self.link_manager.handle_link_data(packet) {
-            Some(pt) => pt,
-            None => return false,
+        let has_link = self.link_manager.has_pending_or_active(&packet.destination);
+        let plaintext = if has_link {
+            self.link_manager.handle_link_data(packet)
+        } else {
+            None
         };
 
-        match self.resource_manager.handle_part_request(&plaintext) {
-            Ok((link_id, parts)) => {
+        let part_result = plaintext.as_ref().map(|pt| {
+            self.resource_manager
+                .handle_part_request(pt)
+                .map_err(|e| e.to_string())
+        });
+
+        let outcome = packet_outcome::plan_resource_req(
+            has_link,
+            plaintext.as_deref(),
+            part_result,
+        );
+
+        match outcome {
+            packet_outcome::ResourceReqOutcome::SendParts { link_id, parts } => {
                 tracing::info!(
                     link_id = %hex::encode(link_id.as_ref()),
                     parts = parts.len(),
                     "sending resource parts"
                 );
-
-                // Send each part as a Resource context packet.
-                // RESOURCE parts bypass link-layer encryption — the resource
-                // layer already encrypted the data in prepare_resource().
                 for part in &parts {
                     if let Some(raw) = self.link_manager.send_raw_with_context(
                         &link_id,
@@ -1236,10 +1270,12 @@ impl Node {
                 }
                 true
             }
-            Err(e) => {
-                tracing::warn!("failed to handle part request: {e}");
+            packet_outcome::ResourceReqOutcome::Error { error } => {
+                tracing::warn!("failed to handle part request: {error}");
                 false
             }
+            packet_outcome::ResourceReqOutcome::NotForUs => false,
+            packet_outcome::ResourceReqOutcome::DecryptFailed => false,
         }
     }
 
@@ -1328,132 +1364,175 @@ impl Node {
 
     /// Handle an incoming channel packet (link-encrypted, auto-proved).
     async fn handle_channel_packet(&mut self, packet: &RawPacket) -> bool {
-        if !self.link_manager.has_pending_or_active(&packet.destination) {
-            return false;
-        }
-
+        let has_link = self.link_manager.has_pending_or_active(&packet.destination);
         let link_id = extract_link_id(packet);
 
         // 1. Generate and send proof (Python Channel expects delivery proofs)
-        if let Some(proof_raw) = self.link_manager.prove_packet(&link_id, packet) {
+        if has_link && let Some(proof_raw) = self.link_manager.prove_packet(&link_id, packet) {
             self.broadcast_to_interfaces(None, &proof_raw).await;
         }
 
         // 2. Decrypt
-        let plaintext = match self.link_manager.handle_link_data(packet) {
-            Some(pt) => pt,
-            None => return false,
+        let plaintext = if has_link {
+            self.link_manager.handle_link_data(packet)
+        } else {
+            None
         };
+        let decrypt_ok = plaintext.is_some();
 
-        // 3. Process channel envelope
-        if let Some(action) = self
-            .channel_manager
-            .handle_channel_data(&link_id, &plaintext)
-        {
-            match action {
-                crate::channel_manager::ChannelAction::MessageReceived { msg_type, payload } => {
-                    tracing::info!(
-                        link_id = %hex::encode(link_id.as_ref()),
-                        msg_type,
-                        data = %format_data_preview(&payload, 200),
-                        "channel_message_received"
-                    );
-                }
-                crate::channel_manager::ChannelAction::BufferComplete { stream_id, data } => {
-                    tracing::info!(
-                        link_id = %hex::encode(link_id.as_ref()),
-                        stream_id,
-                        data_len = data.len(),
-                        data = %format_data_preview(&data, 200),
-                        "buffer_complete"
-                    );
-                }
-                crate::channel_manager::ChannelAction::SendResponse(response_bytes) => {
-                    if let Some(raw) = self.link_manager.encrypt_and_send_with_context(
-                        &link_id,
-                        &response_bytes,
-                        ContextType::Response,
-                    ) {
-                        self.broadcast_to_interfaces(None, &raw).await;
+        // 3. Process channel envelope through the pure decision function
+        let channel_action = plaintext.and_then(|pt| {
+            self.channel_manager
+                .handle_channel_data(&link_id, &pt)
+                .map(|a| match a {
+                    crate::channel_manager::ChannelAction::MessageReceived { msg_type, payload } => {
+                        packet_outcome::ChannelDispatchAction::MessageReceived { msg_type, payload }
                     }
-                }
-            }
-        }
+                    crate::channel_manager::ChannelAction::BufferComplete { stream_id, data } => {
+                        packet_outcome::ChannelDispatchAction::BufferComplete { stream_id, data }
+                    }
+                    crate::channel_manager::ChannelAction::SendResponse(bytes) => {
+                        packet_outcome::ChannelDispatchAction::SendResponse(bytes)
+                    }
+                })
+        });
 
-        true
+        let outcome = packet_outcome::plan_channel_dispatch(has_link, decrypt_ok, link_id, channel_action);
+
+        match outcome {
+            packet_outcome::ChannelDispatchOutcome::MessageReceived { link_id, msg_type, payload } => {
+                tracing::info!(
+                    link_id = %hex::encode(link_id.as_ref()),
+                    msg_type,
+                    data = %format_data_preview(&payload, 200),
+                    "channel_message_received"
+                );
+                true
+            }
+            packet_outcome::ChannelDispatchOutcome::BufferComplete { link_id, stream_id, data } => {
+                tracing::info!(
+                    link_id = %hex::encode(link_id.as_ref()),
+                    stream_id,
+                    data_len = data.len(),
+                    data = %format_data_preview(&data, 200),
+                    "buffer_complete"
+                );
+                true
+            }
+            packet_outcome::ChannelDispatchOutcome::SendResponse { link_id, response_bytes } => {
+                if let Some(raw) = self.link_manager.encrypt_and_send_with_context(
+                    &link_id,
+                    &response_bytes,
+                    ContextType::Response,
+                ) {
+                    self.broadcast_to_interfaces(None, &raw).await;
+                }
+                true
+            }
+            packet_outcome::ChannelDispatchOutcome::NoAction { .. } => true,
+            packet_outcome::ChannelDispatchOutcome::NotForUs => false,
+            packet_outcome::ChannelDispatchOutcome::DecryptFailed => false,
+        }
     }
 
     /// Handle an incoming request packet (link-encrypted, NOT auto-proved).
     async fn handle_request_packet(&mut self, packet: &RawPacket) -> bool {
-        if !self.link_manager.has_pending_or_active(&packet.destination) {
-            return false;
-        }
-
+        let has_link = self.link_manager.has_pending_or_active(&packet.destination);
         let link_id = extract_link_id(packet);
 
-        let plaintext = match self.link_manager.handle_link_data(packet) {
-            Some(pt) => pt,
-            None => return false,
+        let plaintext = if has_link {
+            self.link_manager.handle_link_data(packet)
+        } else {
+            None
         };
+        let decrypt_ok = plaintext.is_some();
 
-        let hashable = packet.hashable_part();
-        if let Some(response_bytes) =
+        let response_bytes = plaintext.and_then(|pt| {
+            let hashable = packet.hashable_part();
             self.channel_manager
-                .handle_request(&link_id, &plaintext, &hashable)
-        {
-            // Send response with context=Response
-            if let Some(raw) = self.link_manager.encrypt_and_send_with_context(
-                &link_id,
-                &response_bytes,
-                ContextType::Response,
-            ) {
-                self.broadcast_to_interfaces(None, &raw).await;
-            }
-        }
+                .handle_request(&link_id, &pt, &hashable)
+        });
 
-        true
+        let outcome = packet_outcome::plan_request_dispatch(has_link, decrypt_ok, link_id, response_bytes);
+
+        match outcome {
+            packet_outcome::RequestOutcome::SendResponse { link_id, response_bytes } => {
+                if let Some(raw) = self.link_manager.encrypt_and_send_with_context(
+                    &link_id,
+                    &response_bytes,
+                    ContextType::Response,
+                ) {
+                    self.broadcast_to_interfaces(None, &raw).await;
+                }
+                true
+            }
+            packet_outcome::RequestOutcome::NoHandler { .. } => true,
+            packet_outcome::RequestOutcome::NotForUs => false,
+            packet_outcome::RequestOutcome::DecryptFailed => false,
+        }
     }
 
     /// Handle an incoming response packet (link-encrypted, NOT auto-proved).
     async fn handle_response_packet(&mut self, packet: &RawPacket) -> bool {
-        if !self.link_manager.has_pending_or_active(&packet.destination) {
-            return false;
-        }
-
+        let has_link = self.link_manager.has_pending_or_active(&packet.destination);
         let link_id = extract_link_id(packet);
 
-        let plaintext = match self.link_manager.handle_link_data(packet) {
-            Some(pt) => pt,
-            None => return false,
+        let plaintext = if has_link {
+            self.link_manager.handle_link_data(packet)
+        } else {
+            None
         };
+        let decrypt_ok = plaintext.is_some();
 
-        self.channel_manager.handle_response(&link_id, &plaintext);
-        true
+        if let Some(pt) = plaintext {
+            self.channel_manager.handle_response(&link_id, &pt);
+        }
+
+        let outcome = packet_outcome::plan_response_dispatch(has_link, decrypt_ok);
+
+        match outcome {
+            packet_outcome::ResponseOutcome::Processed => true,
+            packet_outcome::ResponseOutcome::NotForUs => false,
+            packet_outcome::ResponseOutcome::DecryptFailed => false,
+        }
     }
 
     /// Handle incoming resource proof.
     async fn handle_resource_proof(&mut self, packet: &RawPacket) -> bool {
-        if !self.link_manager.has_pending_or_active(&packet.destination) {
-            return false;
-        }
-        let plaintext = match self.link_manager.handle_link_data(packet) {
-            Some(pt) => pt,
-            None => return false,
+        let has_link = self.link_manager.has_pending_or_active(&packet.destination);
+        let plaintext = if has_link {
+            self.link_manager.handle_link_data(packet)
+        } else {
+            None
         };
 
-        match self.resource_manager.handle_proof(&plaintext) {
-            Ok(valid) => {
-                if valid {
-                    tracing::info!("resource_proof_verified");
-                } else {
-                    tracing::warn!("resource proof invalid");
-                }
+        let proof_result = plaintext.as_ref().map(|pt| {
+            self.resource_manager
+                .handle_proof(pt)
+                .map_err(|e| e.to_string())
+        });
+
+        let outcome = packet_outcome::plan_resource_proof(
+            has_link,
+            plaintext.as_deref(),
+            proof_result,
+        );
+
+        match outcome {
+            packet_outcome::ResourceProofOutcome::Verified => {
+                tracing::info!("resource_proof_verified");
                 true
             }
-            Err(e) => {
-                tracing::warn!("failed to handle resource proof: {e}");
+            packet_outcome::ResourceProofOutcome::Invalid => {
+                tracing::warn!("resource proof invalid");
+                true
+            }
+            packet_outcome::ResourceProofOutcome::Error { error } => {
+                tracing::warn!("failed to handle resource proof: {error}");
                 false
             }
+            packet_outcome::ResourceProofOutcome::NotForUs => false,
+            packet_outcome::ResourceProofOutcome::DecryptFailed => false,
         }
     }
 

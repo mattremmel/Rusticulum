@@ -24,6 +24,7 @@ pub mod logging;
 pub mod maintenance_ops;
 pub mod node;
 pub mod packet_helpers;
+pub mod packet_outcome;
 pub mod post_transfer_drain;
 pub mod resource_assembly;
 pub mod resource_manager;
@@ -31,6 +32,7 @@ pub mod resource_ops;
 pub mod routing;
 pub mod storage;
 pub mod storage_codec;
+pub mod transmit_filter;
 pub mod transport_guard;
 
 pub use config::NodeConfig;
