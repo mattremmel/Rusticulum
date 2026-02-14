@@ -157,6 +157,19 @@ mod tests {
     }
 
     #[test]
+    fn descope_non_link_local_unchanged() {
+        // Non-link-local addresses should pass through unchanged
+        assert_eq!(descope_link_local("2001:db8::1"), "2001:db8::1");
+        assert_eq!(descope_link_local("::1"), "::1");
+        assert_eq!(descope_link_local("ff02::1"), "ff02::1");
+    }
+
+    #[test]
+    fn descope_empty_string() {
+        assert_eq!(descope_link_local(""), "");
+    }
+
+    #[test]
     fn is_link_local_check() {
         assert!(is_link_local("fe80::1".parse().unwrap()));
         assert!(is_link_local("fe80::abcd:1234:5678:9abc".parse().unwrap()));

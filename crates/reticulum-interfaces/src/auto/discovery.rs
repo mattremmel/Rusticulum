@@ -188,6 +188,63 @@ mod tests {
     }
 
     #[test]
+    fn multicast_address_all_scopes_and_types() {
+        use super::super::{DiscoveryScope, MulticastAddressType};
+
+        let scopes = [
+            (DiscoveryScope::Link, 0x2u8),
+            (DiscoveryScope::Admin, 0x4u8),
+            (DiscoveryScope::Site, 0x5u8),
+            (DiscoveryScope::Organisation, 0x8u8),
+            (DiscoveryScope::Global, 0xEu8),
+        ];
+        let types = [
+            (MulticastAddressType::Permanent, 0x0u8),
+            (MulticastAddressType::Temporary, 0x1u8),
+        ];
+
+        for (scope, scope_nibble) in &scopes {
+            for (addr_type, type_nibble) in &types {
+                let addr = derive_multicast_address(b"test-group", *scope, *addr_type);
+                let octets = addr.octets();
+                assert_eq!(octets[0], 0xFF);
+                assert_eq!(octets[1], (type_nibble << 4) | scope_nibble);
+                // Must be a valid multicast address
+                assert!(addr.is_multicast());
+            }
+        }
+    }
+
+    #[test]
+    fn discovery_token_empty_group_id() {
+        let group_id = b"";
+        let addr = "fe80::1";
+
+        let token = generate_discovery_token(group_id, addr);
+        assert_eq!(token.len(), 32);
+
+        // Should roundtrip
+        assert!(verify_discovery_token(&token, group_id, addr));
+        // Should fail with different address
+        assert!(!verify_discovery_token(&token, group_id, "fe80::2"));
+    }
+
+    #[test]
+    fn multicast_address_deterministic() {
+        let addr1 = derive_multicast_address(
+            b"reticulum",
+            DiscoveryScope::Link,
+            MulticastAddressType::Temporary,
+        );
+        let addr2 = derive_multicast_address(
+            b"reticulum",
+            DiscoveryScope::Link,
+            MulticastAddressType::Temporary,
+        );
+        assert_eq!(addr1, addr2);
+    }
+
+    #[test]
     fn discovery_token_short_data() {
         assert!(!verify_discovery_token(&[0u8; 16], b"reticulum", "fe80::1"));
         assert!(!verify_discovery_token(&[], b"reticulum", "fe80::1"));

@@ -133,6 +133,26 @@ pub struct AutoConfig {
     pub ignored_interfaces: Vec<String>,
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn discovery_scope_hex_chars() {
+        assert_eq!(DiscoveryScope::Link.as_hex_char(), '2');
+        assert_eq!(DiscoveryScope::Admin.as_hex_char(), '4');
+        assert_eq!(DiscoveryScope::Site.as_hex_char(), '5');
+        assert_eq!(DiscoveryScope::Organisation.as_hex_char(), '8');
+        assert_eq!(DiscoveryScope::Global.as_hex_char(), 'e');
+    }
+
+    #[test]
+    fn multicast_address_type_hex_chars() {
+        assert_eq!(MulticastAddressType::Permanent.as_hex_char(), '0');
+        assert_eq!(MulticastAddressType::Temporary.as_hex_char(), '1');
+    }
+}
+
 impl AutoConfig {
     /// Create a default configuration with the given name.
     pub fn new(name: impl Into<String>) -> Self {

@@ -685,6 +685,65 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_stop_before_start_is_harmless() {
+        let config = AutoConfig::new("test-stop-first");
+        let iface = AutoInterface::new(config, InterfaceId(103));
+        // stop() without start() should not panic
+        iface.stop().await.unwrap();
+        assert!(!iface.is_connected());
+    }
+
+    #[test]
+    fn test_auto_interface_mode_and_bitrate() {
+        let mut config = AutoConfig::new("test-mode");
+        config.mode = InterfaceMode::AccessPoint;
+        let iface = AutoInterface::new(config, InterfaceId(104));
+
+        assert_eq!(iface.mode(), InterfaceMode::AccessPoint);
+        assert_eq!(iface.bitrate(), BITRATE_GUESS);
+    }
+
+    #[test]
+    fn test_auto_config_defaults() {
+        let config = AutoConfig::new("test-defaults");
+        assert_eq!(config.name, "test-defaults");
+        assert_eq!(config.group_id, b"reticulum".to_vec());
+        assert_eq!(config.discovery_port, super::super::DEFAULT_DISCOVERY_PORT);
+        assert_eq!(config.data_port, super::super::DEFAULT_DATA_PORT);
+        assert_eq!(config.discovery_scope, super::super::DiscoveryScope::Link);
+        assert_eq!(
+            config.multicast_address_type,
+            super::super::MulticastAddressType::Temporary
+        );
+        assert_eq!(config.mode, InterfaceMode::Full);
+        assert!(config.allowed_interfaces.is_empty());
+        assert!(config.ignored_interfaces.is_empty());
+    }
+
+    #[test]
+    fn test_auto_interface_default_mtu() {
+        let config = AutoConfig::new("test-mtu");
+        let iface = AutoInterface::new(config, InterfaceId(105));
+        assert_eq!(iface.mtu(), HW_MTU);
+        assert_eq!(iface.mtu(), 1196);
+    }
+
+    #[test]
+    fn test_auto_interface_can_flags() {
+        let config = AutoConfig::new("test-flags");
+        let iface = AutoInterface::new(config, InterfaceId(106));
+        assert!(iface.can_receive());
+        assert!(iface.can_transmit());
+    }
+
+    #[test]
+    fn test_auto_interface_not_connected_before_start() {
+        let config = AutoConfig::new("test-nc");
+        let iface = AutoInterface::new(config, InterfaceId(107));
+        assert!(!iface.is_connected());
+    }
+
+    #[tokio::test]
     async fn transmit_when_not_started() {
         let config = AutoConfig::new("test-not-started");
         let iface = AutoInterface::new(config, InterfaceId(102));

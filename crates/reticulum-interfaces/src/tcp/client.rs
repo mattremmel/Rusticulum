@@ -617,6 +617,99 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_tcp_client_multiple_frames_in_one_read() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        let config = TcpClientConfig::initiator("test-multi-frame", addr.to_string());
+        let client = TcpClientInterface::new(config, InterfaceId(55)).unwrap();
+        client.start().await.unwrap();
+
+        let (mut peer_stream, _) = listener.accept().await.unwrap();
+        for _ in 0..50 {
+            if client.is_connected() {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
+        assert!(client.is_connected());
+
+        // Peer sends 3 HDLC frames in one write
+        let p1 = vec![0xA1; 25];
+        let p2 = vec![0xA2; 30];
+        let p3 = vec![0xA3; 35];
+        let mut combined = hdlc_frame(&p1);
+        combined.extend_from_slice(&hdlc_frame(&p2));
+        combined.extend_from_slice(&hdlc_frame(&p3));
+        peer_stream.write_all(&combined).await.unwrap();
+
+        // Client should receive all 3
+        let r1 = tokio::time::timeout(std::time::Duration::from_secs(2), client.receive())
+            .await.expect("timeout r1").unwrap();
+        let r2 = tokio::time::timeout(std::time::Duration::from_secs(2), client.receive())
+            .await.expect("timeout r2").unwrap();
+        let r3 = tokio::time::timeout(std::time::Duration::from_secs(2), client.receive())
+            .await.expect("timeout r3").unwrap();
+
+        assert_eq!(r1, p1);
+        assert_eq!(r2, p2);
+        assert_eq!(r3, p3);
+
+        client.stop().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_tcp_client_large_payload_roundtrip() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        let config = TcpClientConfig::initiator("test-large-payload", addr.to_string());
+        let client = TcpClientInterface::new(config, InterfaceId(56)).unwrap();
+        client.start().await.unwrap();
+
+        let (mut peer_stream, _) = listener.accept().await.unwrap();
+        for _ in 0..50 {
+            if client.is_connected() {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
+        assert!(client.is_connected());
+
+        // 450-byte payload through HDLC
+        let payload = vec![0xBB; 450];
+        let return_frame = hdlc_frame(&payload);
+        peer_stream.write_all(&return_frame).await.unwrap();
+
+        let received = tokio::time::timeout(std::time::Duration::from_secs(2), client.receive())
+            .await.expect("timeout").unwrap();
+        assert_eq!(received.len(), 450);
+        assert_eq!(received, payload);
+
+        client.stop().await.unwrap();
+    }
+
+    #[test]
+    fn test_tcp_client_interface_properties() {
+        let config = TcpClientConfig::initiator("test-tcp-props", "127.0.0.1:9999");
+        let client = TcpClientInterface::new(config, InterfaceId(57)).unwrap();
+
+        assert_eq!(client.name(), "test-tcp-props");
+        assert_eq!(client.id(), InterfaceId(57));
+        assert_eq!(client.mode(), InterfaceMode::Full);
+        assert_eq!(client.bitrate(), BITRATE_GUESS);
+        assert!(client.can_transmit());
+        assert!(client.can_receive());
+    }
+
+    #[test]
+    fn test_tcp_client_not_connected_before_start() {
+        let config = TcpClientConfig::initiator("test-tcp-nc", "127.0.0.1:9999");
+        let client = TcpClientInterface::new(config, InterfaceId(58)).unwrap();
+        assert!(!client.is_connected());
+    }
+
+    #[tokio::test]
     async fn test_responder_does_not_reconnect() {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();

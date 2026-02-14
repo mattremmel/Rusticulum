@@ -98,6 +98,32 @@ pub struct TcpServerConfig {
     pub client_can_receive: bool,
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_tcp_client_config_initiator_defaults() {
+        let config = TcpClientConfig::initiator("test-init", "127.0.0.1:8080");
+        assert_eq!(config.name, "test-init");
+        assert_eq!(config.target_addr, Some("127.0.0.1:8080".to_string()));
+        assert_eq!(config.mode, InterfaceMode::Full);
+        assert!(config.max_reconnect_tries.is_none());
+        assert_eq!(config.connect_timeout, INITIAL_CONNECT_TIMEOUT);
+        assert!(config.can_transmit);
+        assert!(config.can_receive);
+    }
+
+    #[test]
+    fn test_tcp_server_config_defaults() {
+        let config = TcpServerConfig::new("test-server", "127.0.0.1:0".parse().unwrap());
+        assert_eq!(config.name, "test-server");
+        assert_eq!(config.mode, InterfaceMode::Full);
+        assert!(config.client_can_transmit);
+        assert!(config.client_can_receive);
+    }
+}
+
 impl TcpServerConfig {
     pub fn new(name: impl Into<String>, bind_addr: SocketAddr) -> Self {
         Self {

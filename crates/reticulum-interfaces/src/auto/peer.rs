@@ -255,6 +255,70 @@ mod tests {
     }
 
     #[test]
+    fn peer_mark_outbound() {
+        let mut table = PeerTable::new();
+        let addr: Ipv6Addr = "fe80::1".parse().unwrap();
+        table.add_or_refresh(addr, "en0".into(), 1);
+
+        let before = table.peers.get(&addr).unwrap().last_outbound;
+        // Small sleep to ensure Instant moves forward
+        std::thread::sleep(Duration::from_millis(10));
+        table.mark_outbound(&addr);
+        let after = table.peers.get(&addr).unwrap().last_outbound;
+
+        assert!(after > before);
+    }
+
+    #[test]
+    fn peer_table_empty_prune() {
+        let mut table = PeerTable::new();
+        let removed = table.prune_timed_out(Duration::from_secs(10));
+        assert!(removed.is_empty());
+        assert!(table.is_empty());
+    }
+
+    #[test]
+    fn dedup_ring_reinsert_after_eviction() {
+        let mut ring = DedupRing::new(3, Duration::from_secs(60));
+
+        let h1 = [1u8; 32];
+        let h2 = [2u8; 32];
+        let h3 = [3u8; 32];
+        let h4 = [4u8; 32];
+
+        assert!(!ring.check_and_insert(h1));
+        assert!(!ring.check_and_insert(h2));
+        assert!(!ring.check_and_insert(h3));
+
+        // h4 evicts h1
+        assert!(!ring.check_and_insert(h4));
+        // h1 was evicted, reinserting should not be seen as duplicate
+        assert!(!ring.check_and_insert(h1));
+    }
+
+    #[test]
+    fn peer_table_multiple_interfaces() {
+        let mut table = PeerTable::new();
+        table.add_or_refresh("fe80::1".parse().unwrap(), "en0".into(), 1);
+        table.add_or_refresh("fe80::2".parse().unwrap(), "en1".into(), 2);
+        table.add_or_refresh("fe80::3".parse().unwrap(), "wlan0".into(), 3);
+
+        assert_eq!(table.len(), 3);
+
+        let ifnames: Vec<&str> = table.peers().map(|p| p.ifname.as_str()).collect();
+        assert!(ifnames.contains(&"en0"));
+        assert!(ifnames.contains(&"en1"));
+        assert!(ifnames.contains(&"wlan0"));
+    }
+
+    #[test]
+    fn peer_table_default_trait() {
+        let table = PeerTable::default();
+        assert!(table.is_empty());
+        assert_eq!(table.len(), 0);
+    }
+
+    #[test]
     fn peer_iteration() {
         let mut table = PeerTable::new();
         table.add_or_refresh("fe80::1".parse().unwrap(), "en0".into(), 1);

@@ -112,6 +112,33 @@ pub struct LocalServerConfig {
     pub client_can_receive: bool,
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_local_client_config_initiator_defaults() {
+        let config = LocalClientConfig::initiator("test-init", PathBuf::from("/tmp/test.sock"));
+        assert_eq!(config.name, "test-init");
+        assert_eq!(
+            config.socket_path,
+            Some(PathBuf::from("/tmp/test.sock"))
+        );
+        assert_eq!(config.mode, InterfaceMode::Full);
+        assert!(config.max_reconnect_tries.is_none());
+        assert_eq!(config.connect_timeout, INITIAL_CONNECT_TIMEOUT);
+        assert!(config.can_transmit);
+        assert!(config.can_receive);
+    }
+
+    #[test]
+    fn test_default_socket_path() {
+        let path = default_socket_path("default");
+        let path_str = path.to_string_lossy();
+        assert!(path_str.contains("rns_default.sock"));
+    }
+}
+
 impl LocalServerConfig {
     pub fn new(name: impl Into<String>, socket_path: PathBuf) -> Self {
         Self {

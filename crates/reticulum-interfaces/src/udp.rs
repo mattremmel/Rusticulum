@@ -371,6 +371,132 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_transmit_mtu_boundary_packet() {
+        // Send exactly UDP_HW_MTU (1064) bytes
+        let sock_a = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+        let sock_b = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+        let addr_a = sock_a.local_addr().unwrap();
+        let addr_b = sock_b.local_addr().unwrap();
+        drop(sock_a);
+        drop(sock_b);
+
+        let config_a = UdpConfig::unicast("udp-mtu-a", addr_a, addr_b);
+        let config_b = UdpConfig::unicast("udp-mtu-b", addr_b, addr_a);
+
+        let iface_a = UdpInterface::new(config_a, InterfaceId(60));
+        let iface_b = UdpInterface::new(config_b, InterfaceId(61));
+
+        iface_a.start().await.unwrap();
+        iface_b.start().await.unwrap();
+
+        let payload = vec![0xDE; UDP_HW_MTU];
+        iface_a.transmit(&payload).await.unwrap();
+
+        let received = tokio::time::timeout(std::time::Duration::from_secs(2), iface_b.receive())
+            .await
+            .expect("timed out waiting for MTU-boundary packet")
+            .unwrap();
+        assert_eq!(received.len(), UDP_HW_MTU);
+        assert_eq!(received, payload);
+
+        iface_a.stop().await.unwrap();
+        iface_b.stop().await.unwrap();
+    }
+
+    #[test]
+    fn test_broadcast_config_flag() {
+        let config = UdpConfig::broadcast(
+            "udp-bcast",
+            "0.0.0.0:0".parse().unwrap(),
+            "255.255.255.255:9999".parse().unwrap(),
+        );
+        assert!(config.broadcast);
+        assert!(config.can_transmit);
+        assert!(config.can_receive);
+    }
+
+    #[tokio::test]
+    async fn test_transmit_without_target_returns_error() {
+        // Create a config with can_transmit=true but no target_addr
+        let config = UdpConfig {
+            name: "udp-no-target".into(),
+            bind_addr: "127.0.0.1:0".parse().unwrap(),
+            target_addr: None,
+            broadcast: false,
+            mode: InterfaceMode::Full,
+            can_transmit: true,
+            can_receive: true,
+        };
+        let iface = UdpInterface::new(config, InterfaceId(70));
+        iface.start().await.unwrap();
+
+        let result = iface.transmit(&[0x01; 20]).await;
+        assert!(matches!(result, Err(InterfaceError::Configuration(_))));
+
+        iface.stop().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_stop_then_transmit_returns_not_connected() {
+        let sock = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+        let addr = sock.local_addr().unwrap();
+        drop(sock);
+
+        let config = UdpConfig::unicast("udp-stop-tx", addr, "127.0.0.1:9999".parse().unwrap());
+        let iface = UdpInterface::new(config, InterfaceId(80));
+        iface.start().await.unwrap();
+        assert!(iface.is_connected());
+
+        iface.stop().await.unwrap();
+        assert!(!iface.is_connected());
+
+        let result = iface.transmit(&[0x01; 20]).await;
+        assert!(matches!(result, Err(InterfaceError::NotConnected)));
+    }
+
+    #[test]
+    fn test_udp_interface_properties() {
+        let config = UdpConfig::unicast(
+            "udp-props",
+            "127.0.0.1:0".parse().unwrap(),
+            "127.0.0.1:9999".parse().unwrap(),
+        );
+        let iface = UdpInterface::new(config, InterfaceId(90));
+
+        assert_eq!(iface.name(), "udp-props");
+        assert_eq!(iface.id(), InterfaceId(90));
+        assert_eq!(iface.mode(), InterfaceMode::Full);
+        assert_eq!(iface.bitrate(), BITRATE_GUESS);
+        assert_eq!(iface.mtu(), UDP_HW_MTU);
+        assert!(iface.can_transmit());
+        assert!(iface.can_receive());
+    }
+
+    #[test]
+    fn test_udp_receive_only_config_defaults() {
+        let config = UdpConfig::receive_only("udp-rxonly", "127.0.0.1:0".parse().unwrap());
+        assert_eq!(config.name, "udp-rxonly");
+        assert!(config.target_addr.is_none());
+        assert!(!config.broadcast);
+        assert!(!config.can_transmit);
+        assert!(config.can_receive);
+        assert_eq!(config.mode, InterfaceMode::Full);
+    }
+
+    #[tokio::test]
+    async fn test_udp_start_stop_start() {
+        let config = UdpConfig::receive_only("udp-restart", "127.0.0.1:0".parse().unwrap());
+        let iface = UdpInterface::new(config, InterfaceId(91));
+
+        assert!(!iface.is_connected());
+        iface.start().await.unwrap();
+        assert!(iface.is_connected());
+
+        iface.stop().await.unwrap();
+        assert!(!iface.is_connected());
+    }
+
+    #[tokio::test]
     async fn start_stop_lifecycle() {
         let config = UdpConfig::receive_only("udp-lifecycle", "127.0.0.1:0".parse().unwrap());
         let iface = UdpInterface::new(config, InterfaceId(50));

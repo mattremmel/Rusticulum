@@ -546,6 +546,30 @@ mod tests {
         assert!(!client.is_connected());
     }
 
+    #[test]
+    fn test_local_client_mtu() {
+        let path = test_socket_path("client_mtu");
+        let config = LocalClientConfig::initiator("test-mtu", path);
+        let client = LocalClientInterface::new(config, InterfaceId(60)).unwrap();
+        assert_eq!(client.mtu(), LOCAL_MTU);
+        assert_eq!(client.mtu(), 262_144);
+    }
+
+    #[test]
+    fn test_local_client_properties() {
+        let path = test_socket_path("client_props");
+        let config = LocalClientConfig::initiator("test-local-props", path);
+        let client = LocalClientInterface::new(config, InterfaceId(61)).unwrap();
+
+        assert_eq!(client.name(), "test-local-props");
+        assert_eq!(client.id(), InterfaceId(61));
+        assert_eq!(client.bitrate(), BITRATE_GUESS);
+        assert_eq!(client.mode(), InterfaceMode::Full);
+        assert!(client.can_transmit());
+        assert!(client.can_receive());
+        assert!(!client.is_connected());
+    }
+
     #[tokio::test]
     async fn test_stale_socket_path_connection_refused() {
         let path = test_socket_path("stale_socket");

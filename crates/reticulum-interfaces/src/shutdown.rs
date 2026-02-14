@@ -237,6 +237,42 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn join_all_on_empty_handles() {
+        let token = ShutdownToken::new();
+        // join_all() with no tasks should complete immediately
+        token.join_all().await;
+        let handles = token.task_handles.lock().await;
+        assert!(handles.is_empty());
+    }
+
+    #[test]
+    fn subscribe_after_stop_sees_true() {
+        let token = ShutdownToken::new();
+        token.signal_stop();
+        // Subscribe after stop — should immediately see true
+        let rx = token.subscribe();
+        assert!(*rx.borrow());
+    }
+
+    #[tokio::test]
+    async fn add_task_accumulates() {
+        let token = ShutdownToken::new();
+
+        let h1 = tokio::spawn(async {});
+        let h2 = tokio::spawn(async {});
+        let h3 = tokio::spawn(async {});
+
+        token.add_task(h1).await;
+        assert_eq!(token.task_handles.lock().await.len(), 1);
+
+        token.add_task(h2).await;
+        assert_eq!(token.task_handles.lock().await.len(), 2);
+
+        token.add_task(h3).await;
+        assert_eq!(token.task_handles.lock().await.len(), 3);
+    }
+
+    #[tokio::test]
     async fn multiple_subscribers_all_see_stop() {
         let token = ShutdownToken::new();
         let rx1 = token.subscribe();

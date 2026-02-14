@@ -287,6 +287,105 @@ mod tests {
     }
 
     #[test]
+    fn large_frame_at_mtu_boundary() {
+        let mut acc = HdlcFrameAccumulator::new();
+        let payload = fake_packet(500);
+        let framed = hdlc_frame(&payload);
+
+        let frames = acc.feed(&framed);
+        assert_eq!(frames.len(), 1);
+        assert_eq!(frames[0], payload);
+    }
+
+    #[test]
+    fn all_escape_bytes_payload() {
+        let mut acc = HdlcFrameAccumulator::new();
+        // Payload of alternating FLAG (0x7E) and ESC (0x7D) bytes
+        let mut payload = Vec::with_capacity(HEADER_MINSIZE + 10);
+        for i in 0..(HEADER_MINSIZE + 10) {
+            if i % 2 == 0 {
+                payload.push(FLAG);
+            } else {
+                payload.push(ESC);
+            }
+        }
+
+        let framed = hdlc_frame(&payload);
+        let frames = acc.feed(&framed);
+        assert_eq!(frames.len(), 1);
+        assert_eq!(frames[0], payload);
+    }
+
+    #[test]
+    fn maximum_payload_stress() {
+        let mut acc = HdlcFrameAccumulator::new();
+        // 65536-byte payload
+        let payload = fake_packet(65536);
+        let framed = hdlc_frame(&payload);
+
+        // Feed in random-sized chunks (using a fixed pattern for determinism)
+        let mut offset = 0;
+        let mut all_frames = Vec::new();
+        let chunk_sizes = [7, 13, 31, 97, 251, 509, 1021, 2039, 4093];
+        let mut chunk_idx = 0;
+        while offset < framed.len() {
+            let chunk_size = chunk_sizes[chunk_idx % chunk_sizes.len()].min(framed.len() - offset);
+            let chunk = &framed[offset..offset + chunk_size];
+            all_frames.extend(acc.feed(chunk));
+            offset += chunk_size;
+            chunk_idx += 1;
+        }
+
+        assert_eq!(all_frames.len(), 1);
+        assert_eq!(all_frames[0].len(), 65536);
+        assert_eq!(all_frames[0], payload);
+    }
+
+    #[test]
+    fn interleaved_small_and_large_frames() {
+        let mut acc = HdlcFrameAccumulator::new();
+        let small = fake_packet(HEADER_MINSIZE);
+        let large = fake_packet(500);
+
+        // Alternate small and large frames
+        let mut data = Vec::new();
+        for _ in 0..5 {
+            data.extend_from_slice(&hdlc_frame(&small));
+            data.extend_from_slice(&hdlc_frame(&large));
+        }
+
+        let frames = acc.feed(&data);
+        assert_eq!(frames.len(), 10);
+        for (i, frame) in frames.iter().enumerate() {
+            if i % 2 == 0 {
+                assert_eq!(frame, &small);
+            } else {
+                assert_eq!(frame, &large);
+            }
+        }
+    }
+
+    #[test]
+    fn trailing_escape_before_flag() {
+        let mut acc = HdlcFrameAccumulator::new();
+        // Payload ending with ESC byte
+        let mut payload = fake_packet(HEADER_MINSIZE - 1);
+        payload.push(ESC);
+
+        let framed = hdlc_frame(&payload);
+        let frames = acc.feed(&framed);
+        assert_eq!(frames.len(), 1);
+        assert_eq!(frames[0], payload);
+    }
+
+    #[test]
+    fn empty_feed_returns_no_frames() {
+        let mut acc = HdlcFrameAccumulator::new();
+        let frames = acc.feed(&[]);
+        assert!(frames.is_empty());
+    }
+
+    #[test]
     fn buffer_reuse_across_multiple_feeds() {
         let mut acc = HdlcFrameAccumulator::new();
 

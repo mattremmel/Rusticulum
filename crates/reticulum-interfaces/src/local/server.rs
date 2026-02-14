@@ -308,6 +308,108 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_local_server_transmit_returns_configuration_error() {
+        let path = test_socket_path("srv_tx_err");
+        let _cleanup = SocketCleanup(path.clone());
+        let _ = std::fs::remove_file(&path);
+
+        let config = LocalServerConfig::new("test-srv-tx", path);
+        let server = LocalServerInterface::new(config, InterfaceId(500));
+        let result = server.transmit(&[0x01; 20]).await;
+        assert!(matches!(result, Err(InterfaceError::Configuration(_))));
+    }
+
+    #[tokio::test]
+    async fn test_local_server_receive_returns_configuration_error() {
+        let path = test_socket_path("srv_rx_err");
+        let _cleanup = SocketCleanup(path.clone());
+        let _ = std::fs::remove_file(&path);
+
+        let config = LocalServerConfig::new("test-srv-rx", path);
+        let server = LocalServerInterface::new(config, InterfaceId(501));
+        let result = server.receive().await;
+        assert!(matches!(result, Err(InterfaceError::Configuration(_))));
+    }
+
+    #[tokio::test]
+    async fn test_local_server_not_connected_before_start() {
+        let path = test_socket_path("srv_not_conn");
+        let _cleanup = SocketCleanup(path.clone());
+        let _ = std::fs::remove_file(&path);
+
+        let config = LocalServerConfig::new("test-srv-nc", path);
+        let server = LocalServerInterface::new(config, InterfaceId(502));
+        assert!(!server.is_connected());
+        assert!(!server.can_receive());
+        assert!(!server.can_transmit());
+    }
+
+    #[tokio::test]
+    async fn test_local_server_prunes_disconnected_clients() {
+        let path = test_socket_path("srv_prune");
+        let _cleanup = SocketCleanup(path.clone());
+        let _ = std::fs::remove_file(&path);
+
+        let config = LocalServerConfig::new("test-srv-prune", path.clone());
+        let server = LocalServerInterface::new(config, InterfaceId(503));
+        server.start().await.unwrap();
+
+        // Connect 2 clients
+        let c1 = UnixStream::connect(&path).await.unwrap();
+        let _c2 = UnixStream::connect(&path).await.unwrap();
+
+        for _ in 0..50 {
+            if server.client_count().await >= 2 {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
+        assert_eq!(server.client_count().await, 2);
+
+        // Drop one client
+        drop(c1);
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+
+        // Connect new client — prune triggers
+        let _c3 = UnixStream::connect(&path).await.unwrap();
+        for _ in 0..50 {
+            let count = server.client_count().await;
+            if count == 2 {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
+        assert_eq!(server.client_count().await, 2);
+
+        server.stop().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_local_server_stop_clears_clients() {
+        let path = test_socket_path("srv_stop_clear");
+        let _cleanup = SocketCleanup(path.clone());
+        let _ = std::fs::remove_file(&path);
+
+        let config = LocalServerConfig::new("test-srv-stop", path.clone());
+        let server = LocalServerInterface::new(config, InterfaceId(504));
+        server.start().await.unwrap();
+
+        let _c1 = UnixStream::connect(&path).await.unwrap();
+        let _c2 = UnixStream::connect(&path).await.unwrap();
+
+        for _ in 0..50 {
+            if server.client_count().await >= 2 {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
+        assert_eq!(server.client_count().await, 2);
+
+        server.stop().await.unwrap();
+        assert_eq!(server.client_count().await, 0);
+    }
+
+    #[tokio::test]
     async fn server_client_roundtrip() {
         let path = test_socket_path("srv_roundtrip");
         let _cleanup = SocketCleanup(path.clone());

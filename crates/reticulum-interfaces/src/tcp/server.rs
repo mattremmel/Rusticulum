@@ -237,6 +237,178 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_server_transmit_returns_configuration_error() {
+        let config = TcpServerConfig::new("test-srv-tx", "127.0.0.1:0".parse().unwrap());
+        let server = TcpServerInterface::new(config, InterfaceId(110));
+        let result = server.transmit(&[0x01; 20]).await;
+        assert!(matches!(result, Err(InterfaceError::Configuration(_))));
+    }
+
+    #[tokio::test]
+    async fn test_server_receive_returns_configuration_error() {
+        let config = TcpServerConfig::new("test-srv-rx", "127.0.0.1:0".parse().unwrap());
+        let server = TcpServerInterface::new(config, InterfaceId(111));
+        let result = server.receive().await;
+        assert!(matches!(result, Err(InterfaceError::Configuration(_))));
+    }
+
+    #[tokio::test]
+    async fn test_server_not_connected_before_start() {
+        let config = TcpServerConfig::new("test-srv-nc", "127.0.0.1:0".parse().unwrap());
+        let server = TcpServerInterface::new(config, InterfaceId(112));
+        assert!(!server.is_connected());
+        assert!(server.local_addr().await.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_server_prunes_disconnected_clients() {
+        let config = TcpServerConfig::new("test-srv-prune", "127.0.0.1:0".parse().unwrap());
+        let server = TcpServerInterface::new(config, InterfaceId(113));
+        server.start().await.unwrap();
+
+        let addr = server.local_addr().await.unwrap();
+
+        // Connect 3 clients
+        let c1 = TcpStream::connect(addr).await.unwrap();
+        let c2 = TcpStream::connect(addr).await.unwrap();
+        let _c3 = TcpStream::connect(addr).await.unwrap();
+
+        for _ in 0..50 {
+            if server.client_count().await >= 3 {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
+        assert_eq!(server.client_count().await, 3);
+
+        // Drop 2 clients to disconnect them
+        drop(c1);
+        drop(c2);
+
+        // Give read loops time to detect EOF
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+
+        // Connect a new client — accept loop prunes before adding
+        let _c4 = TcpStream::connect(addr).await.unwrap();
+        for _ in 0..50 {
+            // After prune + new add, should have 2 (1 surviving + 1 new)
+            let count = server.client_count().await;
+            if count == 2 {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
+        assert_eq!(server.client_count().await, 2);
+
+        server.stop().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_server_stop_stops_all_clients() {
+        let config = TcpServerConfig::new("test-srv-stop", "127.0.0.1:0".parse().unwrap());
+        let server = TcpServerInterface::new(config, InterfaceId(114));
+        server.start().await.unwrap();
+
+        let addr = server.local_addr().await.unwrap();
+
+        let _c1 = TcpStream::connect(addr).await.unwrap();
+        let _c2 = TcpStream::connect(addr).await.unwrap();
+
+        for _ in 0..50 {
+            if server.client_count().await >= 2 {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
+        assert_eq!(server.client_count().await, 2);
+
+        server.stop().await.unwrap();
+        assert_eq!(server.client_count().await, 0);
+    }
+
+    #[tokio::test]
+    async fn test_server_client_unique_ids() {
+        let config = TcpServerConfig::new("test-srv-ids", "127.0.0.1:0".parse().unwrap());
+        let server = TcpServerInterface::new(config, InterfaceId(5));
+        server.start().await.unwrap();
+
+        let addr = server.local_addr().await.unwrap();
+
+        let _c1 = TcpStream::connect(addr).await.unwrap();
+        let _c2 = TcpStream::connect(addr).await.unwrap();
+
+        for _ in 0..50 {
+            if server.client_count().await >= 2 {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
+
+        let clients = server.clients().await;
+        assert_eq!(clients.len(), 2);
+        // IDs should start at id*1000+1 = 5001 and increment
+        let ids: Vec<u64> = clients.iter().map(|c| c.id().0).collect();
+        assert_eq!(ids[0], 5001);
+        assert_eq!(ids[1], 5002);
+        drop(clients);
+
+        server.stop().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_server_multiple_roundtrips() {
+        let config = TcpServerConfig::new("test-srv-multi", "127.0.0.1:0".parse().unwrap());
+        let server = TcpServerInterface::new(config, InterfaceId(300));
+        server.start().await.unwrap();
+
+        let addr = server.local_addr().await.unwrap();
+
+        let client_config = TcpClientConfig::initiator("test-client-multi", addr.to_string());
+        let client = TcpClientInterface::new(client_config, InterfaceId(301)).unwrap();
+        client.start().await.unwrap();
+
+        for _ in 0..50 {
+            if client.is_connected() && server.client_count().await >= 1 {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
+        assert!(client.is_connected());
+
+        // Multiple client→server roundtrips to verify reliability
+        for i in 0u8..5 {
+            let payload = vec![i; 20 + i as usize];
+            client.transmit(&payload).await.unwrap();
+
+            let received = {
+                let clients = server.clients().await;
+                tokio::time::timeout(std::time::Duration::from_secs(2), clients[0].receive())
+                    .await
+                    .expect("timeout receiving from server side")
+                    .unwrap()
+            };
+            assert_eq!(received, payload);
+        }
+
+        client.stop().await.unwrap();
+        server.stop().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_server_start_stop_lifecycle() {
+        let config = TcpServerConfig::new("test-srv-lifecycle", "127.0.0.1:0".parse().unwrap());
+        let server = TcpServerInterface::new(config, InterfaceId(115));
+
+        assert!(!server.is_connected());
+        server.start().await.unwrap();
+        assert!(server.is_connected());
+        assert!(server.local_addr().await.is_some());
+
+        server.stop().await.unwrap();
+        assert!(!server.is_connected());
+    }
+
+    #[tokio::test]
     async fn server_client_roundtrip() {
         let config = TcpServerConfig::new("test-server-rt", "127.0.0.1:0".parse().unwrap());
         let server = TcpServerInterface::new(config, InterfaceId(200));
