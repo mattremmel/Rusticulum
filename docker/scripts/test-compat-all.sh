@@ -15,6 +15,12 @@ TESTS=(
     "test-rust-relay.sh:Rust Relay"
     "test-compat-edge.sh:Edge Cases"
     "test-compat-stress.sh:Stress Test"
+    "test-multihop-data.sh:Multi-Hop Data"
+    "test-multihop-channel.sh:Multi-Hop Channel"
+    "test-ifac.sh:IFAC Auth"
+    "test-ifac-reject.sh:IFAC Rejection"
+    "test-large-resource.sh:Large Resource"
+    "test-storage-persistence.sh:Storage Persistence"
 )
 
 # Track results

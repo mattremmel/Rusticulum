@@ -1,0 +1,14 @@
+[node]
+enable_transport = false
+storage_path = "/var/lib/reticulum"
+
+[[interfaces.tcp_client]]
+name = "TCP to Python Relay"
+target = "python-relay:4242"
+
+[[link_targets]]
+app_name = "multihop_data_test"
+aspects = ["announce", "v1"]
+auto_data = "relayed data from rust-b"
+auto_resource = "This is a relayed resource payload sent through the Python relay node. It tests that resource transfer works correctly when packets must traverse a transport relay. The resource protocol uses double-layer encryption and the relay only sees encrypted ciphertext. This payload is repeated to ensure multi-part segmentation works over the relay path. This is a relayed resource payload sent through the Python relay node. It tests that resource transfer works correctly when packets must traverse a transport relay. The resource protocol uses double-layer encryption and the relay only sees encrypted ciphertext. This payload is repeated to ensure multi-part segmentation works over the relay path. This is a relayed resource payload sent through the Python relay node. It tests that resource transfer works correctly when packets must traverse a transport relay. The resource protocol uses double-layer encryption and the relay only sees encrypted ciphertext. This payload is repeated to ensure multi-part segmentation works over the relay path. This is a relayed resource payload sent through the Python relay node. It tests that resource transfer works correctly when packets must traverse a transport relay. The resource protocol uses double-layer encryption and the relay only sees encrypted ciphertext."
+auto_channel = "relayed channel message"

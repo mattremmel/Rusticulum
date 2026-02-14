@@ -1,0 +1,11 @@
+[node]
+enable_transport = true
+storage_path = "/var/lib/reticulum"
+
+[[interfaces.tcp_client]]
+name = "TCP to Python-A"
+target = "python-a:4242"
+
+[[interfaces.tcp_client]]
+name = "TCP to Python-B"
+target = "python-b:4243"

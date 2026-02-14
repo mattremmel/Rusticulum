@@ -1,0 +1,21 @@
+[node]
+enable_transport = false
+storage_path = "/var/lib/reticulum"
+network_name = "testnet"
+network_key = "rust_different_key"
+ifac_size = 16
+
+[[interfaces.tcp_client]]
+name = "TCP to Python RNS"
+target = "python-rns:4242"
+
+[[destinations]]
+app_name = "ifac_reject_test"
+aspects = ["auth", "v1"]
+accept_links = true
+app_data = "hello from rust mismatched ifac"
+
+[[link_targets]]
+app_name = "ifac_reject_test"
+aspects = ["auth", "v1"]
+auto_data = "this should never arrive"

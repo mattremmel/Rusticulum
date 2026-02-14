@@ -1,0 +1,13 @@
+[node]
+enable_transport = false
+storage_path = "/var/lib/reticulum"
+
+[[interfaces.tcp_client]]
+name = "TCP to Python Relay"
+target = "python-relay:4242"
+
+[[destinations]]
+app_name = "multihop_data_test"
+aspects = ["announce", "v1"]
+accept_links = true
+app_data = "hello from rust-a"

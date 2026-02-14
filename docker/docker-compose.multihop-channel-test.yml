@@ -1,0 +1,59 @@
+services:
+  python-a:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.python
+    volumes:
+      - ./configs/python-a:/etc/reticulum
+      - ./scripts:/scripts:ro
+    networks:
+      - multihop-channel-net
+    environment:
+      - ROLE=announcer
+    command: ["python3", "/scripts/python-multihop-channel-test.py"]
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c 'import socket; s=socket.socket(); s.settimeout(2); s.connect((\"127.0.0.1\", 4242)); s.close()'"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+  python-b:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.python
+    volumes:
+      - ./configs/python-b:/etc/reticulum
+      - ./scripts:/scripts:ro
+    networks:
+      - multihop-channel-net
+    environment:
+      - ROLE=linker
+    command: ["python3", "/scripts/python-multihop-channel-test.py"]
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c 'import socket; s=socket.socket(); s.settimeout(2); s.connect((\"127.0.0.1\", 4243)); s.close()'"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+  rust-relay:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.rust
+    volumes:
+      - ./configs/rust-relay/multihop-channel-test.toml:/etc/reticulum/config.toml:ro
+    networks:
+      - multihop-channel-net
+    environment:
+      - RUST_LOG=debug
+      - RUST_LOG_FORMAT=json
+    depends_on:
+      python-a:
+        condition: service_healthy
+      python-b:
+        condition: service_healthy
+
+networks:
+  multihop-channel-net:
+    driver: bridge

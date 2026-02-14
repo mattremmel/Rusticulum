@@ -1,0 +1,19 @@
+[node]
+enable_transport = true
+storage_path = "/var/lib/reticulum"
+persist_interval = 5
+
+[[interfaces.tcp_client]]
+name = "TCP to Python RNS"
+target = "python-rns:4242"
+
+[[destinations]]
+app_name = "storage_test"
+aspects = ["persist", "v1"]
+accept_links = true
+app_data = "hello from rust storage test"
+
+[[link_targets]]
+app_name = "storage_test"
+aspects = ["persist", "v1"]
+auto_data = "storage test data"

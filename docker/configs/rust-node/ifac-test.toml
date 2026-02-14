@@ -1,0 +1,21 @@
+[node]
+enable_transport = false
+storage_path = "/var/lib/reticulum"
+network_name = "testnet"
+network_key = "supersecretkey"
+ifac_size = 16
+
+[[interfaces.tcp_client]]
+name = "TCP to Python RNS"
+target = "python-rns:4242"
+
+[[destinations]]
+app_name = "ifac_test"
+aspects = ["auth", "v1"]
+accept_links = true
+app_data = "hello from rust with ifac"
+
+[[link_targets]]
+app_name = "ifac_test"
+aspects = ["auth", "v1"]
+auto_data = "ifac authenticated data"

@@ -1,0 +1,12 @@
+[reticulum]
+  share_instance = no
+  enable_transport = no
+
+[interfaces]
+  [[TCP Server Interface]]
+    type = TCPServerInterface
+    interface_enabled = true
+    listen_ip = 0.0.0.0
+    listen_port = 4242
+    networkname = testnet
+    passphrase = supersecretkey

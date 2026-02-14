@@ -32,14 +32,29 @@ async fn main() {
     };
 
     let mut node = Node::new(config);
-    let handle = node.shutdown_handle();
 
-    // Spawn signal handler
+    // Spawn SIGINT handler
+    let handle = node.shutdown_handle();
     tokio::spawn(async move {
         let _ = tokio::signal::ctrl_c().await;
         tracing::info!("received SIGINT, shutting down");
         handle.shutdown();
     });
+
+    // Spawn SIGTERM handler (Docker sends SIGTERM on `docker stop`)
+    #[cfg(unix)]
+    {
+        let handle2 = node.shutdown_handle();
+        tokio::spawn(async move {
+            let mut sigterm = tokio::signal::unix::signal(
+                tokio::signal::unix::SignalKind::terminate(),
+            )
+            .expect("failed to register SIGTERM handler");
+            sigterm.recv().await;
+            tracing::info!("received SIGTERM, shutting down");
+            handle2.shutdown();
+        });
+    }
 
     if let Err(e) = node.start().await {
         tracing::error!("failed to start node: {e}");

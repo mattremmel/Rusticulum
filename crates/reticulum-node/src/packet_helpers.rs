@@ -37,20 +37,26 @@ pub fn apply_ifac(ifac_config: Option<&IfacConfig>, raw: &[u8]) -> Result<Vec<u8
 
 /// Verify IFAC on an inbound packet, handling all 4 cases:
 ///
-/// 1. No IFAC config → passthrough (copy raw bytes)
-/// 2. IFAC config present, no IFAC flag on packet → passthrough
-/// 3. IFAC config present, IFAC flag set, verification succeeds → verified bytes
-/// 4. IFAC config present, IFAC flag set, verification fails → error
+/// 1. No IFAC config, no IFAC flag → passthrough (copy raw bytes)
+/// 2. No IFAC config, IFAC flag set → reject (unexpected IFAC flag)
+/// 3. IFAC config present, no IFAC flag → reject (missing IFAC flag)
+/// 4. IFAC config present, IFAC flag set → verify signature
 pub fn verify_ifac(config: Option<&IfacConfig>, raw: &[u8]) -> Result<Vec<u8>, IfacError> {
     match config {
         Some(ifac) => {
             if has_ifac_flag(raw) {
                 ifac_verify(ifac, raw)
             } else {
+                Err(IfacError::MissingFlag)
+            }
+        }
+        None => {
+            if has_ifac_flag(raw) {
+                Err(IfacError::UnexpectedFlag)
+            } else {
                 Ok(raw.to_vec())
             }
         }
-        None => Ok(raw.to_vec()),
     }
 }
 
@@ -191,15 +197,26 @@ mod tests {
     }
 
     #[test]
-    fn verify_ifac_config_no_flag() {
+    fn verify_ifac_config_no_flag_rejected() {
         let ifac = IfacConfig::new(Some("testnet"), Some("key"), 8);
-        // Packet without IFAC flag (bit 7 clear)
+        // Packet without IFAC flag (bit 7 clear) should be rejected when IFAC is configured
         let packet = make_test_packet([0xAA; 16]);
         let raw = packet.serialize();
         assert!(raw[0] & 0x80 == 0, "test packet should not have IFAC flag");
 
-        let result = verify_ifac(Some(&ifac), &raw).unwrap();
-        assert_eq!(result, raw);
+        let result = verify_ifac(Some(&ifac), &raw);
+        assert!(result.is_err(), "non-IFAC packet should be rejected when IFAC is configured");
+    }
+
+    #[test]
+    fn verify_ifac_no_config_with_flag_rejected() {
+        // Packet with IFAC flag should be rejected when no IFAC is configured
+        let packet = make_test_packet([0xAA; 16]);
+        let mut raw = packet.serialize();
+        raw[0] |= 0x80; // Set IFAC flag
+
+        let result = verify_ifac(None, &raw);
+        assert!(result.is_err(), "IFAC-flagged packet should be rejected when no IFAC is configured");
     }
 
     #[test]
