@@ -11,6 +11,7 @@ pub mod channel_ops;
 pub mod config;
 pub mod error;
 pub mod handler_rules;
+pub mod inbound_triage;
 pub mod interface_enum;
 pub mod interface_planning;
 pub mod link_dispatch;
@@ -25,6 +26,7 @@ pub mod resource_manager;
 pub mod resource_ops;
 pub mod routing;
 pub mod storage;
+pub mod storage_codec;
 pub mod transport_guard;
 
 pub use config::NodeConfig;

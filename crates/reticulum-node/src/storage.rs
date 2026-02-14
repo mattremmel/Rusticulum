@@ -8,13 +8,11 @@ use std::path::{Path, PathBuf};
 
 use tokio::fs;
 
-use serde::{Deserialize, Serialize};
-
 use reticulum_core::identity::Identity;
-use reticulum_core::types::{DestinationHash, PacketHash, TruncatedHash};
 use reticulum_transport::dedup::PacketHashlist;
 use reticulum_transport::path::table::PathTable;
-use reticulum_transport::path::types::{InterfaceId, PathEntry};
+
+use crate::storage_codec;
 
 /// File name for the 64-byte raw transport identity.
 const IDENTITY_FILE: &str = "transport_identity";
@@ -24,9 +22,6 @@ const PATH_TABLE_FILE: &str = "destination_table";
 
 /// File name for the serialized packet hashlist.
 const HASHLIST_FILE: &str = "packet_hashlist";
-
-/// Maximum number of random blobs to persist per path entry.
-const MAX_PERSISTED_BLOBS: usize = 32;
 
 /// Errors from storage operations.
 #[derive(Debug, thiserror::Error)]
@@ -45,61 +40,6 @@ pub enum StorageError {
 
     #[error("failed to determine storage directory: {0}")]
     Directory(String),
-}
-
-/// Intermediate representation of a [`PathEntry`] for serialization.
-#[derive(Debug, Serialize, Deserialize)]
-struct StorablePathEntry {
-    dest_hash: [u8; 16],
-    timestamp: u64,
-    next_hop: [u8; 16],
-    hops: u8,
-    expires: u64,
-    random_blobs: Vec<[u8; 10]>,
-    receiving_interface: u64,
-    packet_hash: [u8; 32],
-    unresponsive: bool,
-}
-
-impl StorablePathEntry {
-    fn from_entry(dest: &DestinationHash, entry: &PathEntry) -> Self {
-        let mut blobs = entry.random_blobs.clone();
-        blobs.truncate(MAX_PERSISTED_BLOBS);
-
-        let mut dest_hash = [0u8; 16];
-        dest_hash.copy_from_slice(dest.as_ref());
-        let mut next_hop = [0u8; 16];
-        next_hop.copy_from_slice(entry.next_hop.as_ref());
-        let mut packet_hash = [0u8; 32];
-        packet_hash.copy_from_slice(entry.packet_hash.as_ref());
-
-        Self {
-            dest_hash,
-            timestamp: entry.timestamp,
-            next_hop,
-            hops: entry.hops,
-            expires: entry.expires,
-            random_blobs: blobs,
-            receiving_interface: entry.receiving_interface.0,
-            packet_hash,
-            unresponsive: entry.unresponsive,
-        }
-    }
-
-    fn into_pair(self) -> (DestinationHash, PathEntry) {
-        let dest = DestinationHash::new(self.dest_hash);
-        let entry = PathEntry {
-            timestamp: self.timestamp,
-            next_hop: TruncatedHash::new(self.next_hop),
-            hops: self.hops,
-            expires: self.expires,
-            random_blobs: self.random_blobs,
-            receiving_interface: InterfaceId(self.receiving_interface),
-            packet_hash: PacketHash::new(self.packet_hash),
-            unresponsive: self.unresponsive,
-        };
-        (dest, entry)
-    }
 }
 
 /// Persistent storage for node state.
@@ -157,13 +97,8 @@ impl Storage {
 
     /// Save the path table.
     pub async fn save_path_table(&self, table: &PathTable) -> Result<(), StorageError> {
-        let entries: Vec<StorablePathEntry> = table
-            .iter()
-            .map(|(dest, entry)| StorablePathEntry::from_entry(dest, entry))
-            .collect();
-
-        let bytes =
-            postcard::to_allocvec(&entries).map_err(|e| StorageError::Serialize(e.to_string()))?;
+        let bytes = storage_codec::serialize_path_table(table)
+            .map_err(|e| StorageError::Serialize(e.to_string()))?;
 
         self.atomic_write(&self.base_dir.join(PATH_TABLE_FILE), &bytes)
             .await
@@ -173,13 +108,8 @@ impl Storage {
     pub async fn load_path_table(&self) -> Result<PathTable, StorageError> {
         let path = self.base_dir.join(PATH_TABLE_FILE);
         match fs::read(&path).await {
-            Ok(bytes) => {
-                let entries: Vec<StorablePathEntry> = postcard::from_bytes(&bytes)
-                    .map_err(|e| StorageError::Deserialize(e.to_string()))?;
-                Ok(PathTable::from_entries(
-                    entries.into_iter().map(|e| e.into_pair()),
-                ))
-            }
+            Ok(bytes) => storage_codec::deserialize_path_table(&bytes)
+                .map_err(|e| StorageError::Deserialize(e.to_string())),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(PathTable::new()),
             Err(e) => Err(StorageError::Io(e)),
         }
@@ -187,17 +117,8 @@ impl Storage {
 
     /// Save the packet hashlist.
     pub async fn save_hashlist(&self, hashlist: &PacketHashlist) -> Result<(), StorageError> {
-        let hashes: Vec<[u8; 32]> = hashlist
-            .iter_all()
-            .map(|h| {
-                let mut arr = [0u8; 32];
-                arr.copy_from_slice(h.as_ref());
-                arr
-            })
-            .collect();
-
-        let bytes =
-            postcard::to_allocvec(&hashes).map_err(|e| StorageError::Serialize(e.to_string()))?;
+        let bytes = storage_codec::serialize_hashlist(hashlist)
+            .map_err(|e| StorageError::Serialize(e.to_string()))?;
 
         self.atomic_write(&self.base_dir.join(HASHLIST_FILE), &bytes)
             .await
@@ -207,13 +128,8 @@ impl Storage {
     pub async fn load_hashlist(&self) -> Result<PacketHashlist, StorageError> {
         let path = self.base_dir.join(HASHLIST_FILE);
         match fs::read(&path).await {
-            Ok(bytes) => {
-                let hashes: Vec<[u8; 32]> = postcard::from_bytes(&bytes)
-                    .map_err(|e| StorageError::Deserialize(e.to_string()))?;
-                Ok(PacketHashlist::from_hashes(
-                    hashes.into_iter().map(PacketHash::new),
-                ))
-            }
+            Ok(bytes) => storage_codec::deserialize_hashlist(&bytes)
+                .map_err(|e| StorageError::Deserialize(e.to_string())),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(PacketHashlist::new()),
             Err(e) => Err(StorageError::Io(e)),
         }
@@ -231,7 +147,9 @@ impl Storage {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use reticulum_transport::path::types::InterfaceMode;
+    use crate::storage_codec::MAX_PERSISTED_BLOBS;
+    use reticulum_core::types::{DestinationHash, PacketHash, TruncatedHash};
+    use reticulum_transport::path::types::{InterfaceId, InterfaceMode, PathEntry};
 
     fn make_dest(seed: u8) -> DestinationHash {
         DestinationHash::new([seed; 16])

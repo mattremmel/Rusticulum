@@ -31,13 +31,13 @@ use reticulum_core::packet::context::ContextType;
 use reticulum_core::packet::wire::RawPacket;
 use reticulum_core::types::TruncatedHash;
 use reticulum_transport::ifac::IfacConfig;
-use reticulum_transport::path::constants::PATHFINDER_M;
 use reticulum_transport::router::dispatch::PacketRouter;
 use reticulum_transport::router::types::RouterAction;
 
 use reticulum_core::identity::Identity;
 
 use crate::announce_processing::{self, AnnounceDecision};
+use crate::inbound_triage;
 use crate::auto_data_plan::{self, AutoDataAction, AutoQueueSnapshot};
 use crate::channel_manager::ChannelManager;
 use crate::config::NodeConfig;
@@ -662,16 +662,13 @@ impl Node {
             }
         };
 
-        // Deduplication
+        // Deduplication + hop limit
         let hash = packet.packet_hash();
-        if !self.router.hashlist_mut().insert(hash) {
-            tracing::trace!(id = from_iface.0, "duplicate packet dropped");
-            return;
-        }
-
-        // Hop limit check
-        if packet.hops >= PATHFINDER_M {
-            tracing::trace!(id = from_iface.0, hops = packet.hops, "hop limit reached");
+        if let Some(reason) = inbound_triage::should_drop_early(
+            self.router.hashlist_mut().insert(hash),
+            packet.hops,
+        ) {
+            tracing::trace!(id = from_iface.0, reason = ?reason, "packet dropped");
             return;
         }
 
@@ -690,8 +687,10 @@ impl Node {
             );
         }
 
-        // Announce processing
-        if packet.flags.packet_type == PacketType::Announce {
+        // Announce processing (classify, then dispatch)
+        if inbound_triage::classify_inbound(packet.flags.packet_type)
+            == inbound_triage::InboundAction::ProcessAnnounce
+        {
             let interface_mode = self
                 .interfaces
                 .get(&from_iface)
