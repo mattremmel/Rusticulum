@@ -177,6 +177,7 @@ impl Identity {
         let ephemeral_public = ephemeral.public_key();
         let shared_secret = ephemeral.diffie_hellman(&self.x25519_public);
         let derived = hkdf(64, &shared_secret, Some(self.hash.as_ref()), None);
+        // SAFETY: hkdf(64, ...) always returns exactly 64 bytes.
         let key: [u8; 64] = derived.try_into().expect("HKDF always returns 64 bytes");
         let token = Token::new(&key);
         let fernet_token = token.encrypt(plaintext);
@@ -207,13 +208,15 @@ impl Identity {
 
         let ephemeral_pub_bytes: [u8; 32] = ciphertext[..32]
             .try_into()
-            .expect("slice is exactly 32 bytes");
+            .map_err(|_| IdentityError::DecryptionFailed)?;
         let ephemeral_public = X25519PublicKey::from_bytes(ephemeral_pub_bytes);
         let fernet_data = &ciphertext[32..];
 
         let shared_secret = x25519_prv.diffie_hellman(&ephemeral_public);
         let derived = hkdf(64, &shared_secret, Some(self.hash.as_ref()), None);
-        let key: [u8; 64] = derived.try_into().expect("HKDF always returns 64 bytes");
+        let key: [u8; 64] = derived
+            .try_into()
+            .map_err(|_| IdentityError::DecryptionFailed)?;
         let token = Token::new(&key);
 
         token

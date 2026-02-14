@@ -87,7 +87,9 @@ impl Storage {
                 if bytes.len() != 64 {
                     return Err(StorageError::InvalidIdentityLength(bytes.len()));
                 }
-                let arr: [u8; 64] = bytes.try_into().unwrap();
+                let arr: [u8; 64] = bytes
+                    .try_into()
+                    .map_err(|_| StorageError::Deserialize("identity byte conversion".into()))?;
                 Ok(Some(Identity::from_private_bytes(&arr)))
             }
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),

@@ -33,6 +33,6 @@ pub fn decode_mtu(bytes: &[u8; 3]) -> u32 {
 pub fn decode_mode(bytes: &[u8; 3]) -> LinkMode {
     let value = u32::from_be_bytes([0, bytes[0], bytes[1], bytes[2]]);
     let mode_val = ((value >> 16) & (MODE_BYTEMASK)) >> 5;
-    // Safe: mode_val is masked to 3 bits (0-7), all valid LinkMode variants
+    // SAFETY: mode_val is masked to 3 bits (0-7), all valid LinkMode variants.
     LinkMode::from_u8(mode_val as u8).unwrap()
 }

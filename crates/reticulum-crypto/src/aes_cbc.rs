@@ -27,6 +27,7 @@ pub fn aes256_cbc_encrypt(key: &[u8; 32], iv: &[u8; 16], plaintext: &[u8]) -> Ve
 
     // Allocate output buffer of the same size as the padded plaintext.
     let mut out = alloc::vec![0u8; padded.len()];
+    // SAFETY: output buffer is block-aligned and same size as padded input; this never fails.
     encryptor
         .encrypt_padded_b2b_mut::<NoPadding>(&padded, &mut out)
         .expect("output buffer is block-aligned and same size as padded input");

@@ -143,8 +143,8 @@ impl LinkManager {
         announce: &Announce,
     ) -> bool {
         let is_self = self.local_destinations.contains_key(&dest_hash);
-        let identity_result = Identity::from_public_bytes(&announce.public_key);
-        let identity_parse_ok = identity_result.is_ok();
+        let identity = Identity::from_public_bytes(&announce.public_key).ok();
+        let identity_parse_ok = identity.is_some();
 
         // Compute auto-link decision only if identity parsed and not self
         let auto_link_decision = if identity_parse_ok && !is_self {
@@ -181,11 +181,15 @@ impl LinkManager {
                 false
             }
             link_lifecycle::IdentityRegistrationOutcome::Registered => {
-                self.known_identities.insert(dest_hash, identity_result.unwrap());
+                if let Some(id) = identity {
+                    self.known_identities.insert(dest_hash, id);
+                }
                 false
             }
             link_lifecycle::IdentityRegistrationOutcome::RegisteredAndAutoLink { actions } => {
-                self.known_identities.insert(dest_hash, identity_result.unwrap());
+                if let Some(id) = identity {
+                    self.known_identities.insert(dest_hash, id);
+                }
                 tracing::info!(
                     dest_hash = %hex::encode(dest_hash.as_ref()),
                     "queuing auto-link to announced destination"

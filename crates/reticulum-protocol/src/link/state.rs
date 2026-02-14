@@ -114,8 +114,12 @@ pub fn parse_proof_data(data: &[u8]) -> Result<ParsedProofData, LinkError> {
         return Err(LinkError::InvalidProof);
     }
 
-    let signature: [u8; 64] = data[..SIGNATURE_SIZE].try_into().unwrap();
-    let x25519_public: [u8; 32] = data[SIGNATURE_SIZE..min_len].try_into().unwrap();
+    let signature: [u8; 64] = data[..SIGNATURE_SIZE]
+        .try_into()
+        .map_err(|_| LinkError::InvalidProof)?;
+    let x25519_public: [u8; 32] = data[SIGNATURE_SIZE..min_len]
+        .try_into()
+        .map_err(|_| LinkError::InvalidProof)?;
     let signalling = if data.len() > min_len {
         data[min_len..].to_vec()
     } else {
@@ -139,8 +143,12 @@ pub fn parse_request_data(data: &[u8]) -> Result<ParsedRequestData, LinkError> {
         ));
     }
 
-    let x25519_public: [u8; 32] = data[..32].try_into().unwrap();
-    let ed25519_public: [u8; 32] = data[32..64].try_into().unwrap();
+    let x25519_public: [u8; 32] = data[..32]
+        .try_into()
+        .map_err(|_| LinkError::HandshakeFailed("request data conversion".into()))?;
+    let ed25519_public: [u8; 32] = data[32..64]
+        .try_into()
+        .map_err(|_| LinkError::HandshakeFailed("request data conversion".into()))?;
     let signalling = if data.len() > ECPUBSIZE {
         data[ECPUBSIZE..].to_vec()
     } else {

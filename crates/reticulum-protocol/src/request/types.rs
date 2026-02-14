@@ -82,6 +82,7 @@ impl Request {
             self.data.clone(),
         ]);
         let mut buf = Vec::new();
+        // SAFETY: encoding to a Vec<u8> never fails (infallible Write impl).
         rmpv::encode::write_value(&mut buf, &arr).expect("msgpack encode should not fail");
         buf
     }
@@ -118,7 +119,8 @@ impl Request {
         Ok(Self {
             timestamp,
             path_hash,
-            data: arr.into_iter().nth(2).unwrap(),
+            data: arr.into_iter().nth(2)
+                .ok_or_else(|| RequestError::Failed("missing element 2".into()))?,
         })
     }
 
@@ -143,6 +145,7 @@ impl Response {
             self.data.clone(),
         ]);
         let mut buf = Vec::new();
+        // SAFETY: encoding to a Vec<u8> never fails (infallible Write impl).
         rmpv::encode::write_value(&mut buf, &arr).expect("msgpack encode should not fail");
         buf
     }
@@ -172,7 +175,8 @@ impl Response {
 
         Ok(Self {
             request_id,
-            data: arr.into_iter().nth(1).unwrap(),
+            data: arr.into_iter().nth(1)
+                .ok_or_else(|| RequestError::Failed("missing element 1".into()))?,
         })
     }
 

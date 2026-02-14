@@ -120,11 +120,13 @@ impl DerivedKey {
 
     /// First 32 bytes: used for HMAC signing in Token encrypt/decrypt.
     pub fn signing_key(&self) -> &[u8; 32] {
+        // SAFETY: self.0 is [u8; 64], so [..32] is always exactly 32 bytes.
         self.0[..32].try_into().unwrap()
     }
 
     /// Last 32 bytes: used for AES-256-CBC encryption in Token encrypt/decrypt.
     pub fn encryption_key(&self) -> &[u8; 32] {
+        // SAFETY: self.0 is [u8; 64], so [32..] is always exactly 32 bytes.
         self.0[32..].try_into().unwrap()
     }
 }

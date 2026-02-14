@@ -47,6 +47,7 @@ impl IfacConfig {
 
         let ifac_origin_hash = sha256(&ifac_origin);
         let ifac_key_vec = hkdf(64, &ifac_origin_hash, Some(&IFAC_SALT), None);
+        // SAFETY: hkdf(64, ...) always returns exactly 64 bytes.
         let ifac_key: [u8; 64] = ifac_key_vec.try_into().expect("HKDF returns 64 bytes");
         let ifac_identity = Identity::from_private_bytes(&ifac_key);
 

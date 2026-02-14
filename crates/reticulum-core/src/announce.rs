@@ -233,7 +233,7 @@ impl Announce {
         // 1. Verify Ed25519 signature
         let ed25519_pub_bytes: [u8; 32] = self.public_key[32..64]
             .try_into()
-            .expect("slice is exactly 32 bytes");
+            .map_err(|_| AnnounceError::InvalidSignature(String::from("public key slice conversion")))?;
         let ed25519_pub = Ed25519PublicKey::from_bytes(ed25519_pub_bytes).map_err(|e| {
             AnnounceError::InvalidSignature(alloc::format!("invalid public key: {e}"))
         })?;
