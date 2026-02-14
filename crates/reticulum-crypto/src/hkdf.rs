@@ -205,4 +205,57 @@ mod tests {
         let result = hkdf(0, b"zero length", None, None);
         assert!(result.is_empty());
     }
+
+    // ================================================================== //
+    // Boundary: HKDF expand block boundaries
+    // ================================================================== //
+
+    #[test]
+    fn hkdf_expand_zero_length() {
+        let prk = hkdf_extract(None, b"test");
+        let result = hkdf_expand(&prk, b"info", 0);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn hkdf_expand_exactly_one_block() {
+        let prk = hkdf_extract(None, b"test");
+        let result = hkdf_expand(&prk, b"info", 32);
+        assert_eq!(result.len(), 32);
+    }
+
+    #[test]
+    fn hkdf_expand_one_over_block() {
+        let prk = hkdf_extract(None, b"test");
+        let result = hkdf_expand(&prk, b"info", 33);
+        assert_eq!(result.len(), 33);
+        // First 32 bytes should match the single-block output
+        let one_block = hkdf_expand(&prk, b"info", 32);
+        assert_eq!(&result[..32], &one_block[..]);
+    }
+
+    #[test]
+    fn hkdf_expand_exactly_two_blocks() {
+        let prk = hkdf_extract(None, b"test");
+        let result = hkdf_expand(&prk, b"info", 64);
+        assert_eq!(result.len(), 64);
+        // First 33 bytes should match the 33-byte output
+        let partial = hkdf_expand(&prk, b"info", 33);
+        assert_eq!(&result[..33], &partial[..]);
+    }
+
+    #[test]
+    fn hkdf_expand_counter_wrap() {
+        // 256 blocks × 32 bytes = 8192 bytes
+        // At block 255 (i=255), counter = (255+1) % 256 = 0
+        // At block 256 would be counter = (256+1) % 256 = 1 (same as block 0)
+        // This verifies the counter wrapping works and produces deterministic output
+        let prk = hkdf_extract(None, b"counter wrap test");
+        let result = hkdf_expand(&prk, b"", 8192);
+        assert_eq!(result.len(), 8192);
+
+        // Verify determinism
+        let result2 = hkdf_expand(&prk, b"", 8192);
+        assert_eq!(result, result2);
+    }
 }

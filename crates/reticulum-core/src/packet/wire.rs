@@ -321,4 +321,50 @@ mod tests {
         let packet = RawPacket::parse(&data).unwrap();
         assert_eq!(packet.data.len(), 600 - HEADER_1_SIZE);
     }
+
+    // ================================================================== //
+    // Boundary: packet size edge cases
+    // ================================================================== //
+
+    #[test]
+    fn parse_header2_exact_minimum() {
+        // Exactly HEADER_2_SIZE (35) bytes, zero payload
+        let mut data = vec![0x00; HEADER_2_SIZE];
+        data[0] = 0x40; // HEADER_2 flags
+        data[34] = 0x00; // valid context (None)
+        let packet = RawPacket::parse(&data).unwrap();
+        assert_eq!(packet.flags.header_type, HeaderType::Header2);
+        assert!(packet.data.is_empty());
+    }
+
+    #[test]
+    fn parse_at_mtu_boundary() {
+        let mut data = vec![0x00; 500];
+        data[0] = 0x00; // H1 flags
+        data[18] = 0x00; // valid context
+        let packet = RawPacket::parse(&data).unwrap();
+        assert_eq!(packet.data.len(), 500 - HEADER_1_SIZE);
+    }
+
+    #[test]
+    fn serialize_roundtrip_zero_payload_h1() {
+        let mut data = vec![0x00; HEADER_1_SIZE];
+        data[0] = 0x00; // valid H1 flags
+        data[18] = 0x00; // valid context
+        let packet = RawPacket::parse(&data).unwrap();
+        let serialized = packet.serialize();
+        assert_eq!(serialized.len(), HEADER_1_SIZE);
+        assert_eq!(serialized, data);
+    }
+
+    #[test]
+    fn serialize_roundtrip_zero_payload_h2() {
+        let mut data = vec![0x00; HEADER_2_SIZE];
+        data[0] = 0x40; // HEADER_2 flags
+        data[34] = 0x00; // valid context
+        let packet = RawPacket::parse(&data).unwrap();
+        let serialized = packet.serialize();
+        assert_eq!(serialized.len(), HEADER_2_SIZE);
+        assert_eq!(serialized, data);
+    }
 }

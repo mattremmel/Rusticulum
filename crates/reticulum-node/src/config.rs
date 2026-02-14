@@ -419,4 +419,23 @@ target = "[::1]:4242"
         assert_eq!(config.interfaces.tcp_client[2].target, "192.168.1.10:4242");
         assert_eq!(config.interfaces.tcp_client[3].target, "[::1]:4242");
     }
+
+    // ================================================================== //
+    // Boundary: empty/minimal input
+    // ================================================================== //
+
+    #[test]
+    fn parse_empty_toml() {
+        let config = NodeConfig::parse("").unwrap();
+        assert!(!config.node.enable_transport);
+        assert_eq!(config.logging.level, "info");
+        assert!(config.interfaces.tcp_client.is_empty());
+        assert!(config.interfaces.tcp_server.is_empty());
+        assert!(config.interfaces.udp.is_empty());
+        assert!(config.interfaces.local_server.is_empty());
+        assert!(config.interfaces.local_client.is_empty());
+        assert!(config.interfaces.auto.is_empty());
+        assert!(config.destinations.is_empty());
+        assert!(config.link_targets.is_empty());
+    }
 }

@@ -375,6 +375,47 @@ mod tests {
         }
     }
 
+    // ================================================================== //
+    // Boundary: token decrypt edge cases
+    // ================================================================== //
+
+    #[test]
+    fn token_decrypt_non_block_aligned_ciphertext() {
+        // Build a token with valid HMAC but non-block-aligned ciphertext
+        // IV(16) + 5 bytes ciphertext + HMAC(32) = 53 bytes
+        let key: [u8; 64] = [0xEE; 64];
+        let token = Token::new(&key);
+        let iv = [0x11u8; 16];
+        let fake_ct = [0x22u8; 5]; // not a multiple of 16
+
+        let mut signed_parts = Vec::with_capacity(21);
+        signed_parts.extend_from_slice(&iv);
+        signed_parts.extend_from_slice(&fake_ct);
+        let hmac = crate::hmac::hmac_sha256(&key[..32], &signed_parts);
+
+        let mut data = signed_parts;
+        data.extend_from_slice(&hmac);
+        assert_eq!(data.len(), 53);
+
+        let result = token.decrypt(&data);
+        assert!(result.is_err(), "non-block-aligned ciphertext should fail");
+    }
+
+    #[test]
+    fn token_decrypt_exactly_one_block() {
+        // Encrypt data that fits in exactly one AES block after padding
+        let key: [u8; 64] = [0xFF; 64];
+        let token = Token::new(&key);
+
+        // Empty plaintext → 16 bytes of padding → 1 AES block ciphertext
+        let encrypted = token.encrypt(b"");
+        // Should be: 16 (IV) + 16 (ciphertext) + 32 (HMAC) = 64
+        assert_eq!(encrypted.len(), 64);
+
+        let decrypted = token.decrypt(&encrypted).unwrap();
+        assert!(decrypted.is_empty());
+    }
+
     #[test]
     fn test_token_adversarial_iv_corruption() {
         let key: [u8; 64] = [0xDD; 64];

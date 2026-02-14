@@ -353,4 +353,85 @@ mod tests {
         assert!(table.contains(&make_link_id(1)));
         assert!(!table.contains(&make_link_id(2)));
     }
+
+    // ================================================================== //
+    // Boundary: reverse entry expiration strict > semantics
+    // ================================================================== //
+
+    #[test]
+    fn reverse_entry_at_exact_timeout() {
+        let entry = ReverseEntry {
+            receiving_interface: InterfaceId(1),
+            outbound_interface: InterfaceId(2),
+            timestamp: 1000,
+        };
+        // now == timestamp + REVERSE_TIMEOUT → NOT expired (strict >)
+        assert!(!entry.is_expired(1000 + REVERSE_TIMEOUT));
+    }
+
+    #[test]
+    fn reverse_entry_past_timeout() {
+        let entry = ReverseEntry {
+            receiving_interface: InterfaceId(1),
+            outbound_interface: InterfaceId(2),
+            timestamp: 1000,
+        };
+        // now == timestamp + REVERSE_TIMEOUT + 1 → expired
+        assert!(entry.is_expired(1000 + REVERSE_TIMEOUT + 1));
+    }
+
+    #[test]
+    fn reverse_cull_boundary() {
+        let mut table = ReverseTable::new();
+        let ifaces = vec![InterfaceId(1), InterfaceId(2)];
+
+        table.insert(
+            make_trunc(1),
+            ReverseEntry {
+                receiving_interface: InterfaceId(1),
+                outbound_interface: InterfaceId(2),
+                timestamp: 1000,
+            },
+        );
+
+        // At exact timeout: NOT culled
+        let removed = table.cull(1000 + REVERSE_TIMEOUT, &ifaces);
+        assert_eq!(removed, 0);
+        assert!(table.contains(&make_trunc(1)));
+
+        // One past: culled
+        let removed = table.cull(1000 + REVERSE_TIMEOUT + 1, &ifaces);
+        assert_eq!(removed, 1);
+        assert!(!table.contains(&make_trunc(1)));
+    }
+
+    #[test]
+    fn link_table_cull_boundary() {
+        let mut table = LinkTable::new();
+
+        table.insert(
+            make_link_id(1),
+            LinkTableEntry {
+                timestamp: 1000,
+                next_hop_transport_id: make_trunc(1),
+                next_hop_interface: InterfaceId(1),
+                remaining_hops: 2,
+                received_interface: InterfaceId(0),
+                taken_hops: 1,
+                dest_hash: make_dest(1),
+                validated: false,
+                proof_timeout: 2000,
+            },
+        );
+
+        // now <= proof_timeout → retained (condition: now <= proof_timeout)
+        let removed = table.cull(2000);
+        assert_eq!(removed, 0);
+        assert!(table.contains(&make_link_id(1)));
+
+        // now > proof_timeout → culled
+        let removed = table.cull(2001);
+        assert_eq!(removed, 1);
+        assert!(!table.contains(&make_link_id(1)));
+    }
 }

@@ -131,6 +131,51 @@ mod tests {
         );
     }
 
+    // ================================================================== //
+    // Boundary: PKCS7 edge cases
+    // ================================================================== //
+
+    #[test]
+    fn pkcs7_full_block_padding() {
+        // data len == block_size → adds a full block of padding (16 bytes of 0x10)
+        let data = [0xAAu8; 16];
+        let padded = pkcs7_pad(&data, 16);
+        assert_eq!(padded.len(), 32);
+        assert_eq!(&padded[16..], &[0x10u8; 16]);
+        let unpadded = pkcs7_unpad(&padded).unwrap();
+        assert_eq!(unpadded, &data);
+    }
+
+    #[test]
+    fn pkcs7_block_size_one() {
+        // block_size=1: every byte needs 1 pad byte (0x01)
+        let data = b"hello";
+        let padded = pkcs7_pad(data, 1);
+        // 5 bytes + 1 byte of padding = 6 bytes
+        assert_eq!(padded.len(), 6);
+        assert_eq!(padded[5], 0x01);
+        let unpadded = pkcs7_unpad(&padded).unwrap();
+        assert_eq!(unpadded, data);
+    }
+
+    #[test]
+    fn pkcs7_block_size_255() {
+        let data = b"small";
+        let padded = pkcs7_pad(data, 255);
+        // 5 bytes → pad_len = 255 - 5 = 250
+        assert_eq!(padded.len(), 255);
+        assert_eq!(padded[254], 250u8);
+        let unpadded = pkcs7_unpad(&padded).unwrap();
+        assert_eq!(unpadded, data);
+    }
+
+    #[test]
+    fn pkcs7_unpad_all_zeros() {
+        // [0x00; 16] → pad byte = 0 → invalid (pad_len == 0)
+        let data = [0x00u8; 16];
+        assert_eq!(pkcs7_unpad(&data), Err(CryptoError::InvalidPadding));
+    }
+
     #[test]
     fn test_pkcs7_roundtrip() {
         // Test a range of input sizes including 0, sub-block, exact block, and multi-block

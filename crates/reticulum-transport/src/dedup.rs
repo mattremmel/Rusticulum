@@ -248,4 +248,54 @@ mod tests {
         assert_eq!(hl.current_len(), 1);
         assert!(hl.contains(&h));
     }
+
+    // ================================================================== //
+    // Boundary: rotation across multiple cycles
+    // ================================================================== //
+
+    fn fill_and_rotate(hl: &mut PacketHashlist, tag: u8) {
+        for i in 0u32..(HASHLIST_ROTATION_THRESHOLD as u32 + 1) {
+            let mut bytes = [0u8; 32];
+            bytes[0..4].copy_from_slice(&i.to_le_bytes());
+            bytes[31] = tag;
+            hl.current.insert(PacketHash::new(bytes));
+        }
+        hl.maybe_rotate();
+    }
+
+    #[test]
+    fn rotation_multiple_cycles() {
+        let mut hl = PacketHashlist::new();
+        let sentinel = make_hash(0xFE);
+        hl.insert(sentinel);
+
+        // Cycle 1: sentinel moves to prev
+        fill_and_rotate(&mut hl, 0xAA);
+        assert!(hl.contains(&sentinel), "sentinel should survive 1 rotation (in prev)");
+
+        // Cycle 2: prev replaced, sentinel evicted
+        fill_and_rotate(&mut hl, 0xBB);
+        assert!(!hl.contains(&sentinel), "sentinel should be evicted after 2 rotations");
+
+        // Cycle 3: everything from cycle 1 also gone
+        fill_and_rotate(&mut hl, 0xCC);
+        // Cycle 2 items now in prev, cycle 3 items just rotated
+        assert_eq!(hl.current_len(), 0);
+        assert!(hl.prev_len() > 0);
+    }
+
+    #[test]
+    fn contains_after_double_rotation() {
+        let mut hl = PacketHashlist::new();
+        let h = make_hash(0xAB);
+        hl.insert(h);
+
+        // First rotation: h survives in prev
+        fill_and_rotate(&mut hl, 0x11);
+        assert!(hl.contains(&h));
+
+        // Second rotation: prev replaced → h gone
+        fill_and_rotate(&mut hl, 0x22);
+        assert!(!hl.contains(&h));
+    }
 }

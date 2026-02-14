@@ -600,4 +600,79 @@ mod tests {
         assert!(table.contains(&make_dest(1)));
         assert!(!table.contains(&make_dest(2)));
     }
+
+    // ================================================================== //
+    // Boundary: path expiration strict > semantics
+    // ================================================================== //
+
+    #[test]
+    fn has_path_at_exact_expiration() {
+        let mut table = PathTable::new();
+        let iface = InterfaceId(1);
+        let mut entry = make_entry(1000, 2, InterfaceMode::Full, iface);
+        entry.expires = 2000;
+        table.insert(make_dest(1), entry);
+
+        // now == expires → NOT expired (strict >)
+        assert!(table.has_path(&make_dest(1), 2000));
+    }
+
+    #[test]
+    fn has_path_one_past_expiration() {
+        let mut table = PathTable::new();
+        let iface = InterfaceId(1);
+        let mut entry = make_entry(1000, 2, InterfaceMode::Full, iface);
+        entry.expires = 2000;
+        table.insert(make_dest(1), entry);
+
+        // now == expires + 1 → expired
+        assert!(!table.has_path(&make_dest(1), 2001));
+    }
+
+    #[test]
+    fn has_path_one_before_expiration() {
+        let mut table = PathTable::new();
+        let iface = InterfaceId(1);
+        let mut entry = make_entry(1000, 2, InterfaceMode::Full, iface);
+        entry.expires = 2000;
+        table.insert(make_dest(1), entry);
+
+        // now == expires - 1 → NOT expired
+        assert!(table.has_path(&make_dest(1), 1999));
+    }
+
+    #[test]
+    fn hops_to_expired_returns_pathfinder_m() {
+        let mut table = PathTable::new();
+        let iface = InterfaceId(1);
+        let mut entry = make_entry(1000, 3, InterfaceMode::Full, iface);
+        entry.expires = 2000;
+        table.insert(make_dest(1), entry);
+
+        // Before expiry: returns actual hops
+        assert_eq!(table.hops_to(&make_dest(1), 2000), 3);
+        // After expiry: returns PATHFINDER_M
+        assert_eq!(table.hops_to(&make_dest(1), 2001), PATHFINDER_M);
+    }
+
+    #[test]
+    fn cull_at_exact_boundary() {
+        let mut table = PathTable::new();
+        let iface = InterfaceId(1);
+        let active = vec![iface];
+
+        let mut entry = make_entry(1000, 2, InterfaceMode::Full, iface);
+        entry.expires = 2000;
+        table.insert(make_dest(1), entry);
+
+        // At exact expiration: NOT culled
+        let removed = table.cull(2000, &active);
+        assert_eq!(removed, 0);
+        assert!(table.contains(&make_dest(1)));
+
+        // One past: culled
+        let removed = table.cull(2001, &active);
+        assert_eq!(removed, 1);
+        assert!(!table.contains(&make_dest(1)));
+    }
 }

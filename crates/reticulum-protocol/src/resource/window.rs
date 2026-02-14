@@ -718,4 +718,36 @@ mod tests {
             }
         }
     }
+
+    // ================================================================== //
+    // Boundary: is_ready_to_send edge cases
+    // ================================================================== //
+
+    #[test]
+    fn is_ready_outstanding_equals_window() {
+        let ws = WindowState::from_parts(4, 10, 2, 4, 0, 0);
+        // outstanding == window → false (strict <)
+        assert!(!ws.is_ready_to_send(4));
+    }
+
+    #[test]
+    fn is_ready_outstanding_one_below_window() {
+        let ws = WindowState::from_parts(4, 10, 2, 4, 0, 0);
+        // outstanding == window - 1 → true
+        assert!(ws.is_ready_to_send(3));
+    }
+
+    #[test]
+    fn is_ready_window_one() {
+        let ws = WindowState::from_parts(1, 10, 1, 1, 0, 0);
+        assert!(ws.is_ready_to_send(0));
+        assert!(!ws.is_ready_to_send(1));
+    }
+
+    #[test]
+    fn is_ready_window_zero() {
+        // A degenerate window=0 means nothing can send
+        let ws = WindowState::from_parts(0, 10, 0, 1, 0, 0);
+        assert!(!ws.is_ready_to_send(0));
+    }
 }

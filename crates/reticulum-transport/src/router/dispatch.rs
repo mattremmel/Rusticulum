@@ -938,6 +938,52 @@ mod tests {
         assert_eq!(entry.next_hop.as_ref(), &[0xBB; 16]);
     }
 
+    // ================================================================== //
+    // Boundary: inject/strip with minimum packets and max hops
+    // ================================================================== //
+
+    #[test]
+    fn inject_header_min_packet() {
+        // Exactly HEADER_1_SIZE (19) bytes → produces HEADER_2_SIZE (35) bytes
+        let mut raw = vec![0u8; HEADER_1_SIZE];
+        raw[0] = 0x01; // H1 flags
+        raw[18] = 0x00; // context
+        let next_hop = TruncatedHash::new([0xBB; 16]);
+        let injected = inject_transport_header(&raw, &next_hop).unwrap();
+        assert_eq!(injected.len(), HEADER_2_SIZE);
+        let packet = RawPacket::parse(&injected).unwrap();
+        assert_eq!(packet.flags.header_type, HeaderType::Header2);
+        assert!(packet.data.is_empty());
+    }
+
+    #[test]
+    fn strip_header_min_packet() {
+        // Exactly HEADER_2_SIZE (35) bytes → produces HEADER_1_SIZE (19) bytes
+        let mut raw = vec![0u8; HEADER_2_SIZE];
+        raw[0] = 0x50; // H2 + TRANSPORT flags
+        raw[34] = 0x00; // context
+        let stripped = strip_transport_header(&raw, 0).unwrap();
+        assert_eq!(stripped.len(), HEADER_1_SIZE);
+        let packet = RawPacket::parse(&stripped).unwrap();
+        assert_eq!(packet.flags.header_type, HeaderType::Header1);
+        assert!(packet.data.is_empty());
+    }
+
+    #[test]
+    fn inject_strip_roundtrip_hops_255() {
+        let mut raw = vec![0u8; 30];
+        raw[0] = 0x01; // H1 flags
+        raw[1] = 255; // max hops
+        raw[18] = 0x00; // context
+
+        let next_hop = TruncatedHash::new([0xCC; 16]);
+        let injected = inject_transport_header(&raw, &next_hop).unwrap();
+        assert_eq!(injected[1], 255); // hops preserved
+
+        let stripped = strip_transport_header(&injected, 255).unwrap();
+        assert_eq!(stripped[1], 255); // hops preserved through roundtrip
+    }
+
     #[test]
     fn announce_next_hop_zero_for_direct() {
         use reticulum_core::announce::Announce;

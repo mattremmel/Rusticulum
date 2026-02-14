@@ -1099,6 +1099,47 @@ mod tests {
     }
 
     // ============================================================== //
+    // Boundary: metadata encoding/decoding edge cases
+    // ============================================================== //
+
+    #[test]
+    fn encode_metadata_size_zero() {
+        // Encode msgpack nil → tiny payload
+        let value = Value::Nil;
+        let encoded = encode_metadata(&value).unwrap();
+        // 3-byte size prefix + 1-byte nil (0xC0)
+        assert_eq!(encoded.len(), 4);
+        assert_eq!(&encoded[..3], &[0x00, 0x00, 0x01]); // size = 1
+    }
+
+    #[test]
+    fn decode_metadata_exactly_3_bytes_size_zero() {
+        // [0x00, 0x00, 0x00] = size prefix of 0, zero-length msgpack → error
+        // (msgpack decode on empty input fails)
+        let data = [0x00, 0x00, 0x00];
+        let result = decode_metadata(&data);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn decode_metadata_size_mismatch() {
+        // Size prefix claims 100 bytes but only 50 available
+        let mut data = vec![0x00, 0x00, 100]; // size = 100
+        data.extend_from_slice(&vec![0x00; 50]); // only 50 bytes
+        let result = decode_metadata(&data);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn decode_metadata_size_prefix_all_ff() {
+        // [0xFF, 0xFF, 0xFF] = 16777215, with only a few bytes → error
+        let mut data = vec![0xFF, 0xFF, 0xFF];
+        data.extend_from_slice(&[0x00; 10]);
+        let result = decode_metadata(&data);
+        assert!(result.is_err());
+    }
+
+    // ============================================================== //
     // Property tests
     // ============================================================== //
 

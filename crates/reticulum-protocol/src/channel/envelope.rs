@@ -148,4 +148,49 @@ mod tests {
         let result = Envelope::unpack(&packed);
         assert!(result.is_err());
     }
+
+    // ================================================================== //
+    // Boundary: envelope payload sizes
+    // ================================================================== //
+
+    #[test]
+    fn envelope_max_payload_u16_max() {
+        let payload = vec![0x42u8; 65535];
+        let env = Envelope {
+            msg_type: 0xABCD,
+            sequence: 0x1234,
+            payload,
+        };
+        let packed = env.pack();
+        assert_eq!(packed.len(), 6 + 65535);
+        let unpacked = Envelope::unpack(&packed).unwrap();
+        assert_eq!(unpacked, env);
+    }
+
+    #[test]
+    fn envelope_payload_one_byte() {
+        let env = Envelope {
+            msg_type: 1,
+            sequence: 2,
+            payload: vec![0xFF],
+        };
+        let packed = env.pack();
+        assert_eq!(packed.len(), 7);
+        let unpacked = Envelope::unpack(&packed).unwrap();
+        assert_eq!(unpacked, env);
+    }
+
+    #[test]
+    fn envelope_payload_256_bytes() {
+        let payload: Vec<u8> = (0..256u16).map(|i| (i & 0xFF) as u8).collect();
+        let env = Envelope {
+            msg_type: 0x00FF,
+            sequence: 0x0100,
+            payload,
+        };
+        let packed = env.pack();
+        assert_eq!(packed.len(), 6 + 256);
+        let unpacked = Envelope::unpack(&packed).unwrap();
+        assert_eq!(unpacked, env);
+    }
 }

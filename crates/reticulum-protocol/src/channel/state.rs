@@ -749,4 +749,86 @@ mod tests {
         // sequence=4 < next_rx=5 → old, no wrap → rejected
         assert!(!check_rx_sequence_valid(4, 5, 0));
     }
+
+    // ================================================================== //
+    // Boundary: channel sequence wraparound
+    // ================================================================== //
+
+    #[test]
+    fn rx_wraparound_next_rx_zero() {
+        // next_rx=0, window_max=5, sequence=3 → 3 >= 0 → valid
+        assert!(check_rx_sequence_valid(3, 0, 5));
+    }
+
+    #[test]
+    fn rx_wraparound_sequence_zero_at_boundary() {
+        // next_rx=65534, window_max=5, sequence=0
+        // overflow = (65534+5) % 65536 = 3, overflow(3) < next_rx(65534) → wrap
+        // sequence(0) <= overflow(3) → valid
+        assert!(check_rx_sequence_valid(0, 65534, 5));
+    }
+
+    #[test]
+    fn rx_wraparound_full_width_window() {
+        // window_max=65535: overflow = (next_rx + 65535) % 65536 = next_rx - 1
+        // For next_rx=100: overflow = 99, overflow(99) < next_rx(100) → wrap
+        // Any sequence in [0..=99] is valid (plus >= 100)
+        assert!(check_rx_sequence_valid(0, 100, 65535));
+        assert!(check_rx_sequence_valid(99, 100, 65535));
+        assert!(check_rx_sequence_valid(100, 100, 65535)); // >= next_rx
+        assert!(check_rx_sequence_valid(65535, 100, 65535)); // >= next_rx
+    }
+
+    #[test]
+    fn tx_sequence_wraps_at_modulus() {
+        let mut cs = ChannelState::new(0.5);
+        // Manually set next_tx to SEQ_MAX
+        cs.next_tx_sequence = SEQ_MAX;
+        let seq = cs.next_sequence();
+        assert_eq!(seq, SEQ_MAX);
+        assert_eq!(cs.peek_tx_sequence(), 0); // wrapped to 0
+    }
+
+    #[test]
+    fn rx_advance_wraps_at_modulus() {
+        let mut cs = ChannelState::new(0.5);
+        cs.next_rx_sequence = SEQ_MAX;
+        cs.advance_rx_sequence();
+        assert_eq!(cs.next_rx_sequence(), 0); // wrapped to 0
+    }
+
+    // ================================================================== //
+    // Boundary: channel MDU underflow
+    // ================================================================== //
+
+    #[test]
+    fn channel_mdu_zero_outlet() {
+        assert_eq!(ChannelState::channel_mdu(0), 0);
+    }
+
+    #[test]
+    fn channel_mdu_below_overhead() {
+        assert_eq!(ChannelState::channel_mdu(5), 0);
+    }
+
+    #[test]
+    fn channel_mdu_at_overhead() {
+        assert_eq!(ChannelState::channel_mdu(ENVELOPE_OVERHEAD), 0);
+    }
+
+    #[test]
+    fn channel_mdu_just_above_overhead() {
+        assert_eq!(ChannelState::channel_mdu(ENVELOPE_OVERHEAD + 1), 1);
+    }
+
+    #[test]
+    fn channel_mdu_capped_at_u16_max() {
+        // outlet_mdu = 0x1_0005 → raw = 0x1_0005 - 6 = 0xFFFF → min(0xFFFF, 0xFFFF) = 0xFFFF
+        assert_eq!(ChannelState::channel_mdu(0x1_0005), 0xFFFF);
+    }
+
+    #[test]
+    fn channel_mdu_exactly_u16_max_plus_overhead() {
+        assert_eq!(ChannelState::channel_mdu(0xFFFF + ENVELOPE_OVERHEAD), 0xFFFF);
+    }
 }

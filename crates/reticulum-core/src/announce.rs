@@ -809,6 +809,40 @@ mod tests {
     }
 
     #[test]
+    fn announce_empty_app_data_vs_none() {
+        let identity = Identity::generate();
+        let nh = destination::name_hash("test_app", &["empty_vs_none"]);
+        let dh = destination::destination_hash(&nh, identity.hash());
+        let random_hash = [0x06; 10];
+
+        // Create with None app_data
+        let announce_none =
+            Announce::create(&identity, nh, dh, random_hash, None, None).unwrap();
+        // Create with Some(empty) app_data
+        let announce_empty =
+            Announce::create(&identity, nh, dh, random_hash, None, Some(b"")).unwrap();
+
+        // Both should validate
+        announce_none.validate().unwrap();
+        announce_empty.validate().unwrap();
+
+        // None → no app_data at all; Some(b"") → empty app_data
+        assert!(announce_none.app_data.is_none());
+        assert_eq!(announce_empty.app_data.as_deref(), Some(b"".as_slice()));
+
+        // Payloads should be the same length since empty app_data is zero bytes
+        // But the signed data differs (app_data=b"" is included in signed data even if empty)
+        // Actually in the protocol, empty app_data means we have 0 trailing bytes
+        // which is the same as no app_data. Let's just verify both produce valid announces.
+        let payload_none = announce_none.to_payload();
+        let payload_empty = announce_empty.to_payload();
+
+        // Signatures differ because signed_data may include empty app_data
+        // The key point: both are valid, and we can distinguish them
+        assert!(payload_none.len() <= payload_empty.len());
+    }
+
+    #[test]
     fn test_announce_malformed_truncated_systematic() {
         // Create a valid announce, then truncate its payload at every position
         let identity = Identity::generate();
