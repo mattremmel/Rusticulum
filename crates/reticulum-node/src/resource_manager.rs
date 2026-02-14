@@ -556,4 +556,179 @@ mod tests {
             .unwrap();
         assert!(!mgr.is_complete(&resource_hash));
     }
+
+    #[test]
+    fn test_multiple_resources_same_link() {
+        let mut mgr = ResourceManager::new();
+        let link_id = LinkId::new([0xC1; 16]);
+        let key = make_test_derived_key();
+
+        let (hash1, adv1) = mgr
+            .prepare_outgoing(link_id, b"resource one", &key)
+            .unwrap();
+        let (hash2, adv2) = mgr
+            .prepare_outgoing(link_id, b"resource two", &key)
+            .unwrap();
+
+        assert_ne!(hash1, hash2);
+        assert_ne!(adv1, adv2);
+        assert!(mgr.outgoing.contains_key(&hash1));
+        assert!(mgr.outgoing.contains_key(&hash2));
+        assert_eq!(mgr.outgoing.len(), 2);
+    }
+
+    #[test]
+    fn test_duplicate_part_reception_idempotent() {
+        let mut sender_mgr = ResourceManager::new();
+        let mut receiver_mgr = ResourceManager::new();
+        let sender_link = LinkId::new([0xC2; 16]);
+        let receiver_link = LinkId::new([0xC3; 16]);
+        let key = make_test_derived_key();
+
+        let data = b"duplicate part test data for checking idempotency";
+        let (_hash, adv) = sender_mgr.prepare_outgoing(sender_link, data, &key).unwrap();
+        let (_recv_hash, req) = receiver_mgr.accept_advertisement(receiver_link, &adv).unwrap();
+        let (_link, parts) = sender_mgr.handle_part_request(&req).unwrap();
+
+        // Deliver the first part twice
+        let result1 = receiver_mgr.receive_part(&receiver_link, &parts[0]).unwrap();
+        let count_after_first = receiver_mgr.incoming.get(&receiver_link).unwrap().received_count;
+
+        // Second delivery of the same part — the map hash won't match an empty slot
+        // so it should be a no-op (unmatched part)
+        let result2 = receiver_mgr.receive_part(&receiver_link, &parts[0]).unwrap();
+        let count_after_dup = receiver_mgr.incoming.get(&receiver_link).unwrap().received_count;
+
+        // received_count should not increase on duplicate
+        assert_eq!(count_after_first, count_after_dup);
+
+        // Now deliver remaining parts normally
+        for part in &parts[1..] {
+            receiver_mgr.receive_part(&receiver_link, part).unwrap();
+        }
+
+        // Assembly should succeed
+        let (received_data, _proof) = receiver_mgr.assemble_and_prove(&receiver_link, &key).unwrap();
+        assert_eq!(received_data, data);
+
+        let _ = (result1, result2); // suppress unused warnings
+    }
+
+    #[test]
+    fn test_out_of_order_part_reception() {
+        let mut sender_mgr = ResourceManager::new();
+        let mut receiver_mgr = ResourceManager::new();
+        let sender_link = LinkId::new([0xC4; 16]);
+        let receiver_link = LinkId::new([0xC5; 16]);
+        let key = make_test_derived_key();
+
+        // Use enough data to produce multiple parts
+        let data: Vec<u8> = (0..2000u16).map(|i| (i % 256) as u8).collect();
+        let (_hash, adv) = sender_mgr.prepare_outgoing(sender_link, &data, &key).unwrap();
+        let (_recv_hash, req) = receiver_mgr.accept_advertisement(receiver_link, &adv).unwrap();
+        let (_link, parts) = sender_mgr.handle_part_request(&req).unwrap();
+        assert!(parts.len() > 1, "need multiple parts for this test");
+
+        // Deliver parts in reverse order
+        let mut all_received = false;
+        for part in parts.iter().rev() {
+            let result = receiver_mgr.receive_part(&receiver_link, part).unwrap();
+            if result.all_received {
+                all_received = true;
+            }
+        }
+        assert!(all_received);
+
+        let (received_data, proof) = receiver_mgr.assemble_and_prove(&receiver_link, &key).unwrap();
+        assert_eq!(received_data, data);
+
+        let valid = sender_mgr.handle_proof(&proof).unwrap();
+        assert!(valid);
+    }
+
+    #[test]
+    fn test_many_concurrent_outgoing_resources() {
+        let mut mgr = ResourceManager::new();
+        let link_id = LinkId::new([0xC6; 16]);
+        let key = make_test_derived_key();
+
+        let mut hashes = Vec::new();
+        for i in 0u8..50 {
+            let data = format!("resource-{i}");
+            let (hash, _adv) = mgr
+                .prepare_outgoing(link_id, data.as_bytes(), &key)
+                .unwrap();
+            hashes.push(hash);
+        }
+
+        assert_eq!(mgr.outgoing.len(), 50);
+        // All hashes should be unique
+        let unique: std::collections::HashSet<_> = hashes.iter().collect();
+        assert_eq!(unique.len(), 50);
+    }
+
+    #[test]
+    fn test_receive_part_no_incoming() {
+        let mut mgr = ResourceManager::new();
+        let unknown_link = LinkId::new([0xC7; 16]);
+
+        let result = mgr.receive_part(&unknown_link, b"some part data");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_assemble_no_incoming() {
+        let mut mgr = ResourceManager::new();
+        let unknown_link = LinkId::new([0xC8; 16]);
+        let key = make_test_derived_key();
+
+        let result = mgr.assemble_and_prove(&unknown_link, &key);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_handle_proof_wrong_hash() {
+        let mut mgr = ResourceManager::new();
+        // Build a proof payload with a resource hash that doesn't exist in outgoing
+        // Format: resource_hash(32) || proof(32)
+        let mut fake_proof = vec![0u8; 64];
+        fake_proof[..32].copy_from_slice(&[0xDE; 32]); // unknown resource_hash
+        fake_proof[32..].copy_from_slice(&[0xAD; 32]); // fake proof
+
+        let result = mgr.handle_proof(&fake_proof);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_accept_advertisement_replaces_existing() {
+        let mut sender_mgr = ResourceManager::new();
+        let mut receiver_mgr = ResourceManager::new();
+        let sender_link = LinkId::new([0xC9; 16]);
+        let receiver_link = LinkId::new([0xCA; 16]);
+        let key = make_test_derived_key();
+
+        // First advertisement
+        let (hash1, adv1) = sender_mgr
+            .prepare_outgoing(sender_link, b"first resource", &key)
+            .unwrap();
+        let (recv_hash1, _req1) = receiver_mgr
+            .accept_advertisement(receiver_link, &adv1)
+            .unwrap();
+        assert_eq!(recv_hash1, hash1);
+        assert!(receiver_mgr.has_incoming(&receiver_link));
+
+        // Second advertisement on same link — should replace
+        let (hash2, adv2) = sender_mgr
+            .prepare_outgoing(sender_link, b"second resource", &key)
+            .unwrap();
+        let (recv_hash2, _req2) = receiver_mgr
+            .accept_advertisement(receiver_link, &adv2)
+            .unwrap();
+        assert_eq!(recv_hash2, hash2);
+
+        // Still only one incoming for this link (replaced)
+        assert_eq!(receiver_mgr.incoming.len(), 1);
+        let transfer = receiver_mgr.incoming.get(&receiver_link).unwrap();
+        assert_eq!(transfer.resource_hash, hash2);
+    }
 }

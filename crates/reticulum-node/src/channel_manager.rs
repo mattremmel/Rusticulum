@@ -694,4 +694,131 @@ mod tests {
             _ => panic!("expected BufferComplete for stream 0"),
         }
     }
+
+    #[test]
+    fn test_many_simultaneous_streams() {
+        let mut mgr = ChannelManager::new();
+        let link_id = LinkId::new([0xB1; 16]);
+        mgr.register_link(link_id, 0.05);
+
+        // Create 100 streams, each with data+EOF chunks
+        for sid in 0u16..100 {
+            let data_part = format!("stream-{sid}-data");
+            let chunk = mgr
+                .build_stream_message(&link_id, sid, data_part.as_bytes(), false)
+                .unwrap();
+            let action = mgr.handle_channel_data(&link_id, &chunk);
+            assert!(action.is_none(), "should still be accumulating for stream {sid}");
+        }
+
+        // Now send EOF for each stream
+        let mut completed = 0u16;
+        for sid in 0u16..100 {
+            let eof_chunk = mgr
+                .build_stream_message(&link_id, sid, b"-eof", true)
+                .unwrap();
+            let action = mgr.handle_channel_data(&link_id, &eof_chunk).unwrap();
+            match action {
+                ChannelAction::BufferComplete { stream_id, data } => {
+                    assert_eq!(stream_id, sid);
+                    let expected = format!("stream-{sid}-data-eof");
+                    assert_eq!(data, expected.as_bytes());
+                    completed += 1;
+                }
+                _ => panic!("expected BufferComplete for stream {sid}"),
+            }
+        }
+        assert_eq!(completed, 100);
+    }
+
+    #[test]
+    fn test_rapid_delivery_timeout_cycles() {
+        let mut mgr = ChannelManager::new();
+        let link_id = LinkId::new([0xB2; 16]);
+        mgr.register_link(link_id, 0.05);
+
+        let ctx = mgr.channels.get_mut(&link_id).unwrap();
+
+        // 50 deliveries (rtt = 0.05)
+        for _ in 0..50 {
+            ctx.state.on_delivery(0.05);
+        }
+        let window_after_delivery = ctx.state.window;
+        assert!(window_after_delivery >= 1);
+
+        // 20 timeouts (tries = 1)
+        for _ in 0..20 {
+            ctx.state.on_timeout(1);
+        }
+        let window_after_timeout = ctx.state.window;
+        // Window should have shrunk (or stayed at minimum)
+        assert!(window_after_timeout >= 1);
+        assert!(window_after_timeout <= window_after_delivery);
+
+        // 30 more deliveries
+        for _ in 0..30 {
+            ctx.state.on_delivery(0.05);
+        }
+        let window_final = ctx.state.window;
+        assert!(window_final >= 1);
+
+        // Window invariants should hold throughout
+        assert!(ctx.state.window <= ctx.state.window_max);
+        assert!(ctx.state.window >= ctx.state.window_min);
+    }
+
+    #[test]
+    fn test_channel_data_unregistered_link() {
+        let mut mgr = ChannelManager::new();
+        let unknown = LinkId::new([0xB3; 16]);
+
+        // handle_channel_data for unknown link → None
+        assert!(mgr.handle_channel_data(&unknown, b"test").is_none());
+    }
+
+    #[test]
+    fn test_build_channel_message_unregistered_link() {
+        let mut mgr = ChannelManager::new();
+        let unknown = LinkId::new([0xB4; 16]);
+
+        // build_channel_message for unknown link → None
+        assert!(mgr.build_channel_message(&unknown, 0x0101, b"test").is_none());
+    }
+
+    #[test]
+    fn test_many_pending_requests() {
+        let mut mgr = ChannelManager::new();
+        let link_id = LinkId::new([0xB5; 16]);
+        mgr.register_link(link_id, 0.05);
+
+        // Record 1000 pending requests
+        for i in 0u32..1000 {
+            let mut request_id = [0u8; 16];
+            request_id[..4].copy_from_slice(&i.to_be_bytes());
+            mgr.record_pending_request(&link_id, "/test/stress", request_id);
+        }
+        assert_eq!(mgr.pending_requests.len(), 1000);
+
+        // Handle 500 responses — remove half
+        for i in 0u32..500 {
+            let mut request_id = [0u8; 16];
+            request_id[..4].copy_from_slice(&i.to_be_bytes());
+            let response = Response {
+                request_id: RequestId::new(TruncatedHash::new(request_id)),
+                data: Value::Binary(format!("resp-{i}").into_bytes()),
+            };
+            let response_bytes = response.to_msgpack();
+            mgr.handle_response(&link_id, &response_bytes);
+        }
+
+        // 500 should remain
+        assert_eq!(mgr.pending_requests.len(), 500);
+
+        // Verify the remaining are the correct ones (500-999)
+        for i in 500u32..1000 {
+            let mut request_id = [0u8; 16];
+            request_id[..4].copy_from_slice(&i.to_be_bytes());
+            assert!(mgr.pending_requests.contains_key(&request_id));
+        }
+    }
 }
