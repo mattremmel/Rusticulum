@@ -27,7 +27,7 @@ use reticulum_core::constants::PacketType;
 use reticulum_core::packet::context::ContextType;
 use reticulum_core::packet::wire::RawPacket;
 use reticulum_core::types::TruncatedHash;
-use reticulum_transport::ifac::{IfacConfig, has_ifac_flag, ifac_verify};
+use reticulum_transport::ifac::IfacConfig;
 use reticulum_transport::path::constants::PATHFINDER_M;
 use reticulum_transport::router::dispatch::PacketRouter;
 use reticulum_transport::router::types::RouterAction;
@@ -42,7 +42,9 @@ use crate::error::NodeError;
 use crate::interface_enum::AnyInterface;
 use crate::link_dispatch::{self, LinkPacketKind};
 use crate::link_manager::LinkManager;
-use crate::packet_helpers::{apply_ifac, extract_link_id};
+use crate::packet_helpers::{
+    apply_ifac, extract_link_id, extract_request_id, format_data_preview, verify_ifac,
+};
 use crate::resource_manager::ResourceManager;
 use crate::routing::{self, TableMutation, TransportAction};
 use crate::storage::Storage;
@@ -667,20 +669,12 @@ impl Node {
         }
 
         // IFAC verification
-        let packet_bytes = if let Some(ref ifac) = self.ifac_config {
-            if has_ifac_flag(raw) {
-                match ifac_verify(ifac, raw) {
-                    Ok(verified) => verified,
-                    Err(e) => {
-                        tracing::debug!(id = from_iface.0, "IFAC verification failed: {e}");
-                        return;
-                    }
-                }
-            } else {
-                raw.to_vec()
+        let packet_bytes = match verify_ifac(self.ifac_config.as_ref(), raw) {
+            Ok(verified) => verified,
+            Err(e) => {
+                tracing::debug!(id = from_iface.0, "IFAC verification failed: {e}");
+                return;
             }
-        } else {
-            raw.to_vec()
         };
 
         // Parse the packet
@@ -1090,14 +1084,7 @@ impl Node {
                 ContextType::Request,
             ) {
                 // Compute request_id from the encrypted packet's hashable part
-                if let Ok(pkt) = RawPacket::parse(&raw) {
-                    let hashable = pkt.hashable_part();
-                    let request_id =
-                        reticulum_protocol::request::types::RequestId::from_hashable_part(
-                            &hashable,
-                        );
-                    let mut id_bytes = [0u8; 16];
-                    id_bytes.copy_from_slice(request_id.as_ref());
+                if let Some(id_bytes) = extract_request_id(&raw) {
                     self.channel_manager
                         .record_pending_request(link_id, path, id_bytes);
                 }
@@ -1262,11 +1249,10 @@ impl Node {
                         .assemble_and_prove(&link_id, &derived_key)
                     {
                         Ok((data, proof_bytes)) => {
-                            let text = String::from_utf8_lossy(&data);
                             tracing::info!(
                                 link_id = %hex::encode(link_id.as_ref()),
                                 data_len = data.len(),
-                                data_preview = %&text[..text.len().min(200)],
+                                data_preview = %format_data_preview(&data, 200),
                                 "resource_received"
                             );
 
@@ -1323,21 +1309,19 @@ impl Node {
         {
             match action {
                 crate::channel_manager::ChannelAction::MessageReceived { msg_type, payload } => {
-                    let text = String::from_utf8_lossy(&payload);
                     tracing::info!(
                         link_id = %hex::encode(link_id.as_ref()),
                         msg_type,
-                        data = %text,
+                        data = %format_data_preview(&payload, 200),
                         "channel_message_received"
                     );
                 }
                 crate::channel_manager::ChannelAction::BufferComplete { stream_id, data } => {
-                    let text = String::from_utf8_lossy(&data);
                     tracing::info!(
                         link_id = %hex::encode(link_id.as_ref()),
                         stream_id,
                         data_len = data.len(),
-                        data = %text,
+                        data = %format_data_preview(&data, 200),
                         "buffer_complete"
                     );
                 }

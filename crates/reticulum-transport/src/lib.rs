@@ -8,4 +8,5 @@ pub mod dedup;
 pub mod error;
 pub mod ifac;
 pub mod path;
+pub mod path_decision;
 pub mod router;

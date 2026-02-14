@@ -14,6 +14,7 @@ use crate::dedup::PacketHashlist;
 use crate::error::RouterError;
 use crate::path::PathTable;
 use crate::path::types::{InterfaceId, InterfaceMode, PathEntry};
+use crate::path_decision::{PathUpdateDecision, compute_announce_next_hop, decide_path_update};
 use crate::router::tables::{LinkTable, ReverseTable};
 use crate::router::types::RouterAction;
 
@@ -240,20 +241,11 @@ impl PacketRouter {
         let hops = packet.hops;
         let packet_hash = packet.packet_hash();
 
-        // Determine the next_hop for the path entry:
-        // - If HEADER_2 with transport_id: the relay's identity hash
-        // - If HEADER_1 (direct): zero (no relay needed)
-        let next_hop = transport_id
-            .map(|tid| TruncatedHash::try_from(tid.as_ref()).unwrap_or(TruncatedHash::new([0u8; 16])))
-            .unwrap_or(TruncatedHash::new([0u8; 16]));
+        let next_hop = compute_announce_next_hop(transport_id.as_ref());
 
-        // Decide whether to update the path table
-        let path_updated = if let Some(existing) = self.path_table.get(&dest) {
-            if existing.has_random_blob(&announce.random_hash) {
-                // Already seen this exact announce
-                false
-            } else if hops < existing.hops || existing.is_expired(now) {
-                // Better path or expired — replace
+        let decision = decide_path_update(self.path_table.get(&dest), hops, now, &announce.random_hash);
+        let path_updated = match decision {
+            PathUpdateDecision::InsertNew | PathUpdateDecision::Replace => {
                 let entry = PathEntry::new(
                     now,
                     next_hop,
@@ -265,26 +257,14 @@ impl PacketRouter {
                 );
                 self.path_table.insert(dest, entry);
                 true
-            } else {
-                // Same or worse path — just track the random blob
+            }
+            PathUpdateDecision::TrackBlob => {
                 if let Some(existing_mut) = self.path_table.get_mut(&dest) {
                     existing_mut.add_random_blob(announce.random_hash);
                 }
                 false
             }
-        } else {
-            // New destination — add to path table
-            let entry = PathEntry::new(
-                now,
-                next_hop,
-                hops,
-                interface_mode,
-                vec![announce.random_hash],
-                from_interface,
-                packet_hash,
-            );
-            self.path_table.insert(dest, entry);
-            true
+            PathUpdateDecision::Skip => false,
         };
 
         // Queue for retransmission if not already queued
