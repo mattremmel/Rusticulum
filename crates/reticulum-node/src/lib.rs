@@ -8,6 +8,7 @@ pub mod error;
 pub mod interface_enum;
 pub mod channel_manager;
 pub mod link_manager;
+pub mod link_packets;
 pub mod logging;
 pub mod node;
 pub mod resource_manager;
