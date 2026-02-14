@@ -3,10 +3,13 @@
 //! This crate ties together all protocol layers, providing configuration,
 //! storage, and runtime management for a Reticulum node.
 
+pub mod announce_processing;
+pub mod auto_data_plan;
 pub mod config;
 pub mod error;
 pub mod interface_enum;
 pub mod channel_manager;
+pub mod link_dispatch;
 pub mod link_initiation;
 pub mod link_manager;
 pub mod link_packets;
@@ -17,6 +20,7 @@ pub mod resource_manager;
 pub mod resource_ops;
 pub mod routing;
 pub mod storage;
+pub mod transport_guard;
 
 pub use config::NodeConfig;
 pub use error::NodeError;

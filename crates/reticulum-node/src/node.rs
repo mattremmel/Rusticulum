@@ -23,7 +23,7 @@ use reticulum_interfaces::local::{
 };
 
 use reticulum_core::announce::{Announce, make_random_hash};
-use reticulum_core::constants::{DestinationType, HeaderType, PacketType};
+use reticulum_core::constants::PacketType;
 use reticulum_core::destination;
 use reticulum_core::packet::context::ContextType;
 use reticulum_core::packet::wire::RawPacket;
@@ -35,15 +35,19 @@ use reticulum_transport::router::types::RouterAction;
 
 use reticulum_core::identity::Identity;
 
+use crate::announce_processing::{self, AnnounceDecision};
+use crate::auto_data_plan::{self, AutoDataAction, AutoQueueSnapshot};
 use crate::channel_manager::ChannelManager;
 use crate::config::{NodeConfig, parse_mode, parse_socket_addr};
 use crate::error::NodeError;
 use crate::interface_enum::AnyInterface;
+use crate::link_dispatch::{self, LinkPacketKind};
 use crate::link_manager::LinkManager;
 use crate::packet_helpers::{apply_ifac, extract_link_id};
 use crate::resource_manager::ResourceManager;
 use crate::routing::{self, TableMutation, TransportAction};
 use crate::storage::Storage;
+use crate::transport_guard::{self, TransportGuardDecision};
 
 /// A handle that can trigger node shutdown from another task or signal handler.
 #[derive(Clone)]
@@ -730,62 +734,68 @@ impl Node {
             let now_secs = now.as_secs();
             let now_f64 = now.as_secs_f64();
 
-            match self.router.process_inbound_announce(
+            let announce_result = self.router.process_inbound_announce(
                 &packet,
                 from_iface,
                 interface_mode,
                 now_secs,
                 now_f64,
                 packet.transport_id,
-            ) {
-                Ok(result) => {
-                    tracing::info!(
-                        destination_hash = %hex::encode(result.destination_hash.as_ref()),
-                        hops = result.hops,
-                        path_updated = result.path_updated,
-                        "announce_validated"
-                    );
+            );
 
-                    // Register identity from announce for link management
-                    if let Ok(announce) = Announce::from_payload(
-                        packet.destination,
-                        packet.flags.context_flag,
-                        packet.context,
-                        &packet.data,
-                    ) {
-                        self.link_manager
-                            .register_identity_from_announce(result.destination_hash, &announce);
-                    }
+            // Log validation result
+            if let Ok(ref result) = announce_result {
+                tracing::info!(
+                    destination_hash = %hex::encode(result.destination_hash.as_ref()),
+                    hops = result.hops,
+                    path_updated = result.path_updated,
+                    "announce_validated"
+                );
+            } else if let Err(ref e) = announce_result {
+                tracing::debug!(error = %e, "announce_validation_failed");
+            }
+
+            // Use pure function for identity registration decision
+            match announce_processing::decide_announce_action(&packet, &announce_result) {
+                AnnounceDecision::RegisterIdentity {
+                    destination_hash,
+                    announce,
+                } => {
+                    self.link_manager
+                        .register_identity_from_announce(destination_hash, &announce);
                 }
-                Err(e) => {
-                    tracing::debug!(error = %e, "announce_validation_failed");
+                AnnounceDecision::ParseFailed => {
+                    tracing::debug!("announce payload parse failed after validation");
                 }
+                AnnounceDecision::ValidationFailed | AnnounceDecision::NotAnAnnounce => {}
             }
         }
 
         // Link packet handling — route before flood
         let handled_locally = self.handle_link_packet(&packet).await;
 
-        // Transport relay: if we're a transport node and this is a HEADER_2 packet for us
-        if self.config.node.enable_transport
-            && packet.flags.header_type == HeaderType::Header2
-            && packet.flags.packet_type != PacketType::Announce
-        {
-            if let Some(ref transport_id) = packet.transport_id {
-                let our_hash = self
-                    .transport_identity
-                    .as_ref()
-                    .map(|id| id.hash());
-
-                if our_hash.as_ref().map(|h| h.as_ref()) == Some(transport_id.as_ref()) {
-                    // We are the designated relay for this packet
-                    self.handle_transport_relay(&packet, &packet_bytes, from_iface)
-                        .await;
-                    return; // Don't flood — we've handled routing
-                }
+        // Transport relay guard: classify and dispatch
+        let our_hash = self
+            .transport_identity
+            .as_ref()
+            .map(|id| id.hash());
+        let guard = transport_guard::classify_transport_guard(
+            self.config.node.enable_transport,
+            packet.flags.header_type,
+            packet.flags.packet_type,
+            packet.transport_id.as_ref(),
+            our_hash.as_ref().map(|h| h.as_ref()),
+        );
+        match guard {
+            TransportGuardDecision::RelayAsTransport => {
+                self.handle_transport_relay(&packet, &packet_bytes, from_iface)
+                    .await;
+                return;
             }
-            // HEADER_2 but not for us — drop silently (don't flood)
-            return;
+            TransportGuardDecision::DropForeignTransport => {
+                return;
+            }
+            TransportGuardDecision::ProceedWithForwarding => {}
         }
 
         // HEADER_1 forwarding: delegate to pure routing function.
@@ -832,13 +842,14 @@ impl Node {
 
     /// Handle link-related packets. Returns true if the packet was handled locally.
     async fn handle_link_packet(&mut self, packet: &RawPacket) -> bool {
-        match (
+        let kind = link_dispatch::classify_link_packet(
             packet.flags.packet_type,
             packet.context,
             packet.flags.destination_type,
-        ) {
-            // LINKREQUEST: incoming link request (we are responder)
-            (PacketType::LinkRequest, ContextType::None, DestinationType::Single) => {
+        );
+
+        match kind {
+            LinkPacketKind::LinkRequest => {
                 if let Some(ref identity) = self.transport_identity {
                     // Clone identity to avoid borrow conflict
                     let identity = Identity::from_private_bytes(
@@ -854,13 +865,11 @@ impl Node {
                 false
             }
 
-            // LRPROOF: link proof from responder (we are initiator)
-            (PacketType::Proof, ContextType::Lrproof, DestinationType::Link) => {
+            LinkPacketKind::LinkProof => {
                 if let Some(rtt_raw) = self.link_manager.handle_lrproof(packet) {
                     self.broadcast_to_interfaces(None, &rtt_raw).await;
 
                     // Check for auto-data to send after link establishment
-                    // Parse the RTT packet to get the link_id
                     if let Ok(rtt_pkt) = RawPacket::parse(&rtt_raw) {
                         let link_id = extract_link_id(&rtt_pkt);
                         self.send_auto_data(&link_id).await;
@@ -870,15 +879,13 @@ impl Node {
                 false
             }
 
-            // LRRTT: RTT measurement (we are responder)
-            (PacketType::Data, ContextType::Lrrtt, DestinationType::Link) => {
+            LinkPacketKind::LinkRtt => {
                 if let Some(link_id) = self.link_manager.handle_lrrtt(packet) {
                     tracing::info!(
                         link_id = %hex::encode(link_id.as_ref()),
                         "link_established"
                     );
 
-                    // Register link with channel manager (responder side)
                     let rtt = self.link_manager.get_rtt(&link_id).unwrap_or(0.05);
                     self.channel_manager.register_link(link_id, rtt);
 
@@ -887,8 +894,7 @@ impl Node {
                 false
             }
 
-            // Link data: encrypted data on an active link
-            (PacketType::Data, ContextType::None, DestinationType::Link) => {
+            LinkPacketKind::LinkData => {
                 if self.link_manager.has_pending_or_active(&packet.destination)
                     && let Some(plaintext) = self.link_manager.handle_link_data(packet)
                 {
@@ -903,43 +909,15 @@ impl Node {
                 false
             }
 
-            // ResourceAdv: incoming resource advertisement
-            (PacketType::Data, ContextType::ResourceAdv, DestinationType::Link) => {
-                self.handle_resource_adv(packet).await
-            }
+            LinkPacketKind::ResourceAdvertisement => self.handle_resource_adv(packet).await,
+            LinkPacketKind::ResourceRequest => self.handle_resource_req(packet).await,
+            LinkPacketKind::ResourcePart => self.handle_resource_part(packet).await,
+            LinkPacketKind::ResourceProof => self.handle_resource_proof(packet).await,
+            LinkPacketKind::ChannelData => self.handle_channel_packet(packet).await,
+            LinkPacketKind::Request => self.handle_request_packet(packet).await,
+            LinkPacketKind::Response => self.handle_response_packet(packet).await,
 
-            // ResourceReq: part request from receiver
-            (PacketType::Data, ContextType::ResourceReq, DestinationType::Link) => {
-                self.handle_resource_req(packet).await
-            }
-
-            // Resource: incoming resource part data
-            (PacketType::Data, ContextType::Resource, DestinationType::Link) => {
-                self.handle_resource_part(packet).await
-            }
-
-            // ResourcePrf: proof from receiver
-            (PacketType::Data, ContextType::ResourcePrf, DestinationType::Link) => {
-                self.handle_resource_proof(packet).await
-            }
-
-            // Channel data: link-encrypted, auto-proved
-            (PacketType::Data, ContextType::Channel, DestinationType::Link) => {
-                self.handle_channel_packet(packet).await
-            }
-
-            // Request: link-encrypted, NOT auto-proved
-            (PacketType::Data, ContextType::Request, DestinationType::Link) => {
-                self.handle_request_packet(packet).await
-            }
-
-            // Response: link-encrypted, NOT auto-proved
-            (PacketType::Data, ContextType::Response, DestinationType::Link) => {
-                self.handle_response_packet(packet).await
-            }
-
-            // Incoming packet delivery proof (proof of our sent packets)
-            (PacketType::Proof, ContextType::None, DestinationType::Link) => {
+            LinkPacketKind::DeliveryProof => {
                 if self.link_manager.has_pending_or_active(&packet.destination) {
                     tracing::debug!(
                         link_id = %hex::encode(packet.destination.as_ref()),
@@ -951,7 +929,7 @@ impl Node {
                 }
             }
 
-            _ => false,
+            LinkPacketKind::Unknown => false,
         }
     }
 
@@ -971,55 +949,74 @@ impl Node {
     }
 
     /// Send auto-data for a newly established link, if configured.
+    ///
+    /// Uses [`auto_data_plan::plan_auto_data_actions`] to compute the action
+    /// sequence from a snapshot of all queues, then executes each action.
     async fn send_auto_data(&mut self, link_id: &reticulum_core::types::LinkId) {
-        // Register link with channel manager for sequencing
+        // Build snapshot of all queued auto-data
         let rtt = self.link_manager.get_rtt(link_id).unwrap_or(0.05);
-        self.channel_manager.register_link(*link_id, rtt);
+        let snapshot = AutoQueueSnapshot {
+            rtt_millis: (rtt * 1000.0) as u64,
+            link_channel: self.link_manager.drain_auto_channel(link_id),
+            link_buffer: self.link_manager.drain_auto_buffer(link_id),
+            link_request: self.link_manager.drain_auto_request(link_id),
+            link_data: self.link_manager.drain_auto_data(link_id),
+            link_resource: self.link_manager.drain_auto_resource(link_id),
+            channel_message: None, // populated after RegisterChannel
+            channel_buffer: None,
+            channel_request: None,
+        };
 
-        // Transfer auto queues from link_manager to channel_manager
-        if let Some(channel_msg) = self.link_manager.drain_auto_channel(link_id) {
-            self.channel_manager
-                .queue_auto_channel(*link_id, channel_msg);
-        }
-        if let Some(buffer_data) = self.link_manager.drain_auto_buffer(link_id) {
-            self.channel_manager
-                .queue_auto_buffer(*link_id, buffer_data);
-        }
-        if let Some((path, data)) = self.link_manager.drain_auto_request(link_id) {
-            self.channel_manager
-                .queue_auto_request(*link_id, path, data);
+        let actions = auto_data_plan::plan_auto_data_actions(&snapshot);
+
+        for action in actions {
+            match action {
+                AutoDataAction::RegisterChannel { .. } => {
+                    self.channel_manager.register_link(*link_id, rtt);
+                }
+                AutoDataAction::TransferChannelQueue { message } => {
+                    self.channel_manager
+                        .queue_auto_channel(*link_id, message);
+                }
+                AutoDataAction::TransferBufferQueue { data } => {
+                    self.channel_manager
+                        .queue_auto_buffer(*link_id, data);
+                }
+                AutoDataAction::TransferRequestQueue { path, data } => {
+                    self.channel_manager
+                        .queue_auto_request(*link_id, path, data);
+                }
+                AutoDataAction::SendLinkData { data } => {
+                    if let Some(raw) =
+                        self.link_manager.encrypt_and_send(link_id, data.as_bytes())
+                    {
+                        tracing::info!(
+                            link_id = %hex::encode(link_id.as_ref()),
+                            data = %data,
+                            "link_data_sent"
+                        );
+                        self.broadcast_to_interfaces(None, &raw).await;
+                    }
+                }
+                AutoDataAction::SendResource { data } => {
+                    self.send_resource(link_id, data.as_bytes()).await;
+                }
+                AutoDataAction::SendChannelMessage { .. } | AutoDataAction::SendBufferStream { .. } | AutoDataAction::SendRequest { .. } => {
+                    // These come from channel_manager queues which are populated
+                    // by the transfer actions above. Drain them now.
+                }
+            }
         }
 
-        // Send auto plain data
-        if let Some(data) = self.link_manager.drain_auto_data(link_id)
-            && let Some(raw) = self.link_manager.encrypt_and_send(link_id, data.as_bytes())
-        {
-            tracing::info!(
-                link_id = %hex::encode(link_id.as_ref()),
-                data = %data,
-                "link_data_sent"
-            );
-            self.broadcast_to_interfaces(None, &raw).await;
-        }
-
-        // Send auto-resource if configured
-        if let Some(resource_data) = self.link_manager.drain_auto_resource(link_id) {
-            self.send_resource(link_id, resource_data.as_bytes()).await;
-        }
-
-        // Send auto-channel message
+        // After transfers, drain channel_manager queues
         if let Some(channel_msg) = self.channel_manager.drain_auto_channel(link_id) {
             self.send_channel_message(link_id, channel_msg.as_bytes())
                 .await;
         }
-
-        // Send auto-buffer stream
         if let Some(buffer_data) = self.channel_manager.drain_auto_buffer(link_id) {
             self.send_buffer_stream(link_id, buffer_data.as_bytes())
                 .await;
         }
-
-        // Send auto-request
         if let Some((path, data)) = self.channel_manager.drain_auto_request(link_id) {
             self.send_request(link_id, &path, data.as_bytes()).await;
         }
