@@ -94,6 +94,30 @@ mod tests {
             "HMAC-SHA256 verify should fail with InvalidHmac for corrupted digest"
         );
     }
+
+    #[test]
+    fn test_hmac_verify_wrong_key() {
+        let key_a = [0xAA; 32];
+        let key_b = [0xBB; 32];
+        let data = b"test data";
+        let mac = hmac_sha256(&key_a, data);
+        assert_eq!(
+            hmac_sha256_verify(&key_b, data, &mac),
+            Err(CryptoError::InvalidHmac),
+            "HMAC verify with wrong key should fail"
+        );
+    }
+
+    #[test]
+    fn test_hmac_verify_wrong_data() {
+        let key = [0xCC; 32];
+        let mac = hmac_sha256(&key, b"data A");
+        assert_eq!(
+            hmac_sha256_verify(&key, b"data B", &mac),
+            Err(CryptoError::InvalidHmac),
+            "HMAC verify with wrong data should fail"
+        );
+    }
 }
 
 #[cfg(test)]

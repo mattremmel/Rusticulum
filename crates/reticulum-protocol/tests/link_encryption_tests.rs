@@ -231,6 +231,20 @@ proptest! {
         }
     }
 
+    /// Decrypting with a different derived key fails deterministically.
+    #[test]
+    fn decrypt_wrong_derived_key_deterministic(
+        key1 in arb_derived_key(),
+        key2 in arb_derived_key(),
+    ) {
+        if key1.as_bytes() != key2.as_bytes() {
+            let active1 = link_active_from_derived_key(key1, [0x42; 16]);
+            let active2 = link_active_from_derived_key(key2, [0x42; 16]);
+            let encrypted = active1.encrypt(b"test data").unwrap();
+            prop_assert!(active2.decrypt(&encrypted).is_err());
+        }
+    }
+
     /// Flipping any byte in the ciphertext causes decryption to fail.
     #[test]
     fn prop_corrupted_ciphertext_fails(
@@ -250,4 +264,46 @@ proptest! {
 
         prop_assert!(active.decrypt(&corrupted).is_err());
     }
+}
+
+// ---------------------------------------------------------------------------
+// Deterministic sign/verify failure tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn verify_wrong_data() {
+    let dk = DerivedKey::new([0x42; 64]);
+    let active = link_active_from_derived_key(dk, [0x01; 16]);
+    let sig = active.sign(b"data_a");
+    assert!(
+        !active.verify(b"data_b", &sig),
+        "signature for data_a should not verify against data_b"
+    );
+}
+
+#[test]
+fn verify_wrong_length_signature() {
+    let dk = DerivedKey::new([0x42; 64]);
+    let active = link_active_from_derived_key(dk, [0x01; 16]);
+    assert!(
+        !active.verify(b"data", &[0u8; 31]),
+        "31-byte signature should fail"
+    );
+    assert!(
+        !active.verify(b"data", &[0u8; 33]),
+        "33-byte signature should fail"
+    );
+}
+
+#[test]
+fn decrypt_truncated_ciphertext() {
+    let dk = DerivedKey::new([0x42; 64]);
+    let active = link_active_from_derived_key(dk, [0x01; 16]);
+    let encrypted = active.encrypt(b"hello world").unwrap();
+    // Chop last byte
+    let truncated = &encrypted[..encrypted.len() - 1];
+    assert!(
+        active.decrypt(truncated).is_err(),
+        "truncated ciphertext should fail decryption"
+    );
 }

@@ -421,6 +421,61 @@ target = "[::1]:4242"
     }
 
     // ================================================================== //
+    // Config parsing failure paths
+    // ================================================================== //
+
+    #[test]
+    fn test_parse_malformed_toml() {
+        // Unclosed bracket
+        assert!(NodeConfig::parse("[node").is_err());
+        // Missing value
+        assert!(NodeConfig::parse("[node]\nenable_transport = ").is_err());
+        // Bare key without section
+        assert!(NodeConfig::parse("= value").is_err());
+    }
+
+    #[test]
+    fn test_parse_invalid_socket_addr() {
+        assert!(parse_socket_addr("").is_err());
+        assert!(parse_socket_addr("not_valid").is_err());
+        assert!(parse_socket_addr("999.999.999.999:99999").is_err());
+    }
+
+    #[test]
+    fn test_parse_mode_unknown_strings() {
+        assert!(parse_mode("").is_err());
+        assert!(parse_mode("mesh").is_err());
+        // "FULL" → case-insensitive → should succeed (to_lowercase)
+        assert!(parse_mode("FULL").is_ok(), "FULL should work (case-insensitive)");
+        // But completely invalid string → error
+        assert!(parse_mode("foobar").is_err());
+    }
+
+    #[test]
+    fn test_parse_wrong_field_types() {
+        // String for bool field
+        let toml = r#"
+[node]
+enable_transport = "yes"
+"#;
+        assert!(NodeConfig::parse(toml).is_err());
+    }
+
+    #[test]
+    fn test_parse_duplicate_section_handling() {
+        // TOML spec: duplicate tables are an error
+        let toml = r#"
+[node]
+enable_transport = true
+
+[node]
+enable_transport = false
+"#;
+        // Should be an error per TOML spec
+        assert!(NodeConfig::parse(toml).is_err());
+    }
+
+    // ================================================================== //
     // Boundary: empty/minimal input
     // ================================================================== //
 

@@ -1224,4 +1224,126 @@ mod tests {
             }
         }
     }
+
+    // ================================================================== //
+    // Resource assembly failure paths
+    // ================================================================== //
+
+    /// Helper: split encrypted_data into parts by SDU size
+    fn split_encrypted_data(encrypted_data: &[u8], num_parts: usize) -> Vec<Vec<u8>> {
+        (0..num_parts)
+            .map(|i| {
+                let start = i * SDU;
+                let end = (start + SDU).min(encrypted_data.len());
+                encrypted_data[start..end].to_vec()
+            })
+            .collect()
+    }
+
+    #[test]
+    fn test_assemble_resource_wrong_key() {
+        let raw_data = b"test resource data for wrong key";
+        let key_a: [u8; 64] = [0xAA; 64];
+        let key_b: [u8; 64] = [0xBB; 64];
+        let iv = [0x00; 16];
+        let random_hash = [0x11; RANDOM_HASH_SIZE];
+
+        let prepared =
+            prepare_resource(raw_data, &key_a, &iv, random_hash, None, false, 1, 1, None, None)
+                .unwrap();
+        let parts = split_encrypted_data(&prepared.encrypted_data, prepared.hashmap.len());
+
+        let result = assemble_resource(
+            &parts,
+            &key_b,
+            &random_hash,
+            &prepared.resource_hash,
+            false,
+        );
+        assert!(result.is_err(), "assemble with wrong key should fail");
+    }
+
+    #[test]
+    fn test_assemble_resource_wrong_hash() {
+        let raw_data = b"test resource data for wrong hash";
+        let key: [u8; 64] = [0xCC; 64];
+        let iv = [0x00; 16];
+        let random_hash = [0x22; RANDOM_HASH_SIZE];
+
+        let prepared =
+            prepare_resource(raw_data, &key, &iv, random_hash, None, false, 1, 1, None, None)
+                .unwrap();
+        let parts = split_encrypted_data(&prepared.encrypted_data, prepared.hashmap.len());
+
+        let wrong_hash = [0xFF; 32];
+        let result = assemble_resource(&parts, &key, &random_hash, &wrong_hash, false);
+        assert!(result.is_err(), "assemble with wrong resource_hash should fail");
+    }
+
+    #[test]
+    fn test_assemble_resource_corrupt_ciphertext() {
+        let raw_data = b"test resource data for corruption";
+        let key: [u8; 64] = [0xDD; 64];
+        let iv = [0x00; 16];
+        let random_hash = [0x33; RANDOM_HASH_SIZE];
+
+        let prepared =
+            prepare_resource(raw_data, &key, &iv, random_hash, None, false, 1, 1, None, None)
+                .unwrap();
+        let mut parts = split_encrypted_data(&prepared.encrypted_data, prepared.hashmap.len());
+
+        // Flip a byte in the first part
+        if !parts.is_empty() && !parts[0].is_empty() {
+            parts[0][0] ^= 0xFF;
+        }
+
+        let result = assemble_resource(
+            &parts,
+            &key,
+            &random_hash,
+            &prepared.resource_hash,
+            false,
+        );
+        assert!(result.is_err(), "corrupt ciphertext should fail assembly");
+    }
+
+    #[test]
+    fn test_assemble_resource_empty_parts() {
+        let key: [u8; 64] = [0xEE; 64];
+        let random_hash = [0x44; RANDOM_HASH_SIZE];
+        let resource_hash = [0x55; 32];
+
+        let result = assemble_resource(&[], &key, &random_hash, &resource_hash, true);
+        assert!(result.is_err(), "empty parts should fail assembly");
+    }
+
+    #[test]
+    fn test_decode_proof_payload_wrong_length() {
+        // 0 bytes
+        assert!(decode_proof_payload(&[]).is_err());
+        // 63 bytes (one short)
+        assert!(decode_proof_payload(&[0u8; 63]).is_err());
+        // 65 bytes (one over)
+        assert!(decode_proof_payload(&[0u8; 65]).is_err());
+    }
+
+    #[test]
+    fn test_decode_cancellation_wrong_length() {
+        // 0 bytes
+        assert!(decode_cancellation(&[]).is_err());
+        // 31 bytes (one short)
+        assert!(decode_cancellation(&[0u8; 31]).is_err());
+        // 33 bytes (one over)
+        assert!(decode_cancellation(&[0u8; 33]).is_err());
+    }
+
+    #[test]
+    fn test_decode_part_request_non_aligned() {
+        // 1 (flag) + 32 (resource_hash) + 3 (not multiple of 4) = 36 bytes
+        let mut data = vec![0x00]; // not exhausted
+        data.extend_from_slice(&[0xAA; 32]); // resource_hash
+        data.extend_from_slice(&[0x01, 0x02, 0x03]); // 3 trailing bytes, not multiple of 4
+        let result = decode_part_request(&data);
+        assert!(result.is_err(), "non-aligned trailing bytes should fail");
+    }
 }

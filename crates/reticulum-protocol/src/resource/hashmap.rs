@@ -740,4 +740,22 @@ mod tests {
             }
         }
     }
+
+    // ================================================================== //
+    // from_bytes failure paths
+    // ================================================================== //
+
+    #[test]
+    fn test_from_bytes_non_multiple_of_4() {
+        let rh = [0u8; RANDOM_HASH_SIZE];
+        let result = ResourceHashmap::from_bytes(&[0x01, 0x02, 0x03, 0x04, 0x05], rh);
+        assert!(result.is_err(), "5 bytes is not a multiple of 4");
+    }
+
+    #[test]
+    fn test_from_bytes_empty_succeeds() {
+        let rh = [0u8; RANDOM_HASH_SIZE];
+        let hm = ResourceHashmap::from_bytes(&[], rh).unwrap();
+        assert!(hm.parts.is_empty());
+    }
 }

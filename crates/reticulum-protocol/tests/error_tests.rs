@@ -132,3 +132,81 @@ fn buffer_error_display_closed() {
     let err = BufferError::Closed;
     assert_eq!(err.to_string(), "buffer closed");
 }
+
+// ---------------------------------------------------------------------------
+// Remaining Display/From coverage
+// ---------------------------------------------------------------------------
+
+#[test]
+fn link_error_display_remaining() {
+    let err = LinkError::SignatureVerificationFailed;
+    assert_eq!(err.to_string(), "signature verification failed");
+
+    let err = LinkError::NoPrivateKey;
+    assert_eq!(err.to_string(), "no private key available");
+}
+
+#[test]
+fn channel_error_display_remaining() {
+    let err = ChannelError::InvalidEnvelope("bad format".into());
+    assert_eq!(err.to_string(), "invalid envelope: bad format");
+
+    let err = ChannelError::SequenceError {
+        expected: 10,
+        actual: 20,
+    };
+    assert_eq!(
+        err.to_string(),
+        "sequence error: expected 10, got 20"
+    );
+}
+
+#[test]
+fn resource_error_display_all() {
+    let variants: Vec<ResourceError> = vec![
+        ResourceError::TooLarge(999),
+        ResourceError::InvalidAdvertisement("bad adv".into()),
+        ResourceError::InvalidPartHash(3),
+        ResourceError::TransferFailed("timeout".into()),
+        ResourceError::ProofFailed,
+        ResourceError::Timeout,
+        ResourceError::DecryptionFailed("bad key".into()),
+        ResourceError::DecompressionFailed("corrupt".into()),
+        ResourceError::InvalidMetadata("bad format".into()),
+        ResourceError::HashMismatch {
+            expected: "aabb".into(),
+            actual: "ccdd".into(),
+        },
+        ResourceError::InvalidPayload("too short".into()),
+    ];
+    for v in &variants {
+        let msg = v.to_string();
+        assert!(!msg.is_empty(), "{v:?} should have non-empty Display");
+    }
+}
+
+#[test]
+fn buffer_error_display_remaining() {
+    let err = BufferError::InvalidStreamHeader;
+    assert_eq!(err.to_string(), "invalid stream header");
+
+    let err = BufferError::CompressionFailed("out of memory".into());
+    assert_eq!(err.to_string(), "compression failed: out of memory");
+
+    let err = BufferError::DecompressionFailed("corrupt data".into());
+    assert_eq!(err.to_string(), "decompression failed: corrupt data");
+}
+
+#[test]
+fn request_error_display_remaining() {
+    let err = RequestError::Failed("server error".into());
+    assert_eq!(err.to_string(), "request failed: server error");
+
+    let err = RequestError::TooLarge;
+    assert_eq!(err.to_string(), "request payload too large");
+
+    // Test From<ResourceError>
+    let res_err = ResourceError::Timeout;
+    let req_err: RequestError = res_err.into();
+    assert!(matches!(req_err, RequestError::ResourceError(_)));
+}

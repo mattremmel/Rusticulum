@@ -148,3 +148,93 @@ impl From<PacketError> for AnnounceError {
 
 #[cfg(feature = "std")]
 impl std::error::Error for AnnounceError {}
+
+#[cfg(test)]
+mod tests {
+    extern crate alloc;
+    use super::*;
+    use alloc::string::ToString;
+
+    #[test]
+    fn test_packet_error_display_all_variants() {
+        let variants: &[PacketError] = &[
+            PacketError::TooShort {
+                min: 19,
+                actual: 5,
+            },
+            PacketError::InvalidHeaderType(0xFF),
+            PacketError::InvalidTransportType(0x03),
+            PacketError::InvalidDestinationType(0x04),
+            PacketError::InvalidPacketType(0x05),
+            PacketError::InvalidContextType(0x10),
+            PacketError::InvalidDestinationHash,
+        ];
+        for v in variants {
+            let msg = v.to_string();
+            assert!(!msg.is_empty(), "{v:?} should have non-empty Display");
+        }
+    }
+
+    #[test]
+    fn test_identity_error_display_all_variants() {
+        let variants: Vec<IdentityError> = vec![
+            IdentityError::NoPrivateKey,
+            IdentityError::InvalidKeyLength {
+                expected: 32,
+                actual: 16,
+            },
+            IdentityError::DecryptionFailed,
+            IdentityError::SignatureVerificationFailed,
+            IdentityError::CryptoError(CryptoError::InvalidHmac),
+            IdentityError::PayloadTooShort {
+                min: 64,
+                actual: 10,
+            },
+        ];
+        for v in &variants {
+            let msg = v.to_string();
+            assert!(!msg.is_empty(), "{v:?} should have non-empty Display");
+        }
+    }
+
+    #[test]
+    fn test_framing_error_display_all_variants() {
+        let variants: &[FramingError] = &[
+            FramingError::MissingDelimiter,
+            FramingError::IncompleteEscape,
+            FramingError::InvalidEscapeSequence(0xAB),
+        ];
+        for v in variants {
+            let msg = v.to_string();
+            assert!(!msg.is_empty(), "{v:?} should have non-empty Display");
+        }
+    }
+
+    #[test]
+    fn test_announce_error_display_and_from() {
+        let variants: Vec<AnnounceError> = vec![
+            AnnounceError::PayloadTooShort {
+                min: 100,
+                actual: 10,
+            },
+            AnnounceError::InvalidSignature("bad sig".into()),
+            AnnounceError::InvalidDestinationHash,
+            AnnounceError::IdentityError(IdentityError::NoPrivateKey),
+            AnnounceError::PacketError(PacketError::InvalidDestinationHash),
+        ];
+        for v in &variants {
+            let msg = v.to_string();
+            assert!(!msg.is_empty(), "{v:?} should have non-empty Display");
+        }
+
+        // Test From<IdentityError>
+        let ie = IdentityError::DecryptionFailed;
+        let ae: AnnounceError = ie.into();
+        assert!(matches!(ae, AnnounceError::IdentityError(_)));
+
+        // Test From<PacketError>
+        let pe = PacketError::InvalidHeaderType(0x03);
+        let ae: AnnounceError = pe.into();
+        assert!(matches!(ae, AnnounceError::PacketError(_)));
+    }
+}

@@ -27,3 +27,29 @@ impl fmt::Display for CryptoError {
 
 #[cfg(feature = "std")]
 impl std::error::Error for CryptoError {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_crypto_error_display_all_variants() {
+        let variants: Vec<CryptoError> = vec![
+            CryptoError::InvalidKeyLength {
+                expected: 32,
+                actual: 16,
+            },
+            CryptoError::InvalidSignature,
+            CryptoError::InvalidPadding,
+            CryptoError::DecryptionFailed,
+            CryptoError::InvalidHmac,
+            CryptoError::InvalidLength {
+                reason: "too short",
+            },
+        ];
+        for variant in &variants {
+            let msg = variant.to_string();
+            assert!(!msg.is_empty(), "{variant:?} should have non-empty Display");
+        }
+    }
+}

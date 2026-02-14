@@ -162,6 +162,21 @@ mod tests {
     }
 
     #[test]
+    fn test_ecdh_mismatched_keys_differ() {
+        let key_a = X25519PrivateKey::from_bytes([0x01; 32]);
+        let key_b = X25519PrivateKey::from_bytes([0x02; 32]);
+        let key_c = X25519PrivateKey::from_bytes([0x03; 32]);
+        let pub_c = key_c.public_key();
+
+        let shared_ac = key_a.diffie_hellman(&pub_c);
+        let shared_bc = key_b.diffie_hellman(&pub_c);
+        assert_ne!(
+            shared_ac, shared_bc,
+            "DH with different private keys should yield different shared secrets"
+        );
+    }
+
+    #[test]
     fn test_x25519_roundtrip() {
         let key = X25519PrivateKey::generate();
         let original_public = key.public_key();

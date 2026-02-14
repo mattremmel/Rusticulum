@@ -417,6 +417,21 @@ mod tests {
     }
 
     #[test]
+    fn test_token_decrypt_wrong_key() {
+        let key_a: [u8; 64] = [0xAA; 64];
+        let key_b: [u8; 64] = [0xBB; 64];
+        let token_a = Token::new(&key_a);
+        let token_b = Token::new(&key_b);
+
+        let encrypted = token_a.encrypt(b"secret message");
+        assert_eq!(
+            token_b.decrypt(&encrypted),
+            Err(CryptoError::InvalidHmac),
+            "decrypting with wrong key should fail with InvalidHmac"
+        );
+    }
+
+    #[test]
     fn test_token_adversarial_iv_corruption() {
         let key: [u8; 64] = [0xDD; 64];
         let token = Token::new(&key);

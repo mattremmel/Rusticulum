@@ -594,3 +594,134 @@ fn handshake_random_keys_roundtrip() {
     let pt = resp_active.decrypt(&ct).unwrap();
     assert_eq!(pt.as_slice(), msg);
 }
+
+// ---------------------------------------------------------------------------
+// Handshake with wrong responder identity should fail
+// ---------------------------------------------------------------------------
+
+#[test]
+fn handshake_wrong_responder_identity_rejected() {
+    // Create a valid handshake, but verify with a DIFFERENT identity key
+    let real_resp_ed25519_prv = Ed25519PrivateKey::generate();
+    let real_resp_ed25519_pub = real_resp_ed25519_prv.public_key();
+    let wrong_resp_ed25519_prv = Ed25519PrivateKey::generate();
+    let wrong_resp_ed25519_pub = wrong_resp_ed25519_prv.public_key();
+
+    let init_x25519 = X25519PrivateKey::generate();
+    let init_ed25519 = Ed25519PrivateKey::generate();
+    let init_x25519_pub = init_x25519.public_key();
+    let init_ed25519_pub = init_ed25519.public_key();
+
+    let mut request_data = Vec::new();
+    request_data.extend_from_slice(&init_x25519_pub.to_bytes());
+    request_data.extend_from_slice(&init_ed25519_pub.to_bytes());
+    let signalling = reticulum_protocol::link::encode(500, LinkMode::Aes256Cbc).unwrap();
+    request_data.extend_from_slice(&signalling);
+
+    let dummy_header = [0x02u8; 18];
+    let mut hashable_part = Vec::new();
+    hashable_part.extend_from_slice(&dummy_header);
+    hashable_part.extend_from_slice(&request_data);
+
+    let data_len = request_data.len();
+    let dest_hash = reticulum_core::types::DestinationHash::new([0x42; 16]);
+
+    let (pending, req_data) = LinkPending::new_initiator_deterministic(
+        dest_hash,
+        500,
+        LinkMode::Aes256Cbc,
+        1,
+        init_x25519,
+        init_ed25519,
+        &hashable_part,
+        data_len,
+    )
+    .unwrap();
+
+    // Responder signs with real identity
+    let (_handshake, proof_data) = LinkHandshake::from_link_request(
+        &req_data,
+        &hashable_part,
+        data_len,
+        &real_resp_ed25519_prv,
+        &real_resp_ed25519_pub,
+        500,
+        LinkMode::Aes256Cbc,
+        1,
+    )
+    .unwrap();
+
+    // Initiator tries to verify with WRONG identity → should fail
+    let result = pending.receive_proof(&proof_data, &wrong_resp_ed25519_pub);
+    assert!(
+        result.is_err(),
+        "proof signed by wrong identity should be rejected"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Handshake RTT with wrong key should fail
+// ---------------------------------------------------------------------------
+
+#[test]
+fn handshake_receive_rtt_wrong_key() {
+    // Build a valid handshake up to LRPROOF, then feed RTT encrypted with wrong key
+    let resp_ed25519_prv = Ed25519PrivateKey::generate();
+    let resp_ed25519_pub = resp_ed25519_prv.public_key();
+
+    let init_x25519 = X25519PrivateKey::generate();
+    let init_ed25519 = Ed25519PrivateKey::generate();
+    let init_x25519_pub = init_x25519.public_key();
+    let init_ed25519_pub = init_ed25519.public_key();
+
+    let mut request_data = Vec::new();
+    request_data.extend_from_slice(&init_x25519_pub.to_bytes());
+    request_data.extend_from_slice(&init_ed25519_pub.to_bytes());
+    let signalling = reticulum_protocol::link::encode(500, LinkMode::Aes256Cbc).unwrap();
+    request_data.extend_from_slice(&signalling);
+
+    let dummy_header = [0x02u8; 18];
+    let mut hashable_part = Vec::new();
+    hashable_part.extend_from_slice(&dummy_header);
+    hashable_part.extend_from_slice(&request_data);
+
+    let data_len = request_data.len();
+    let dest_hash = reticulum_core::types::DestinationHash::new([0x42; 16]);
+
+    let (_pending, req_data) = LinkPending::new_initiator_deterministic(
+        dest_hash,
+        500,
+        LinkMode::Aes256Cbc,
+        1,
+        init_x25519,
+        init_ed25519,
+        &hashable_part,
+        data_len,
+    )
+    .unwrap();
+
+    let (handshake, _proof_data) = LinkHandshake::from_link_request(
+        &req_data,
+        &hashable_part,
+        data_len,
+        &resp_ed25519_prv,
+        &resp_ed25519_pub,
+        500,
+        LinkMode::Aes256Cbc,
+        1,
+    )
+    .unwrap();
+
+    // Encrypt RTT with a WRONG key
+    let wrong_key = [0xFF; 64];
+    let token = reticulum_crypto::token::Token::new(&wrong_key);
+    let mut rtt_buf = Vec::new();
+    rmpv::encode::write_value(&mut rtt_buf, &rmpv::Value::F64(0.05)).unwrap();
+    let wrong_encrypted_rtt = token.encrypt(&rtt_buf);
+
+    let result = handshake.receive_rtt(&wrong_encrypted_rtt);
+    assert!(
+        result.is_err(),
+        "RTT encrypted with wrong key should fail decryption"
+    );
+}

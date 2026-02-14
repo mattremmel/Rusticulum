@@ -117,4 +117,42 @@ mod tests {
         let ie: IfacError = ce.into();
         assert!(matches!(ie, IfacError::CryptoError(_)));
     }
+
+    #[test]
+    fn test_router_error_from_link_error() {
+        let le = LinkError::InvalidProof;
+        let re: RouterError = le.into();
+        assert!(matches!(re, RouterError::LinkError(_)));
+    }
+
+    #[test]
+    fn test_ifac_error_from_identity_error() {
+        let ie = IdentityError::NoPrivateKey;
+        let ifac_err: IfacError = ie.into();
+        assert!(matches!(ifac_err, IfacError::IdentityError(_)));
+    }
+
+    #[test]
+    fn test_router_error_display_remaining() {
+        let err = RouterError::NoPath("deadbeef".into());
+        assert_eq!(err.to_string(), "no path to destination: deadbeef");
+
+        let err = RouterError::InvalidTransformation("bad header".into());
+        assert_eq!(
+            err.to_string(),
+            "invalid header transformation: bad header"
+        );
+    }
+
+    #[test]
+    fn test_path_error_display_remaining() {
+        let err = PathError::InvalidInterfaceMode("badmode".into());
+        assert_eq!(err.to_string(), "invalid interface mode: badmode");
+
+        // Test From<PacketError> → PathError
+        let pe = PacketError::InvalidPacketType(0x05);
+        let path_err: PathError = pe.into();
+        assert!(matches!(path_err, PathError::PacketError(_)));
+        assert!(path_err.to_string().contains("invalid packet type: 5"));
+    }
 }

@@ -1220,4 +1220,28 @@ mod tests {
         assert_eq!(parsed.x25519_public, x25519);
         assert_eq!(parsed.signalling, signalling);
     }
+
+    // -----------------------------------------------------------------------
+    // decode_rtt_msgpack failure paths
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_decode_rtt_msgpack_garbage() {
+        let garbage = [0xDE, 0xAD, 0xBE, 0xEF, 0x01, 0x02, 0x03, 0x04];
+        let result = decode_rtt_msgpack(&garbage);
+        assert!(result.is_err(), "garbage bytes should fail RTT decode");
+    }
+
+    #[test]
+    fn test_decode_rtt_msgpack_non_float() {
+        // Encode an integer (42) in msgpack
+        let mut buf = Vec::new();
+        rmpv::encode::write_value(&mut buf, &rmpv::Value::Integer(42.into())).unwrap();
+        let result = decode_rtt_msgpack(&buf);
+        assert!(result.is_err(), "integer should not decode as RTT float");
+        assert!(
+            result.unwrap_err().to_string().contains("RTT must be a float"),
+            "error should mention float requirement"
+        );
+    }
 }

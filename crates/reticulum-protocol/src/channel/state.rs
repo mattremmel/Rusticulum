@@ -831,4 +831,30 @@ mod tests {
     fn channel_mdu_exactly_u16_max_plus_overhead() {
         assert_eq!(ChannelState::channel_mdu(0xFFFF + ENVELOPE_OVERHEAD), 0xFFFF);
     }
+
+    // ================================================================== //
+    // check_rx_sequence_valid: out-of-window rejection
+    // ================================================================== //
+
+    #[test]
+    fn test_check_rx_rejects_behind_no_wrap() {
+        // next_rx=100, sequence=50, window_max=5 → 50 < 100, no wrap → rejected
+        assert!(!check_rx_sequence_valid(50, 100, 5));
+    }
+
+    #[test]
+    fn test_check_rx_rejects_wrap_beyond_window() {
+        // next_rx=65534, window_max=2 → overflow=(65534+2)%65536=0
+        // overflow(0) < next_rx(65534) → wrap zone is [0..=0]
+        // sequence=5 → 5 > 0 → rejected (beyond wrap window)
+        assert!(!check_rx_sequence_valid(5, 65534, 2));
+    }
+
+    #[test]
+    fn test_check_rx_accepts_wraparound() {
+        // next_rx=65530, sequence=2, window_max=10
+        // overflow = (65530 + 10) % 65536 = 4, overflow(4) < next_rx(65530) → wrap
+        // sequence(2) <= overflow(4) → valid
+        assert!(check_rx_sequence_valid(2, 65530, 10));
+    }
 }
