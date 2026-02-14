@@ -6,6 +6,130 @@
 
 use super::constants::*;
 
+// ======================================================================== //
+// Pure functions — resource window adaptation
+// ======================================================================== //
+
+/// Input state for window-complete adaptation.
+#[derive(Debug, Clone, Copy)]
+pub struct WindowCompleteInput {
+    pub rate: f64,
+    pub window: u16,
+    pub window_max: u16,
+    pub window_min: u16,
+    pub window_flexibility: u16,
+    pub fast_rate_rounds: u16,
+    pub very_slow_rate_rounds: u16,
+}
+
+/// Output of window-complete adaptation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WindowCompleteAdaptation {
+    pub new_window: u16,
+    pub new_window_min: u16,
+    pub new_window_max: u16,
+    pub new_fast_rate_rounds: u16,
+    pub new_very_slow_rate_rounds: u16,
+}
+
+/// Classify and adapt resource window parameters after a successful window completion.
+///
+/// Steps:
+/// 1. Grow `window` toward `window_max`.
+/// 2. Grow `window_min` if the gap exceeds `window_flexibility - 1`.
+/// 3. Track consecutive fast/very-slow rounds and upgrade/downgrade limits.
+pub fn classify_window_complete(input: WindowCompleteInput) -> WindowCompleteAdaptation {
+    let mut window = input.window;
+    let mut window_min = input.window_min;
+    let mut window_max = input.window_max;
+    let mut fast_rate_rounds = input.fast_rate_rounds;
+    let mut very_slow_rate_rounds = input.very_slow_rate_rounds;
+
+    // Step 1: grow window.
+    if window < window_max {
+        window += 1;
+    }
+
+    // Step 2: grow window_min if gap is large enough.
+    if (window - window_min) > (input.window_flexibility - 1) {
+        window_min += 1;
+    }
+
+    // Step 3: rate classification.
+    if input.rate > RATE_FAST {
+        if fast_rate_rounds < FAST_RATE_THRESHOLD {
+            fast_rate_rounds += 1;
+        }
+        if fast_rate_rounds == FAST_RATE_THRESHOLD {
+            window_max = WINDOW_MAX_FAST;
+        }
+    } else if fast_rate_rounds == 0 && input.rate < RATE_VERY_SLOW {
+        if very_slow_rate_rounds < VERY_SLOW_RATE_THRESHOLD {
+            very_slow_rate_rounds += 1;
+        }
+        if very_slow_rate_rounds == VERY_SLOW_RATE_THRESHOLD {
+            window_max = WINDOW_MAX_VERY_SLOW;
+        }
+    }
+
+    WindowCompleteAdaptation {
+        new_window: window,
+        new_window_min: window_min,
+        new_window_max: window_max,
+        new_fast_rate_rounds: fast_rate_rounds,
+        new_very_slow_rate_rounds: very_slow_rate_rounds,
+    }
+}
+
+/// Input state for resource window timeout adaptation.
+#[derive(Debug, Clone, Copy)]
+pub struct WindowTimeoutInput {
+    pub window: u16,
+    pub window_min: u16,
+    pub window_max: u16,
+    pub window_flexibility: u16,
+}
+
+/// Output of resource window timeout adaptation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WindowTimeoutAdaptation {
+    pub new_window: u16,
+    pub new_window_max: u16,
+}
+
+/// Compute resource window adaptation after a part-request timeout.
+///
+/// All shrink steps are gated by `window > window_min`. When the window
+/// is already at minimum, nothing changes.
+pub fn compute_window_timeout(input: WindowTimeoutInput) -> WindowTimeoutAdaptation {
+    let mut window = input.window;
+    let mut window_max = input.window_max;
+
+    if window > input.window_min {
+        // Step 1: shrink window.
+        window -= 1;
+
+        // Step 2: shrink window_max (if above window_min).
+        if window_max > input.window_min {
+            window_max -= 1;
+        }
+
+        // Step 3: double-decrement if gap exceeds flexibility.
+        if (window_max - window) > (input.window_flexibility - 1) {
+            window_max -= 1;
+        }
+    }
+
+    WindowTimeoutAdaptation {
+        new_window: window,
+        new_window_max: window_max,
+    }
+}
+
+// ======================================================================== //
+// WindowState
+// ======================================================================== //
+
 /// Resource transfer window state.
 ///
 /// The window grows on each successful completion of an outstanding-parts
@@ -62,57 +186,37 @@ impl WindowState {
     /// Adapt the window after a successful window completion.
     ///
     /// `rate` is the measured throughput in bytes per second for this window.
-    ///
-    /// Steps:
-    /// 1. Grow `window` toward `window_max`.
-    /// 2. Grow `window_min` if the gap exceeds `window_flexibility - 1`.
-    /// 3. Track consecutive fast/very-slow rounds and upgrade/downgrade limits.
     pub fn on_window_complete(&mut self, rate: f64) {
-        // Step 1: grow window.
-        if self.window < self.window_max {
-            self.window += 1;
+        let input = WindowCompleteInput {
+            rate,
+            window: self.window,
+            window_max: self.window_max,
+            window_min: self.window_min,
+            window_flexibility: self.window_flexibility,
+            fast_rate_rounds: self.fast_rate_rounds,
+            very_slow_rate_rounds: self.very_slow_rate_rounds,
+        };
+        let adaptation = classify_window_complete(input);
+
+        if adaptation.new_window != self.window {
             tracing::debug!(
-                window = self.window,
+                window = adaptation.new_window,
                 window_max = self.window_max,
                 "resource: window grew"
             );
         }
-
-        // Step 2: grow window_min if gap is large enough.
-        if (self.window - self.window_min) > (self.window_flexibility - 1) {
-            self.window_min += 1;
-            tracing::trace!(window_min = self.window_min, "resource: window_min grew");
+        if adaptation.new_window_min != self.window_min {
+            tracing::trace!(window_min = adaptation.new_window_min, "resource: window_min grew");
+        }
+        if adaptation.new_window_max != self.window_max {
+            tracing::debug!(window_max = adaptation.new_window_max, "resource: rate transition");
         }
 
-        // Step 3: rate classification.
-        if rate > RATE_FAST {
-            if self.fast_rate_rounds < FAST_RATE_THRESHOLD {
-                self.fast_rate_rounds += 1;
-                tracing::trace!(
-                    fast_rate_rounds = self.fast_rate_rounds,
-                    "resource: fast rate round"
-                );
-            }
-            if self.fast_rate_rounds == FAST_RATE_THRESHOLD {
-                self.window_max = WINDOW_MAX_FAST;
-                tracing::debug!(window_max = self.window_max, "resource: upgraded to FAST");
-            }
-        } else if self.fast_rate_rounds == 0 && rate < RATE_VERY_SLOW {
-            if self.very_slow_rate_rounds < VERY_SLOW_RATE_THRESHOLD {
-                self.very_slow_rate_rounds += 1;
-                tracing::trace!(
-                    very_slow_rate_rounds = self.very_slow_rate_rounds,
-                    "resource: very slow rate round"
-                );
-            }
-            if self.very_slow_rate_rounds == VERY_SLOW_RATE_THRESHOLD {
-                self.window_max = WINDOW_MAX_VERY_SLOW;
-                tracing::debug!(
-                    window_max = self.window_max,
-                    "resource: downgraded to VERY SLOW"
-                );
-            }
-        }
+        self.window = adaptation.new_window;
+        self.window_min = adaptation.new_window_min;
+        self.window_max = adaptation.new_window_max;
+        self.fast_rate_rounds = adaptation.new_fast_rate_rounds;
+        self.very_slow_rate_rounds = adaptation.new_very_slow_rate_rounds;
     }
 
     /// Adapt the window after a part-request timeout.
@@ -120,26 +224,23 @@ impl WindowState {
     /// All three shrink steps are gated by `window > window_min`. When the
     /// window is already at minimum, nothing changes.
     pub fn on_timeout(&mut self) {
-        if self.window > self.window_min {
-            // Step 1: shrink window.
-            self.window -= 1;
-            tracing::debug!(window = self.window, "resource: window shrank on timeout");
+        let input = WindowTimeoutInput {
+            window: self.window,
+            window_min: self.window_min,
+            window_max: self.window_max,
+            window_flexibility: self.window_flexibility,
+        };
+        let adaptation = compute_window_timeout(input);
 
-            // Step 2: shrink window_max (if above window_min).
-            if self.window_max > self.window_min {
-                self.window_max -= 1;
-                tracing::trace!(window_max = self.window_max, "resource: window_max shrank");
-            }
-
-            // Step 3: double-decrement if gap exceeds flexibility.
-            if (self.window_max - self.window) > (self.window_flexibility - 1) {
-                self.window_max -= 1;
-                tracing::trace!(
-                    window_max = self.window_max,
-                    "resource: window_max double-decremented"
-                );
-            }
+        if adaptation.new_window != self.window {
+            tracing::debug!(window = adaptation.new_window, "resource: window shrank on timeout");
         }
+        if adaptation.new_window_max != self.window_max {
+            tracing::trace!(window_max = adaptation.new_window_max, "resource: window_max shrank");
+        }
+
+        self.window = adaptation.new_window;
+        self.window_max = adaptation.new_window_max;
     }
 
     /// Check if more parts can be sent given the current outstanding count.
@@ -359,6 +460,177 @@ mod tests {
     fn default_trait() {
         let ws = WindowState::default();
         assert_eq!(ws.window, 4);
+    }
+
+    // ================================================================== //
+    // classify_window_complete pure function tests
+    // ================================================================== //
+
+    fn default_complete_input(rate: f64) -> WindowCompleteInput {
+        WindowCompleteInput {
+            rate,
+            window: 4,
+            window_max: 10,
+            window_min: 2,
+            window_flexibility: 4,
+            fast_rate_rounds: 0,
+            very_slow_rate_rounds: 0,
+        }
+    }
+
+    #[test]
+    fn complete_grows_window() {
+        let result = classify_window_complete(default_complete_input(3000.0));
+        assert_eq!(result.new_window, 5); // 4 → 5
+    }
+
+    #[test]
+    fn complete_grows_window_min() {
+        // window=4+1=5, window_min=2, gap=3, flex-1=3 → not > 3, no grow
+        // Need gap > flex-1: window=8, min=2, flex=4 → after grow: 9-2=7 > 3 → grows
+        let input = WindowCompleteInput {
+            rate: 3000.0,
+            window: 8,
+            window_max: 10,
+            window_min: 2,
+            window_flexibility: 4,
+            fast_rate_rounds: 0,
+            very_slow_rate_rounds: 0,
+        };
+        let result = classify_window_complete(input);
+        assert_eq!(result.new_window, 9);
+        assert_eq!(result.new_window_min, 3); // grew from 2 → 3
+    }
+
+    #[test]
+    fn complete_fast_rate_increments() {
+        let input = WindowCompleteInput {
+            rate: 7000.0, // > RATE_FAST (6250)
+            ..default_complete_input(7000.0)
+        };
+        let result = classify_window_complete(input);
+        assert_eq!(result.new_fast_rate_rounds, 1);
+    }
+
+    #[test]
+    fn complete_fast_threshold_upgrades() {
+        let input = WindowCompleteInput {
+            rate: 7000.0,
+            fast_rate_rounds: 3, // 3 + 1 = 4 = FAST_RATE_THRESHOLD
+            ..default_complete_input(7000.0)
+        };
+        let result = classify_window_complete(input);
+        assert_eq!(result.new_fast_rate_rounds, FAST_RATE_THRESHOLD);
+        assert_eq!(result.new_window_max, WINDOW_MAX_FAST); // 75
+    }
+
+    #[test]
+    fn complete_very_slow_rate() {
+        let input = WindowCompleteInput {
+            rate: 100.0, // < RATE_VERY_SLOW (250)
+            ..default_complete_input(100.0)
+        };
+        let result = classify_window_complete(input);
+        assert_eq!(result.new_very_slow_rate_rounds, 1);
+        assert_eq!(result.new_fast_rate_rounds, 0);
+    }
+
+    #[test]
+    fn complete_very_slow_blocked_by_fast() {
+        let input = WindowCompleteInput {
+            rate: 100.0, // < RATE_VERY_SLOW
+            fast_rate_rounds: 2, // > 0 → blocks very_slow tracking
+            very_slow_rate_rounds: 0,
+            ..default_complete_input(100.0)
+        };
+        let result = classify_window_complete(input);
+        assert_eq!(result.new_very_slow_rate_rounds, 0); // blocked
+    }
+
+    // ================================================================== //
+    // compute_window_timeout pure function tests
+    // ================================================================== //
+
+    fn default_timeout_input() -> WindowTimeoutInput {
+        WindowTimeoutInput {
+            window: 6,
+            window_min: 2,
+            window_max: 10,
+            window_flexibility: 4,
+        }
+    }
+
+    #[test]
+    fn res_timeout_shrinks_window() {
+        let result = compute_window_timeout(default_timeout_input());
+        assert_eq!(result.new_window, 5); // 6 → 5
+    }
+
+    #[test]
+    fn res_timeout_at_min_no_change() {
+        let input = WindowTimeoutInput {
+            window: 2,
+            window_min: 2,
+            window_max: 10,
+            window_flexibility: 4,
+        };
+        let result = compute_window_timeout(input);
+        assert_eq!(result.new_window, 2);
+        assert_eq!(result.new_window_max, 10); // unchanged
+    }
+
+    #[test]
+    fn res_timeout_shrinks_window_max() {
+        // window=4, min=2, max=6, flex=4
+        // After step 1: window=3, After step 2: max=5
+        // gap = 5-3 = 2, flex-1 = 3, 2 > 3 is false → no double
+        let input = WindowTimeoutInput {
+            window: 4,
+            window_min: 2,
+            window_max: 6,
+            window_flexibility: 4,
+        };
+        let result = compute_window_timeout(input);
+        assert_eq!(result.new_window, 3);
+        assert_eq!(result.new_window_max, 5); // single decrement only
+    }
+
+    #[test]
+    fn res_timeout_double_decrements() {
+        // After step 1: window=5, After step 2: max=9
+        // gap = 9-5 = 4, flex-1 = 3, 4 > 3 → double decrement
+        let result = compute_window_timeout(default_timeout_input());
+        assert_eq!(result.new_window_max, 8); // 10 → 9 → 8
+    }
+
+    #[test]
+    fn res_timeout_no_double_at_boundary() {
+        // window=5, max=8, min=2, flex=4
+        // After step 1: window=4, After step 2: max=7
+        // gap = 7-4 = 3, flex-1 = 3, 3 > 3 is false → no double
+        let input = WindowTimeoutInput {
+            window: 5,
+            window_min: 2,
+            window_max: 8,
+            window_flexibility: 4,
+        };
+        let result = compute_window_timeout(input);
+        assert_eq!(result.new_window, 4);
+        assert_eq!(result.new_window_max, 7); // only single decrement
+    }
+
+    #[test]
+    fn res_timeout_window_max_at_min() {
+        // window_max == window_min → step 2 skipped, step 3 check won't double
+        let input = WindowTimeoutInput {
+            window: 3,
+            window_min: 2,
+            window_max: 2,
+            window_flexibility: 4,
+        };
+        let result = compute_window_timeout(input);
+        assert_eq!(result.new_window, 2);
+        assert_eq!(result.new_window_max, 2); // can't shrink below min
     }
 
     // ================================================================== //

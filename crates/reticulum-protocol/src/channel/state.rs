@@ -19,6 +19,207 @@ pub enum TimeoutOutcome {
     Fail,
 }
 
+// ======================================================================== //
+// Pure functions — channel window adaptation
+// ======================================================================== //
+
+/// Initial window parameters computed from link RTT.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct InitialWindow {
+    pub window: u16,
+    pub window_max: u16,
+    pub window_min: u16,
+    pub window_flexibility: u16,
+}
+
+/// Compute initial window parameters from a link's RTT.
+///
+/// Very slow links (RTT > RTT_SLOW) get a minimal all-ones window.
+/// All other links start at the default slow-link parameters.
+pub fn compute_initial_window(rtt: f64) -> InitialWindow {
+    if rtt > RTT_SLOW {
+        InitialWindow {
+            window: 1,
+            window_max: 1,
+            window_min: 1,
+            window_flexibility: 1,
+        }
+    } else {
+        InitialWindow {
+            window: WINDOW,
+            window_max: WINDOW_MAX_SLOW,
+            window_min: WINDOW_MIN,
+            window_flexibility: WINDOW_FLEXIBILITY,
+        }
+    }
+}
+
+/// Input state for delivery adaptation.
+#[derive(Debug, Clone, Copy)]
+pub struct DeliveryInput {
+    pub rtt: f64,
+    pub window: u16,
+    pub window_max: u16,
+    pub window_min: u16,
+    pub fast_rate_rounds: u16,
+    pub medium_rate_rounds: u16,
+}
+
+/// Output of delivery adaptation — new window and rate-tracking state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DeliveryAdaptation {
+    pub new_window: u16,
+    pub new_window_max: u16,
+    pub new_window_min: u16,
+    pub new_fast_rate_rounds: u16,
+    pub new_medium_rate_rounds: u16,
+}
+
+/// Classify and adapt channel window parameters after a successful delivery.
+///
+/// Grows the window by 1 (up to `window_max`), then classifies the RTT to
+/// track consecutive fast/medium rounds and potentially upgrade limits.
+pub fn classify_delivery_adaptation(input: DeliveryInput) -> DeliveryAdaptation {
+    let mut window = input.window;
+    let mut window_max = input.window_max;
+    let mut window_min = input.window_min;
+    let mut fast_rate_rounds = input.fast_rate_rounds;
+    let mut medium_rate_rounds = input.medium_rate_rounds;
+
+    // Grow window toward max.
+    if window < window_max {
+        window += 1;
+    }
+
+    // RTT == 0 means no measurement yet — skip rate adaptation.
+    if input.rtt == 0.0 {
+        return DeliveryAdaptation {
+            new_window: window,
+            new_window_max: window_max,
+            new_window_min: window_min,
+            new_fast_rate_rounds: fast_rate_rounds,
+            new_medium_rate_rounds: medium_rate_rounds,
+        };
+    }
+
+    if input.rtt > RTT_FAST {
+        // Not fast — reset fast counter.
+        fast_rate_rounds = 0;
+
+        if input.rtt > RTT_MEDIUM {
+            // Slow — reset medium counter too.
+            medium_rate_rounds = 0;
+        } else {
+            // Medium — accumulate medium rounds.
+            medium_rate_rounds += 1;
+
+            if window_max < WINDOW_MAX_MEDIUM && medium_rate_rounds == FAST_RATE_THRESHOLD {
+                window_max = WINDOW_MAX_MEDIUM;
+                window_min = WINDOW_MIN_LIMIT_MEDIUM;
+            }
+        }
+    } else {
+        // Fast — accumulate fast rounds.
+        fast_rate_rounds += 1;
+
+        if window_max < WINDOW_MAX_FAST && fast_rate_rounds == FAST_RATE_THRESHOLD {
+            window_max = WINDOW_MAX_FAST;
+            window_min = WINDOW_MIN_LIMIT_FAST;
+        }
+    }
+
+    DeliveryAdaptation {
+        new_window: window,
+        new_window_max: window_max,
+        new_window_min: window_min,
+        new_fast_rate_rounds: fast_rate_rounds,
+        new_medium_rate_rounds: medium_rate_rounds,
+    }
+}
+
+/// Input state for timeout adaptation.
+#[derive(Debug, Clone, Copy)]
+pub struct TimeoutInput {
+    pub tries: u32,
+    pub window: u16,
+    pub window_min: u16,
+    pub window_max: u16,
+    pub window_flexibility: u16,
+}
+
+/// Output of timeout adaptation — new try count, outcome, and window params.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TimeoutAdaptation {
+    pub new_tries: u32,
+    pub outcome: TimeoutOutcome,
+    pub new_window: u16,
+    pub new_window_max: u16,
+}
+
+/// Compute channel window adaptation after a packet timeout.
+///
+/// If tries+1 exceeds MAX_TRIES, returns Fail without changing the window.
+/// Otherwise shrinks window and window_max within their constraints.
+pub fn compute_timeout_adaptation(input: TimeoutInput) -> TimeoutAdaptation {
+    let new_tries = input.tries + 1;
+    if new_tries > MAX_TRIES {
+        return TimeoutAdaptation {
+            new_tries: input.tries,
+            outcome: TimeoutOutcome::Fail,
+            new_window: input.window,
+            new_window_max: input.window_max,
+        };
+    }
+
+    let mut window = input.window;
+    let mut window_max = input.window_max;
+
+    // Shrink window (but not below minimum).
+    if window > input.window_min {
+        window -= 1;
+    }
+
+    // Shrink window_max (but maintain flexibility gap).
+    if window_max > input.window_min + input.window_flexibility {
+        window_max -= 1;
+    }
+
+    TimeoutAdaptation {
+        new_tries,
+        outcome: TimeoutOutcome::Retry,
+        new_window: window,
+        new_window_max: window_max,
+    }
+}
+
+/// Check whether an incoming sequence number should be accepted.
+///
+/// Returns `true` if `sequence` is within the valid receive window starting
+/// at `next_rx_sequence` with width `window_max`, accounting for 16-bit
+/// wraparound at SEQ_MODULUS (65536).
+pub fn check_rx_sequence_valid(sequence: u16, next_rx_sequence: u16, window_max: u16) -> bool {
+    if sequence >= next_rx_sequence {
+        return true;
+    }
+
+    // sequence < next_rx_sequence — could be genuinely old, or could be
+    // a wraparound case where the window spans the 0 boundary.
+    let window_overflow =
+        ((next_rx_sequence as u32 + window_max as u32) % SEQ_MODULUS) as u16;
+
+    if window_overflow < next_rx_sequence {
+        // Window wraps around 0. Sequences in [0..=window_overflow] are valid.
+        sequence <= window_overflow
+    } else {
+        // No wraparound — sequence is simply old.
+        false
+    }
+}
+
+// ======================================================================== //
+// ChannelState
+// ======================================================================== //
+
 /// Channel sequencing and window state.
 ///
 /// This struct is deliberately decoupled from I/O: it tracks pure protocol
@@ -55,35 +256,22 @@ impl ChannelState {
     /// All other links start at the default slow-link window and grow via
     /// adaptation during delivery callbacks.
     pub fn new(rtt: f64) -> Self {
-        if rtt > RTT_SLOW {
-            tracing::debug!(rtt, "channel: very slow link — window=1");
-            Self {
-                next_tx_sequence: 0,
-                next_rx_sequence: 0,
-                window: 1,
-                window_max: 1,
-                window_min: 1,
-                window_flexibility: 1,
-                fast_rate_rounds: 0,
-                medium_rate_rounds: 0,
-            }
-        } else {
-            tracing::debug!(
-                rtt,
-                window = WINDOW,
-                window_max = WINDOW_MAX_SLOW,
-                "channel: normal init"
-            );
-            Self {
-                next_tx_sequence: 0,
-                next_rx_sequence: 0,
-                window: WINDOW,
-                window_max: WINDOW_MAX_SLOW,
-                window_min: WINDOW_MIN,
-                window_flexibility: WINDOW_FLEXIBILITY,
-                fast_rate_rounds: 0,
-                medium_rate_rounds: 0,
-            }
+        let iw = compute_initial_window(rtt);
+        tracing::debug!(
+            rtt,
+            window = iw.window,
+            window_max = iw.window_max,
+            "channel: init"
+        );
+        Self {
+            next_tx_sequence: 0,
+            next_rx_sequence: 0,
+            window: iw.window,
+            window_max: iw.window_max,
+            window_min: iw.window_min,
+            window_flexibility: iw.window_flexibility,
+            fast_rate_rounds: 0,
+            medium_rate_rounds: 0,
         }
     }
 
@@ -144,38 +332,16 @@ impl ChannelState {
     /// Returns `true` if the sequence is within the valid receive window,
     /// accounting for 16-bit wraparound.
     pub fn is_rx_valid(&self, sequence: u16, window_max: u16) -> bool {
-        if sequence >= self.next_rx_sequence {
-            // Not old — always accept (further filtering may happen upstream).
-            return true;
-        }
-
-        // sequence < next_rx_sequence — could be genuinely old, or could be
-        // a wraparound case where the window spans the 0 boundary.
-        let window_overflow =
-            ((self.next_rx_sequence as u32 + window_max as u32) % SEQ_MODULUS) as u16;
-
-        if window_overflow < self.next_rx_sequence {
-            // Window wraps around 0. Sequences in [0..=window_overflow] are valid.
-            if sequence > window_overflow {
-                tracing::trace!(
-                    sequence,
-                    next_rx = self.next_rx_sequence,
-                    window_overflow,
-                    "channel: RX rejected (beyond wrapped window)"
-                );
-                return false;
-            }
-            // sequence <= window_overflow — valid wrapped sequence
-            true
-        } else {
-            // No wraparound — sequence is simply old.
+        let valid = check_rx_sequence_valid(sequence, self.next_rx_sequence, window_max);
+        if !valid {
             tracing::trace!(
                 sequence,
                 next_rx = self.next_rx_sequence,
-                "channel: RX rejected (old sequence)"
+                window_max,
+                "channel: RX rejected"
             );
-            false
         }
+        valid
     }
 
     // ------------------------------------------------------------------ //
@@ -188,58 +354,36 @@ impl ChannelState {
     /// current RTT to track consecutive fast/medium rounds and potentially
     /// upgrade the window limits.
     pub fn on_delivery(&mut self, rtt: f64) {
-        // Grow window toward max.
-        if self.window < self.window_max {
-            self.window += 1;
+        let input = DeliveryInput {
+            rtt,
+            window: self.window,
+            window_max: self.window_max,
+            window_min: self.window_min,
+            fast_rate_rounds: self.fast_rate_rounds,
+            medium_rate_rounds: self.medium_rate_rounds,
+        };
+        let adaptation = classify_delivery_adaptation(input);
+
+        if adaptation.new_window != self.window {
             tracing::debug!(
-                window = self.window,
+                window = adaptation.new_window,
                 window_max = self.window_max,
                 "channel: window grew on delivery"
             );
         }
-
-        // RTT == 0 means no measurement yet — skip rate adaptation.
-        if rtt == 0.0 {
-            return;
+        if adaptation.new_window_max != self.window_max {
+            tracing::debug!(
+                window_max = adaptation.new_window_max,
+                window_min = adaptation.new_window_min,
+                "channel: rate upgrade"
+            );
         }
 
-        if rtt > RTT_FAST {
-            // Not fast — reset fast counter.
-            self.fast_rate_rounds = 0;
-
-            if rtt > RTT_MEDIUM {
-                // Slow — reset medium counter too.
-                self.medium_rate_rounds = 0;
-            } else {
-                // Medium — accumulate medium rounds.
-                self.medium_rate_rounds += 1;
-
-                if self.window_max < WINDOW_MAX_MEDIUM
-                    && self.medium_rate_rounds == FAST_RATE_THRESHOLD
-                {
-                    self.window_max = WINDOW_MAX_MEDIUM;
-                    self.window_min = WINDOW_MIN_LIMIT_MEDIUM;
-                    tracing::debug!(
-                        window_max = self.window_max,
-                        window_min = self.window_min,
-                        "channel: upgraded to MEDIUM"
-                    );
-                }
-            }
-        } else {
-            // Fast — accumulate fast rounds.
-            self.fast_rate_rounds += 1;
-
-            if self.window_max < WINDOW_MAX_FAST && self.fast_rate_rounds == FAST_RATE_THRESHOLD {
-                self.window_max = WINDOW_MAX_FAST;
-                self.window_min = WINDOW_MIN_LIMIT_FAST;
-                tracing::debug!(
-                    window_max = self.window_max,
-                    window_min = self.window_min,
-                    "channel: upgraded to FAST"
-                );
-            }
-        }
+        self.window = adaptation.new_window;
+        self.window_max = adaptation.new_window_max;
+        self.window_min = adaptation.new_window_min;
+        self.fast_rate_rounds = adaptation.new_fast_rate_rounds;
+        self.medium_rate_rounds = adaptation.new_medium_rate_rounds;
     }
 
     // ------------------------------------------------------------------ //
@@ -252,32 +396,29 @@ impl ChannelState {
     /// this timeout. The method increments it internally and returns the new
     /// value together with the outcome.
     pub fn on_timeout(&mut self, tries: u32) -> (u32, TimeoutOutcome) {
-        let new_tries = tries + 1;
-        if new_tries > MAX_TRIES {
-            // Already exhausted — signal failure without touching the window.
-            return (tries, TimeoutOutcome::Fail);
-        }
+        let input = TimeoutInput {
+            tries,
+            window: self.window,
+            window_min: self.window_min,
+            window_max: self.window_max,
+            window_flexibility: self.window_flexibility,
+        };
+        let adaptation = compute_timeout_adaptation(input);
 
-        if new_tries == MAX_TRIES + 1 {
-            unreachable!(); // guarded above
+        if adaptation.new_window != self.window {
+            tracing::debug!(window = adaptation.new_window, "channel: window shrank on timeout");
         }
-
-        // Shrink window (but not below minimum).
-        if self.window > self.window_min {
-            self.window -= 1;
-            tracing::debug!(window = self.window, "channel: window shrank on timeout");
-        }
-
-        // Shrink window_max (but maintain flexibility gap).
-        if self.window_max > self.window_min + self.window_flexibility {
-            self.window_max -= 1;
+        if adaptation.new_window_max != self.window_max {
             tracing::debug!(
-                window_max = self.window_max,
+                window_max = adaptation.new_window_max,
                 "channel: window_max shrank on timeout"
             );
         }
 
-        (new_tries, TimeoutOutcome::Retry)
+        self.window = adaptation.new_window;
+        self.window_max = adaptation.new_window_max;
+
+        (adaptation.new_tries, adaptation.outcome)
     }
 
     /// Check whether the given try count means the envelope has failed.
@@ -321,5 +462,291 @@ impl ChannelState {
     /// `outstanding` is the number of unacknowledged messages currently in the TX ring.
     pub fn is_ready_to_send(&self, outstanding: usize) -> bool {
         outstanding < self.window as usize
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ================================================================== //
+    // compute_initial_window tests
+    // ================================================================== //
+
+    #[test]
+    fn init_very_slow_rtt_all_ones() {
+        let iw = compute_initial_window(2.0);
+        assert_eq!(iw, InitialWindow { window: 1, window_max: 1, window_min: 1, window_flexibility: 1 });
+    }
+
+    #[test]
+    fn init_normal_rtt_defaults() {
+        let iw = compute_initial_window(0.5);
+        assert_eq!(iw, InitialWindow { window: 2, window_max: 5, window_min: 2, window_flexibility: 4 });
+    }
+
+    #[test]
+    fn init_fast_rtt_same_as_normal() {
+        let iw = compute_initial_window(0.01);
+        assert_eq!(iw, InitialWindow { window: 2, window_max: 5, window_min: 2, window_flexibility: 4 });
+    }
+
+    #[test]
+    fn init_exact_boundary() {
+        // RTT == RTT_SLOW exactly → normal (condition is >, not >=)
+        let iw = compute_initial_window(RTT_SLOW);
+        assert_eq!(iw, InitialWindow { window: 2, window_max: 5, window_min: 2, window_flexibility: 4 });
+    }
+
+    // ================================================================== //
+    // classify_delivery_adaptation tests
+    // ================================================================== //
+
+    fn default_delivery_input(rtt: f64) -> DeliveryInput {
+        DeliveryInput {
+            rtt,
+            window: 2,
+            window_max: 5,
+            window_min: 2,
+            fast_rate_rounds: 0,
+            medium_rate_rounds: 0,
+        }
+    }
+
+    #[test]
+    fn delivery_rtt_zero_skips_rate_tracking() {
+        let input = default_delivery_input(0.0);
+        let result = classify_delivery_adaptation(input);
+        assert_eq!(result.new_window, 3);
+        assert_eq!(result.new_fast_rate_rounds, 0);
+        assert_eq!(result.new_medium_rate_rounds, 0);
+    }
+
+    #[test]
+    fn delivery_fast_increments_fast_rounds() {
+        let input = DeliveryInput {
+            rtt: 0.10,
+            ..default_delivery_input(0.10)
+        };
+        let result = classify_delivery_adaptation(input);
+        assert_eq!(result.new_fast_rate_rounds, 1);
+        assert_eq!(result.new_medium_rate_rounds, 0);
+    }
+
+    #[test]
+    fn delivery_fast_threshold_upgrades_to_fast() {
+        let input = DeliveryInput {
+            rtt: 0.10,
+            fast_rate_rounds: 9,
+            ..default_delivery_input(0.10)
+        };
+        let result = classify_delivery_adaptation(input);
+        assert_eq!(result.new_fast_rate_rounds, FAST_RATE_THRESHOLD);
+        assert_eq!(result.new_window_max, WINDOW_MAX_FAST); // 48
+        assert_eq!(result.new_window_min, WINDOW_MIN_LIMIT_FAST); // 16
+    }
+
+    #[test]
+    fn delivery_medium_increments_medium_rounds() {
+        let input = DeliveryInput {
+            rtt: 0.50,
+            ..default_delivery_input(0.50)
+        };
+        let result = classify_delivery_adaptation(input);
+        assert_eq!(result.new_fast_rate_rounds, 0);
+        assert_eq!(result.new_medium_rate_rounds, 1);
+    }
+
+    #[test]
+    fn delivery_medium_threshold_upgrades_to_medium() {
+        let input = DeliveryInput {
+            rtt: 0.50,
+            medium_rate_rounds: 9,
+            ..default_delivery_input(0.50)
+        };
+        let result = classify_delivery_adaptation(input);
+        assert_eq!(result.new_medium_rate_rounds, FAST_RATE_THRESHOLD);
+        assert_eq!(result.new_window_max, WINDOW_MAX_MEDIUM); // 12
+        assert_eq!(result.new_window_min, WINDOW_MIN_LIMIT_MEDIUM); // 5
+    }
+
+    #[test]
+    fn delivery_slow_resets_both_counters() {
+        let input = DeliveryInput {
+            rtt: 1.0,
+            fast_rate_rounds: 5,
+            medium_rate_rounds: 3,
+            ..default_delivery_input(1.0)
+        };
+        let result = classify_delivery_adaptation(input);
+        assert_eq!(result.new_fast_rate_rounds, 0);
+        assert_eq!(result.new_medium_rate_rounds, 0);
+    }
+
+    #[test]
+    fn delivery_window_at_max_no_growth() {
+        let input = DeliveryInput {
+            rtt: 0.10,
+            window: 5,
+            window_max: 5,
+            window_min: 2,
+            fast_rate_rounds: 0,
+            medium_rate_rounds: 0,
+        };
+        let result = classify_delivery_adaptation(input);
+        assert_eq!(result.new_window, 5);
+    }
+
+    #[test]
+    fn delivery_already_at_fast_no_double_upgrade() {
+        let input = DeliveryInput {
+            rtt: 0.10,
+            window: 20,
+            window_max: WINDOW_MAX_FAST,
+            window_min: WINDOW_MIN_LIMIT_FAST,
+            fast_rate_rounds: 9,
+            medium_rate_rounds: 0,
+        };
+        let result = classify_delivery_adaptation(input);
+        // fast_rate_rounds increments but no upgrade (already at max)
+        assert_eq!(result.new_fast_rate_rounds, 10);
+        assert_eq!(result.new_window_max, WINDOW_MAX_FAST);
+    }
+
+    #[test]
+    fn delivery_fast_resets_medium_counter() {
+        // When medium RTT hits, fast_rate_rounds is reset; check the reverse doesn't happen
+        let input = DeliveryInput {
+            rtt: 0.50, // medium
+            fast_rate_rounds: 3,
+            medium_rate_rounds: 0,
+            ..default_delivery_input(0.50)
+        };
+        let result = classify_delivery_adaptation(input);
+        assert_eq!(result.new_fast_rate_rounds, 0); // reset by medium
+        assert_eq!(result.new_medium_rate_rounds, 1);
+    }
+
+    // ================================================================== //
+    // compute_timeout_adaptation tests
+    // ================================================================== //
+
+    fn default_timeout_input(tries: u32) -> TimeoutInput {
+        TimeoutInput {
+            tries,
+            window: 4,
+            window_min: 2,
+            window_max: 10,
+            window_flexibility: 4,
+        }
+    }
+
+    #[test]
+    fn timeout_exhausted_returns_fail() {
+        let result = compute_timeout_adaptation(default_timeout_input(MAX_TRIES));
+        assert_eq!(result.outcome, TimeoutOutcome::Fail);
+        assert_eq!(result.new_tries, MAX_TRIES); // unchanged
+        assert_eq!(result.new_window, 4); // unchanged
+    }
+
+    #[test]
+    fn timeout_increments_tries() {
+        let result = compute_timeout_adaptation(default_timeout_input(2));
+        assert_eq!(result.new_tries, 3);
+        assert_eq!(result.outcome, TimeoutOutcome::Retry);
+    }
+
+    #[test]
+    fn timeout_shrinks_window() {
+        let result = compute_timeout_adaptation(default_timeout_input(0));
+        assert_eq!(result.new_window, 3); // 4 → 3
+    }
+
+    #[test]
+    fn timeout_window_at_min_no_shrink() {
+        let input = TimeoutInput {
+            tries: 0,
+            window: 2,
+            window_min: 2,
+            window_max: 10,
+            window_flexibility: 4,
+        };
+        let result = compute_timeout_adaptation(input);
+        assert_eq!(result.new_window, 2); // at min, no shrink
+    }
+
+    #[test]
+    fn timeout_shrinks_window_max() {
+        // window_max(10) > window_min(2) + flexibility(4) = 6 → shrinks
+        let result = compute_timeout_adaptation(default_timeout_input(0));
+        assert_eq!(result.new_window_max, 9);
+    }
+
+    #[test]
+    fn timeout_window_max_at_boundary_no_shrink() {
+        let input = TimeoutInput {
+            tries: 0,
+            window: 4,
+            window_min: 2,
+            window_max: 6, // == min(2) + flex(4), not >
+            window_flexibility: 4,
+        };
+        let result = compute_timeout_adaptation(input);
+        assert_eq!(result.new_window_max, 6); // at boundary, no shrink
+    }
+
+    #[test]
+    fn timeout_first_try() {
+        let result = compute_timeout_adaptation(default_timeout_input(0));
+        assert_eq!(result.new_tries, 1);
+        assert_eq!(result.outcome, TimeoutOutcome::Retry);
+        assert_eq!(result.new_window, 3);
+    }
+
+    // ================================================================== //
+    // check_rx_sequence_valid tests
+    // ================================================================== //
+
+    #[test]
+    fn rx_sequence_ahead_valid() {
+        assert!(check_rx_sequence_valid(10, 5, 5));
+    }
+
+    #[test]
+    fn rx_sequence_equal_valid() {
+        assert!(check_rx_sequence_valid(5, 5, 5));
+    }
+
+    #[test]
+    fn rx_old_no_wrap_rejected() {
+        assert!(!check_rx_sequence_valid(3, 5, 5));
+    }
+
+    #[test]
+    fn rx_wraparound_in_window_valid() {
+        // next_rx=65534, window_max=5 → overflow=(65534+5)%65536=3
+        // sequence=1 ≤ 3 → valid
+        assert!(check_rx_sequence_valid(1, 65534, 5));
+    }
+
+    #[test]
+    fn rx_wraparound_beyond_window_rejected() {
+        // next_rx=65534, window_max=2 → overflow=(65534+2)%65536=0
+        // sequence=5 > 0 → rejected
+        assert!(!check_rx_sequence_valid(5, 65534, 2));
+    }
+
+    #[test]
+    fn rx_no_wraparound_exact_boundary() {
+        // next_rx=65534, window_max=5 → overflow=3
+        // sequence=3 ≤ 3 → valid (exact boundary)
+        assert!(check_rx_sequence_valid(3, 65534, 5));
+    }
+
+    #[test]
+    fn rx_window_max_zero() {
+        // window_max=0 → overflow = next_rx itself → no wrap detected
+        // sequence=4 < next_rx=5 → old, no wrap → rejected
+        assert!(!check_rx_sequence_valid(4, 5, 0));
     }
 }
