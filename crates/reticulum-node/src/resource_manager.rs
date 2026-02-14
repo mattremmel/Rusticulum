@@ -14,7 +14,7 @@ use reticulum_protocol::resource::constants::SDU;
 use reticulum_protocol::resource::hashmap::ResourceHashmap;
 use reticulum_protocol::resource::transfer::prepare_resource;
 
-use crate::resource_ops;
+use crate::resource_ops::{self, AssembledOutput};
 
 /// Errors from resource transfer operations.
 #[derive(Debug)]
@@ -334,18 +334,16 @@ impl ResourceManager {
     }
 
     /// Assemble a completed resource and compute the proof.
-    ///
-    /// Returns `(original_data, proof_payload_bytes)`.
     pub fn assemble_and_prove(
         &mut self,
         link_id: &LinkId,
         derived_key: &DerivedKey,
-    ) -> Result<(Vec<u8>, Vec<u8>), ResourceManagerError> {
+    ) -> Result<AssembledOutput, ResourceManagerError> {
         let transfer = self.incoming.get(link_id).ok_or_else(|| {
             ResourceManagerError::NoIncomingTransfer(hex::encode(link_id.as_ref()))
         })?;
 
-        let (data, proof_bytes) = resource_ops::collect_and_assemble(
+        let output = resource_ops::collect_and_assemble(
             &transfer.parts,
             derived_key,
             &transfer.random_hash,
@@ -356,11 +354,11 @@ impl ResourceManager {
 
         tracing::info!(
             resource_hash = %hex::encode(transfer.resource_hash),
-            data_len = data.len(),
+            data_len = output.data.len(),
             "resource_received"
         );
 
-        Ok((data, proof_bytes))
+        Ok(output)
     }
 
     /// Check if a resource transfer (outgoing) is complete.
@@ -438,10 +436,11 @@ mod tests {
         }
 
         // 5. Receiver assembles and proves
-        let (received_data, proof_bytes) = receiver_mgr
+        let output = receiver_mgr
             .assemble_and_prove(&receiver_link, &key)
             .unwrap();
-        assert_eq!(received_data, data);
+        assert_eq!(output.data, data);
+        let proof_bytes = output.proof_bytes;
 
         // 6. Sender validates proof
         let valid = sender_mgr.handle_proof(&proof_bytes).unwrap();
@@ -484,12 +483,12 @@ mod tests {
         }
         assert!(completed);
 
-        let (received_data, proof_bytes) = receiver_mgr
+        let output = receiver_mgr
             .assemble_and_prove(&receiver_link, &key)
             .unwrap();
-        assert_eq!(received_data, data);
+        assert_eq!(output.data, data);
 
-        let valid = sender_mgr.handle_proof(&proof_bytes).unwrap();
+        let valid = sender_mgr.handle_proof(&output.proof_bytes).unwrap();
         assert!(valid);
     }
 
@@ -580,11 +579,11 @@ mod tests {
         for part in &parts {
             receiver_mgr.receive_part(&receiver_link, part).unwrap();
         }
-        let (_data, proof_bytes) = receiver_mgr
+        let output = receiver_mgr
             .assemble_and_prove(&receiver_link, &key)
             .unwrap();
 
-        let valid = sender_mgr.handle_proof(&proof_bytes).unwrap();
+        let valid = sender_mgr.handle_proof(&output.proof_bytes).unwrap();
         assert!(valid);
         assert!(sender_mgr.is_complete(&resource_hash));
     }
@@ -668,10 +667,10 @@ mod tests {
         }
 
         // Assembly should succeed
-        let (received_data, _proof) = receiver_mgr
+        let output = receiver_mgr
             .assemble_and_prove(&receiver_link, &key)
             .unwrap();
-        assert_eq!(received_data, data);
+        assert_eq!(output.data, data);
 
         let _ = (result1, result2); // suppress unused warnings
     }
@@ -705,12 +704,12 @@ mod tests {
         }
         assert!(completed);
 
-        let (received_data, proof) = receiver_mgr
+        let output = receiver_mgr
             .assemble_and_prove(&receiver_link, &key)
             .unwrap();
-        assert_eq!(received_data, data);
+        assert_eq!(output.data, data);
 
-        let valid = sender_mgr.handle_proof(&proof).unwrap();
+        let valid = sender_mgr.handle_proof(&output.proof_bytes).unwrap();
         assert!(valid);
     }
 
@@ -820,11 +819,12 @@ mod tests {
         for part in &parts {
             receiver_mgr.receive_part(&receiver_link, part).unwrap();
         }
-        let (_data, mut proof_bytes) = receiver_mgr
+        let output = receiver_mgr
             .assemble_and_prove(&receiver_link, &key)
             .unwrap();
 
         // Tamper with the proof bytes (the proof hash is in bytes 32..64)
+        let mut proof_bytes = output.proof_bytes;
         if proof_bytes.len() >= 64 {
             proof_bytes[32] ^= 0xFF;
             proof_bytes[33] ^= 0xFF;

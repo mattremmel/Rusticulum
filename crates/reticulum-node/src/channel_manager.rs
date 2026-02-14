@@ -13,7 +13,7 @@ use reticulum_protocol::channel::envelope::Envelope;
 use reticulum_protocol::channel::state::ChannelState;
 use reticulum_protocol::request::types::{PathHash, Request, RequestId};
 
-use crate::channel_ops::{self, ChannelEnvelopeAction, ResponseMatch, StreamAccumulationResult};
+use crate::channel_ops::{self, ChannelEnvelopeAction, ClassifiedEnvelope, ResponseMatch, StreamAccumulationResult};
 
 /// Actions the node should take after processing a channel event.
 #[derive(Debug)]
@@ -120,7 +120,7 @@ impl ChannelManager {
     ) -> Option<ChannelAction> {
         let ctx = self.channels.get_mut(link_id)?;
 
-        let (action, sequence) = match channel_ops::classify_channel_envelope(
+        let ClassifiedEnvelope { action, sequence } = match channel_ops::classify_channel_envelope(
             plaintext,
             ctx.state.next_rx_sequence(),
             ctx.state.window_max,

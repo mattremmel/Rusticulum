@@ -313,8 +313,7 @@ impl Node {
     /// Uses [`plan_all_interfaces`] for pure config validation, then
     /// instantiates the actual interface objects from the specs.
     fn create_interfaces(&mut self) -> Result<(), NodeError> {
-        let (specs, next_id) = plan_all_interfaces(&self.config.interfaces, self.next_id)
-            .map_err(NodeError::Config)?;
+        let (specs, next_id) = plan_all_interfaces(&self.config.interfaces, self.next_id)?;
 
         self.next_id = next_id;
 

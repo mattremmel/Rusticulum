@@ -98,6 +98,13 @@ pub enum ChannelEnvelopeAction {
     SequenceRejected { sequence: u16 },
 }
 
+/// A classified channel envelope with its sequence number.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ClassifiedEnvelope {
+    pub action: ChannelEnvelopeAction,
+    pub sequence: u16,
+}
+
 /// Unpack an envelope from plaintext, validate its sequence, and classify it.
 ///
 /// Returns the classification together with the envelope's sequence number,
@@ -106,34 +113,34 @@ pub fn classify_channel_envelope(
     plaintext: &[u8],
     next_rx_sequence: u16,
     window_max: u16,
-) -> Result<(ChannelEnvelopeAction, u16), String> {
+) -> Result<ClassifiedEnvelope, String> {
     let envelope =
         Envelope::unpack(plaintext).map_err(|e| format!("failed to unpack envelope: {e}"))?;
 
     let seq = envelope.sequence;
 
     if !check_rx_sequence_valid(seq, next_rx_sequence, window_max) {
-        return Ok((
-            ChannelEnvelopeAction::SequenceRejected { sequence: seq },
-            seq,
-        ));
+        return Ok(ClassifiedEnvelope {
+            action: ChannelEnvelopeAction::SequenceRejected { sequence: seq },
+            sequence: seq,
+        });
     }
 
     if envelope.msg_type == SMT_STREAM_DATA {
-        Ok((
-            ChannelEnvelopeAction::StreamData {
+        Ok(ClassifiedEnvelope {
+            action: ChannelEnvelopeAction::StreamData {
                 payload: envelope.payload,
             },
-            seq,
-        ))
+            sequence: seq,
+        })
     } else {
-        Ok((
-            ChannelEnvelopeAction::ApplicationMessage {
+        Ok(ClassifiedEnvelope {
+            action: ChannelEnvelopeAction::ApplicationMessage {
                 msg_type: envelope.msg_type,
                 payload: envelope.payload,
             },
-            seq,
-        ))
+            sequence: seq,
+        })
     }
 }
 
@@ -366,10 +373,10 @@ mod tests {
         };
         let packed = envelope.pack();
 
-        let (action, seq) = classify_channel_envelope(&packed, 0, 5).unwrap();
-        assert_eq!(seq, 0);
+        let classified = classify_channel_envelope(&packed, 0, 5).unwrap();
+        assert_eq!(classified.sequence, 0);
         assert_eq!(
-            action,
+            classified.action,
             ChannelEnvelopeAction::ApplicationMessage {
                 msg_type: 0x0101,
                 payload: b"hello".to_vec(),
@@ -387,10 +394,10 @@ mod tests {
         };
         let packed = envelope.pack();
 
-        let (action, seq) = classify_channel_envelope(&packed, 0, 5).unwrap();
-        assert_eq!(seq, 0);
+        let classified = classify_channel_envelope(&packed, 0, 5).unwrap();
+        assert_eq!(classified.sequence, 0);
         assert_eq!(
-            action,
+            classified.action,
             ChannelEnvelopeAction::StreamData {
                 payload: stream_packed,
             }
@@ -407,9 +414,9 @@ mod tests {
         let packed = envelope.pack();
 
         // next_rx=0, window=5 → sequence 3 is valid
-        let (action, _) = classify_channel_envelope(&packed, 0, 5).unwrap();
+        let classified = classify_channel_envelope(&packed, 0, 5).unwrap();
         assert!(matches!(
-            action,
+            classified.action,
             ChannelEnvelopeAction::ApplicationMessage { .. }
         ));
     }
@@ -424,10 +431,10 @@ mod tests {
         let packed = envelope.pack();
 
         // next_rx=5, window=2, sequence=0 → outside window, no wraparound
-        let (action, seq) = classify_channel_envelope(&packed, 5, 2).unwrap();
-        assert_eq!(seq, 0);
+        let classified = classify_channel_envelope(&packed, 5, 2).unwrap();
+        assert_eq!(classified.sequence, 0);
         assert_eq!(
-            action,
+            classified.action,
             ChannelEnvelopeAction::SequenceRejected { sequence: 0 }
         );
     }
@@ -454,10 +461,10 @@ mod tests {
         let packed = envelope.pack();
 
         // next_rx=65534, window=5 → window wraps around 0, sequence 0 is valid
-        let (action, seq) = classify_channel_envelope(&packed, 65534, 5).unwrap();
-        assert_eq!(seq, 0);
+        let classified = classify_channel_envelope(&packed, 65534, 5).unwrap();
+        assert_eq!(classified.sequence, 0);
         assert!(matches!(
-            action,
+            classified.action,
             ChannelEnvelopeAction::ApplicationMessage { .. }
         ));
     }
@@ -471,8 +478,8 @@ mod tests {
                 payload: vec![],
             };
             let packed = envelope.pack();
-            let (action, _) = classify_channel_envelope(&packed, 0, 5).unwrap();
-            match action {
+            let classified = classify_channel_envelope(&packed, 0, 5).unwrap();
+            match classified.action {
                 ChannelEnvelopeAction::ApplicationMessage { msg_type: mt, .. } => {
                     assert_eq!(mt, msg_type);
                 }

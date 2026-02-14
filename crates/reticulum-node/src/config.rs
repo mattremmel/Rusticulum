@@ -3,11 +3,20 @@
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 
-use serde::Deserialize;
+use serde::{Deserialize, Deserializer};
 
 use reticulum_interfaces::InterfaceMode;
 
 use crate::error::NodeError;
+
+fn deserialize_mode<'de, D: Deserializer<'de>>(d: D) -> Result<InterfaceMode, D::Error> {
+    let s = String::deserialize(d)?;
+    parse_mode(&s).map_err(serde::de::Error::custom)
+}
+
+fn default_mode() -> InterfaceMode {
+    InterfaceMode::Full
+}
 
 /// Top-level node configuration loaded from a TOML file.
 #[derive(Debug, Default, Deserialize)]
@@ -160,8 +169,8 @@ pub struct InterfacesSection {
 pub struct TcpClientEntry {
     pub name: String,
     pub target: String,
-    #[serde(default = "default_mode_str")]
-    pub mode: String,
+    #[serde(default = "default_mode", deserialize_with = "deserialize_mode")]
+    pub mode: InterfaceMode,
 }
 
 /// A `[[interfaces.tcp_server]]` entry.
@@ -169,8 +178,8 @@ pub struct TcpClientEntry {
 pub struct TcpServerEntry {
     pub name: String,
     pub bind: String,
-    #[serde(default = "default_mode_str")]
-    pub mode: String,
+    #[serde(default = "default_mode", deserialize_with = "deserialize_mode")]
+    pub mode: InterfaceMode,
 }
 
 /// A `[[interfaces.udp]]` entry.
@@ -181,8 +190,8 @@ pub struct UdpEntry {
     pub target: Option<String>,
     #[serde(default)]
     pub broadcast: bool,
-    #[serde(default = "default_mode_str")]
-    pub mode: String,
+    #[serde(default = "default_mode", deserialize_with = "deserialize_mode")]
+    pub mode: InterfaceMode,
 }
 
 /// A `[[interfaces.local_server]]` entry.
@@ -190,8 +199,8 @@ pub struct UdpEntry {
 pub struct LocalServerEntry {
     pub name: String,
     pub path: String,
-    #[serde(default = "default_mode_str")]
-    pub mode: String,
+    #[serde(default = "default_mode", deserialize_with = "deserialize_mode")]
+    pub mode: InterfaceMode,
 }
 
 /// A `[[interfaces.local_client]]` entry.
@@ -199,8 +208,8 @@ pub struct LocalServerEntry {
 pub struct LocalClientEntry {
     pub name: String,
     pub path: String,
-    #[serde(default = "default_mode_str")]
-    pub mode: String,
+    #[serde(default = "default_mode", deserialize_with = "deserialize_mode")]
+    pub mode: InterfaceMode,
 }
 
 /// A `[[interfaces.auto]]` entry.
@@ -210,12 +219,8 @@ pub struct AutoEntry {
     pub group_id: Option<String>,
     pub discovery_port: Option<u16>,
     pub data_port: Option<u16>,
-    #[serde(default = "default_mode_str")]
-    pub mode: String,
-}
-
-fn default_mode_str() -> String {
-    "full".to_string()
+    #[serde(default = "default_mode", deserialize_with = "deserialize_mode")]
+    pub mode: InterfaceMode,
 }
 
 /// Parse a mode string to an `InterfaceMode`.
@@ -455,6 +460,17 @@ target = "[::1]:4242"
         );
         // But completely invalid string → error
         assert!(parse_mode("foobar").is_err());
+    }
+
+    #[test]
+    fn test_invalid_mode_rejected_at_parse_time() {
+        let toml = r#"
+[[interfaces.tcp_client]]
+name = "bad"
+target = "localhost:4242"
+mode = "invalid_mode"
+"#;
+        assert!(NodeConfig::parse(toml).is_err());
     }
 
     #[test]

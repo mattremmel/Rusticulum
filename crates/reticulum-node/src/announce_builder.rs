@@ -10,6 +10,7 @@ use reticulum_core::identity::Identity;
 use reticulum_core::types::{DestinationHash, NameHash};
 
 use crate::config::DestinationEntry;
+use crate::error::NodeError;
 
 /// A destination registration to be applied after announce building.
 #[derive(Debug, Clone)]
@@ -41,11 +42,11 @@ pub fn build_single_announce(
     aspects: &[String],
     random_hash: [u8; 10],
     app_data: Option<&[u8]>,
-) -> Result<(DestinationHash, Vec<u8>), String> {
+) -> Result<(DestinationHash, Vec<u8>), NodeError> {
     let (nh, dh) = compute_destination_hashes(identity, app_name, aspects);
 
     let announce = Announce::create(identity, nh, dh, random_hash, None, app_data)
-        .map_err(|e| format!("{e}"))?;
+        .map_err(|e| NodeError::Identity(format!("{e}")))?;
 
     let raw = announce.to_raw_packet(0).serialize();
     Ok((dh, raw))
@@ -57,8 +58,8 @@ pub struct AnnouncesBuild {
     pub announces: Vec<(DestinationHash, Vec<u8>)>,
     /// Destinations that should be registered for link acceptance.
     pub registrations: Vec<DestinationRegistration>,
-    /// Errors encountered (app_name, error message).
-    pub errors: Vec<(String, String)>,
+    /// Errors encountered (app_name, error).
+    pub errors: Vec<(String, NodeError)>,
 }
 
 /// Build all announces from a list of destination configs.

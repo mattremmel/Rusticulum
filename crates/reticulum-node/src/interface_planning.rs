@@ -10,7 +10,8 @@ use std::path::PathBuf;
 use reticulum_interfaces::InterfaceMode;
 use reticulum_transport::path::types::InterfaceId;
 
-use crate::config::{InterfacesSection, parse_mode, parse_path, parse_socket_addr};
+use crate::config::{InterfacesSection, parse_path, parse_socket_addr};
+use crate::error::NodeError;
 
 /// A fully-validated specification for creating an interface.
 ///
@@ -78,35 +79,32 @@ impl InterfaceSpec {
 pub fn plan_tcp_clients(
     entries: &[crate::config::TcpClientEntry],
     id_start: u64,
-) -> Result<Vec<InterfaceSpec>, String> {
-    let mut specs = Vec::with_capacity(entries.len());
-    for (i, entry) in entries.iter().enumerate() {
-        let id = InterfaceId(id_start + i as u64);
-        let mode = parse_mode(&entry.mode).map_err(|e| format!("{e}"))?;
-        specs.push(InterfaceSpec::TcpClient {
+) -> Vec<InterfaceSpec> {
+    entries
+        .iter()
+        .enumerate()
+        .map(|(i, entry)| InterfaceSpec::TcpClient {
             name: entry.name.clone(),
             target: entry.target.clone(),
-            mode,
-            id,
-        });
-    }
-    Ok(specs)
+            mode: entry.mode,
+            id: InterfaceId(id_start + i as u64),
+        })
+        .collect()
 }
 
 /// Plan TCP server interface specs from config entries.
 pub fn plan_tcp_servers(
     entries: &[crate::config::TcpServerEntry],
     id_start: u64,
-) -> Result<Vec<InterfaceSpec>, String> {
+) -> Result<Vec<InterfaceSpec>, NodeError> {
     let mut specs = Vec::with_capacity(entries.len());
     for (i, entry) in entries.iter().enumerate() {
         let id = InterfaceId(id_start + i as u64);
-        let addr = parse_socket_addr(&entry.bind).map_err(|e| format!("{e}"))?;
-        let mode = parse_mode(&entry.mode).map_err(|e| format!("{e}"))?;
+        let addr = parse_socket_addr(&entry.bind)?;
         specs.push(InterfaceSpec::TcpServer {
             name: entry.name.clone(),
             bind: addr,
-            mode,
+            mode: entry.mode,
             id,
         });
     }
@@ -120,14 +118,13 @@ pub fn plan_tcp_servers(
 pub fn plan_udp(
     entries: &[crate::config::UdpEntry],
     id_start: u64,
-) -> Result<Vec<InterfaceSpec>, String> {
+) -> Result<Vec<InterfaceSpec>, NodeError> {
     let mut specs = Vec::with_capacity(entries.len());
     for (i, entry) in entries.iter().enumerate() {
         let id = InterfaceId(id_start + i as u64);
-        let bind = parse_socket_addr(&entry.bind).map_err(|e| format!("{e}"))?;
-        let mode = parse_mode(&entry.mode).map_err(|e| format!("{e}"))?;
+        let bind = parse_socket_addr(&entry.bind)?;
         let target = match &entry.target {
-            Some(t) => Some(parse_socket_addr(t).map_err(|e| format!("{e}"))?),
+            Some(t) => Some(parse_socket_addr(t)?),
             None => None,
         };
         specs.push(InterfaceSpec::Udp {
@@ -135,7 +132,7 @@ pub fn plan_udp(
             bind,
             target,
             broadcast: entry.broadcast,
-            mode,
+            mode: entry.mode,
             id,
         });
     }
@@ -146,61 +143,53 @@ pub fn plan_udp(
 pub fn plan_local_servers(
     entries: &[crate::config::LocalServerEntry],
     id_start: u64,
-) -> Result<Vec<InterfaceSpec>, String> {
-    let mut specs = Vec::with_capacity(entries.len());
-    for (i, entry) in entries.iter().enumerate() {
-        let id = InterfaceId(id_start + i as u64);
-        let mode = parse_mode(&entry.mode).map_err(|e| format!("{e}"))?;
-        let path = parse_path(&entry.path);
-        specs.push(InterfaceSpec::LocalServer {
+) -> Vec<InterfaceSpec> {
+    entries
+        .iter()
+        .enumerate()
+        .map(|(i, entry)| InterfaceSpec::LocalServer {
             name: entry.name.clone(),
-            path,
-            mode,
-            id,
-        });
-    }
-    Ok(specs)
+            path: parse_path(&entry.path),
+            mode: entry.mode,
+            id: InterfaceId(id_start + i as u64),
+        })
+        .collect()
 }
 
 /// Plan local client interface specs from config entries.
 pub fn plan_local_clients(
     entries: &[crate::config::LocalClientEntry],
     id_start: u64,
-) -> Result<Vec<InterfaceSpec>, String> {
-    let mut specs = Vec::with_capacity(entries.len());
-    for (i, entry) in entries.iter().enumerate() {
-        let id = InterfaceId(id_start + i as u64);
-        let mode = parse_mode(&entry.mode).map_err(|e| format!("{e}"))?;
-        let path = parse_path(&entry.path);
-        specs.push(InterfaceSpec::LocalClient {
+) -> Vec<InterfaceSpec> {
+    entries
+        .iter()
+        .enumerate()
+        .map(|(i, entry)| InterfaceSpec::LocalClient {
             name: entry.name.clone(),
-            path,
-            mode,
-            id,
-        });
-    }
-    Ok(specs)
+            path: parse_path(&entry.path),
+            mode: entry.mode,
+            id: InterfaceId(id_start + i as u64),
+        })
+        .collect()
 }
 
 /// Plan auto-discovery interface specs from config entries.
 pub fn plan_auto(
     entries: &[crate::config::AutoEntry],
     id_start: u64,
-) -> Result<Vec<InterfaceSpec>, String> {
-    let mut specs = Vec::with_capacity(entries.len());
-    for (i, entry) in entries.iter().enumerate() {
-        let id = InterfaceId(id_start + i as u64);
-        let mode = parse_mode(&entry.mode).map_err(|e| format!("{e}"))?;
-        specs.push(InterfaceSpec::Auto {
+) -> Vec<InterfaceSpec> {
+    entries
+        .iter()
+        .enumerate()
+        .map(|(i, entry)| InterfaceSpec::Auto {
             name: entry.name.clone(),
-            mode,
+            mode: entry.mode,
             group_id: entry.group_id.as_ref().map(|g| g.as_bytes().to_vec()),
             discovery_port: entry.discovery_port,
             data_port: entry.data_port,
-            id,
-        });
-    }
-    Ok(specs)
+            id: InterfaceId(id_start + i as u64),
+        })
+        .collect()
 }
 
 /// Plan all interfaces from the full config.
@@ -209,11 +198,11 @@ pub fn plan_auto(
 pub fn plan_all_interfaces(
     interfaces: &InterfacesSection,
     id_start: u64,
-) -> Result<(Vec<InterfaceSpec>, u64), String> {
+) -> Result<(Vec<InterfaceSpec>, u64), NodeError> {
     let mut all = Vec::new();
     let mut next_id = id_start;
 
-    let tcp_clients = plan_tcp_clients(&interfaces.tcp_client, next_id)?;
+    let tcp_clients = plan_tcp_clients(&interfaces.tcp_client, next_id);
     next_id += tcp_clients.len() as u64;
     all.extend(tcp_clients);
 
@@ -225,15 +214,15 @@ pub fn plan_all_interfaces(
     next_id += udp.len() as u64;
     all.extend(udp);
 
-    let local_servers = plan_local_servers(&interfaces.local_server, next_id)?;
+    let local_servers = plan_local_servers(&interfaces.local_server, next_id);
     next_id += local_servers.len() as u64;
     all.extend(local_servers);
 
-    let local_clients = plan_local_clients(&interfaces.local_client, next_id)?;
+    let local_clients = plan_local_clients(&interfaces.local_client, next_id);
     next_id += local_clients.len() as u64;
     all.extend(local_clients);
 
-    let autos = plan_auto(&interfaces.auto, next_id)?;
+    let autos = plan_auto(&interfaces.auto, next_id);
     next_id += autos.len() as u64;
     all.extend(autos);
 
@@ -266,7 +255,7 @@ target = "localhost:4243"
 mode = "roaming"
 "#;
         let config = NodeConfig::parse(toml).unwrap();
-        let specs = plan_tcp_clients(&config.interfaces.tcp_client, 10).unwrap();
+        let specs = plan_tcp_clients(&config.interfaces.tcp_client, 10);
 
         assert_eq!(specs.len(), 2);
         match &specs[0] {
@@ -291,19 +280,6 @@ mode = "roaming"
             }
             other => panic!("expected TcpClient, got: {other:?}"),
         }
-    }
-
-    #[test]
-    fn tcp_client_invalid_mode() {
-        let toml = r#"
-[[interfaces.tcp_client]]
-name = "bad"
-target = "localhost:4242"
-mode = "invalid_mode"
-"#;
-        let config = NodeConfig::parse(toml).unwrap();
-        let result = plan_tcp_clients(&config.interfaces.tcp_client, 1);
-        assert!(result.is_err());
     }
 
     #[test]
@@ -439,7 +415,7 @@ path = "/tmp/rns.sock"
 mode = "gateway"
 "#;
         let config = NodeConfig::parse(toml).unwrap();
-        let specs = plan_local_servers(&config.interfaces.local_server, 1).unwrap();
+        let specs = plan_local_servers(&config.interfaces.local_server, 1);
 
         assert_eq!(specs.len(), 1);
         match &specs[0] {
@@ -466,7 +442,7 @@ name = "local_cl"
 path = "/tmp/rns.sock"
 "#;
         let config = NodeConfig::parse(toml).unwrap();
-        let specs = plan_local_clients(&config.interfaces.local_client, 1).unwrap();
+        let specs = plan_local_clients(&config.interfaces.local_client, 1);
 
         assert_eq!(specs.len(), 1);
         match &specs[0] {
@@ -492,7 +468,7 @@ data_port = 42671
 mode = "boundary"
 "#;
         let config = NodeConfig::parse(toml).unwrap();
-        let specs = plan_auto(&config.interfaces.auto, 1).unwrap();
+        let specs = plan_auto(&config.interfaces.auto, 1);
 
         assert_eq!(specs.len(), 1);
         match &specs[0] {
@@ -522,7 +498,7 @@ mode = "boundary"
 name = "auto_minimal"
 "#;
         let config = NodeConfig::parse(toml).unwrap();
-        let specs = plan_auto(&config.interfaces.auto, 1).unwrap();
+        let specs = plan_auto(&config.interfaces.auto, 1);
 
         match &specs[0] {
             InterfaceSpec::Auto {
@@ -603,7 +579,7 @@ mode = "{mode_str}"
 "#
             );
             let config = NodeConfig::parse(&toml).unwrap();
-            let specs = plan_tcp_clients(&config.interfaces.tcp_client, 1).unwrap();
+            let specs = plan_tcp_clients(&config.interfaces.tcp_client, 1);
             assert_eq!(specs.len(), 1);
         }
     }

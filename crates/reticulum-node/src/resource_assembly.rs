@@ -5,9 +5,10 @@
 //! can be tested without a running Node or async I/O.
 
 use crate::packet_helpers::format_data_preview;
+use crate::resource_ops::AssembledOutput;
 
-/// Successful assembly output: (data, proof_bytes).
-pub type AssemblyOutput = (Vec<u8>, Vec<u8>);
+/// Successful assembly output.
+pub type AssemblyOutput = AssembledOutput;
 
 /// Input snapshot for the resource assembly decision.
 #[derive(Debug, Clone)]
@@ -72,11 +73,11 @@ pub fn plan_resource_assembly(input: &ResourcePartInput) -> ResourceAssemblyOutc
     }
 
     match &input.assembly_result {
-        Some(Ok((data, proof_bytes))) => {
-            let data_preview = format_data_preview(data, input.preview_len);
+        Some(Ok(output)) => {
+            let data_preview = format_data_preview(&output.data, input.preview_len);
             ResourceAssemblyOutcome::Assembled {
-                data: data.clone(),
-                proof_bytes: proof_bytes.clone(),
+                data: output.data.clone(),
+                proof_bytes: output.proof_bytes.clone(),
                 data_preview,
             }
         }
@@ -97,7 +98,10 @@ mod tests {
             all_received: true,
             has_derived_key: true,
             receive_error: None,
-            assembly_result: Some(Ok((b"hello resource".to_vec(), b"proof123".to_vec()))),
+            assembly_result: Some(Ok(AssembledOutput {
+                data: b"hello resource".to_vec(),
+                proof_bytes: b"proof123".to_vec(),
+            })),
             preview_len: 200,
         }
     }
@@ -219,7 +223,10 @@ mod tests {
     #[test]
     fn preview_truncated() {
         let input = ResourcePartInput {
-            assembly_result: Some(Ok((b"long resource data here".to_vec(), b"proof".to_vec()))),
+            assembly_result: Some(Ok(AssembledOutput {
+                data: b"long resource data here".to_vec(),
+                proof_bytes: b"proof".to_vec(),
+            })),
             preview_len: 10,
             ..base_input()
         };
@@ -235,7 +242,10 @@ mod tests {
     #[test]
     fn empty_data_assembly() {
         let input = ResourcePartInput {
-            assembly_result: Some(Ok((vec![], b"proof".to_vec()))),
+            assembly_result: Some(Ok(AssembledOutput {
+                data: vec![],
+                proof_bytes: b"proof".to_vec(),
+            })),
             ..base_input()
         };
         let outcome = plan_resource_assembly(&input);
@@ -273,7 +283,10 @@ mod tests {
             all_received: true,
             receive_error: Some("bad part".to_string()),
             has_derived_key: true,
-            assembly_result: Some(Ok((vec![1], vec![2]))),
+            assembly_result: Some(Ok(AssembledOutput {
+                data: vec![1],
+                proof_bytes: vec![2],
+            })),
             preview_len: 200,
         };
         let outcome = plan_resource_assembly(&input);
@@ -287,7 +300,10 @@ mod tests {
             all_received: true,
             has_derived_key: false,
             receive_error: None,
-            assembly_result: Some(Ok((vec![1], vec![2]))),
+            assembly_result: Some(Ok(AssembledOutput {
+                data: vec![1],
+                proof_bytes: vec![2],
+            })),
             preview_len: 200,
         };
         let outcome = plan_resource_assembly(&input);

@@ -80,19 +80,24 @@ pub fn match_resource_part(
     None
 }
 
+/// Assembled resource output: original data and proof payload bytes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AssembledOutput {
+    pub data: Vec<u8>,
+    pub proof_bytes: Vec<u8>,
+}
+
 /// Collect all received parts and assemble the resource.
 ///
 /// Verifies all parts are present, calls [`assemble_resource`] to decrypt
 /// and decompress, then encodes the proof payload.
-///
-/// Returns `(original_data, proof_payload_bytes)`.
 pub fn collect_and_assemble(
     parts: &[Option<Vec<u8>>],
     derived_key: &DerivedKey,
     random_hash: &[u8; 4],
     resource_hash: &[u8; 32],
     compressed: bool,
-) -> Result<(Vec<u8>, Vec<u8>), String> {
+) -> Result<AssembledOutput, String> {
     let collected: Vec<Vec<u8>> = parts
         .iter()
         .enumerate()
@@ -110,7 +115,10 @@ pub fn collect_and_assemble(
 
     let proof_bytes = encode_proof_payload(&assembled.resource_hash, &assembled.proof);
 
-    Ok((assembled.data_with_metadata, proof_bytes))
+    Ok(AssembledOutput {
+        data: assembled.data_with_metadata,
+        proof_bytes,
+    })
 }
 
 // ======================================================================== //
@@ -337,7 +345,7 @@ mod tests {
 
         let filled: Vec<Option<Vec<u8>>> = parts.into_iter().map(Some).collect();
 
-        let (result_data, proof_bytes) = collect_and_assemble(
+        let output = collect_and_assemble(
             &filled,
             &key,
             &parsed.random_hash,
@@ -346,8 +354,8 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(result_data, data);
-        assert!(!proof_bytes.is_empty());
+        assert_eq!(output.data, data);
+        assert!(!output.proof_bytes.is_empty());
     }
 
     #[test]
@@ -404,7 +412,7 @@ mod tests {
         let parsed = parse_advertisement(&adv_bytes).unwrap();
         let filled: Vec<Option<Vec<u8>>> = parts.into_iter().map(Some).collect();
 
-        let (_result_data, proof_bytes) = collect_and_assemble(
+        let output = collect_and_assemble(
             &filled,
             &key,
             &parsed.random_hash,
@@ -414,7 +422,7 @@ mod tests {
         .unwrap();
 
         // The proof should validate against the expected proof from prepare_resource
-        assert!(proto_validate_proof(&proof_bytes, &prepared.expected_proof));
+        assert!(proto_validate_proof(&output.proof_bytes, &prepared.expected_proof));
     }
 
     // -- select_parts_for_request tests -----------------------------------------
@@ -485,7 +493,7 @@ mod tests {
         let parsed = parse_advertisement(&adv_bytes).unwrap();
         let filled: Vec<Option<Vec<u8>>> = parts.into_iter().map(Some).collect();
 
-        let (_result_data, proof_bytes) = collect_and_assemble(
+        let output = collect_and_assemble(
             &filled,
             &key,
             &parsed.random_hash,
@@ -493,6 +501,7 @@ mod tests {
             parsed.flags.compressed,
         )
         .unwrap();
+        let proof_bytes = output.proof_bytes;
 
         // Get expected proof from prepare_resource
         let iv = [0x42u8; 16];
@@ -528,7 +537,7 @@ mod tests {
         let parsed = parse_advertisement(&adv_bytes).unwrap();
         let filled: Vec<Option<Vec<u8>>> = parts.into_iter().map(Some).collect();
 
-        let (_result_data, proof_bytes) = collect_and_assemble(
+        let output = collect_and_assemble(
             &filled,
             &key,
             &parsed.random_hash,
@@ -536,6 +545,7 @@ mod tests {
             parsed.flags.compressed,
         )
         .unwrap();
+        let proof_bytes = output.proof_bytes;
 
         // Use wrong expected proof
         let wrong_proof = [0xFFu8; 32];
