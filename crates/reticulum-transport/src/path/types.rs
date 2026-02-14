@@ -1,5 +1,7 @@
 //! Path table types.
 
+use std::collections::VecDeque;
+
 use reticulum_core::types::{PacketHash, TruncatedHash};
 
 use super::constants::*;
@@ -84,7 +86,7 @@ pub struct PathEntry {
     /// Absolute timestamp when this path expires.
     pub expires: u64,
     /// Random blobs from announces (for deduplication and timebase).
-    pub random_blobs: Vec<[u8; 10]>,
+    random_blobs: VecDeque<[u8; 10]>,
     /// Interface on which this path was learned.
     pub receiving_interface: InterfaceId,
     /// Cached packet hash of the announce that created/updated this entry.
@@ -94,7 +96,7 @@ pub struct PathEntry {
 }
 
 impl PathEntry {
-    /// Create a new path entry.
+    /// Create a new path entry with TTL computed from interface mode.
     pub fn new(
         timestamp: u64,
         next_hop: TruncatedHash,
@@ -110,11 +112,45 @@ impl PathEntry {
             next_hop,
             hops,
             expires,
-            random_blobs,
+            random_blobs: VecDeque::from(random_blobs),
             receiving_interface,
             packet_hash,
             unresponsive: false,
         }
+    }
+
+    /// Create a path entry from raw fields (for deserialization).
+    #[allow(clippy::too_many_arguments)]
+    pub fn from_raw(
+        timestamp: u64,
+        next_hop: TruncatedHash,
+        hops: u8,
+        expires: u64,
+        random_blobs: Vec<[u8; 10]>,
+        receiving_interface: InterfaceId,
+        packet_hash: PacketHash,
+        unresponsive: bool,
+    ) -> Self {
+        Self {
+            timestamp,
+            next_hop,
+            hops,
+            expires,
+            random_blobs: VecDeque::from(random_blobs),
+            receiving_interface,
+            packet_hash,
+            unresponsive,
+        }
+    }
+
+    /// Access the random blobs.
+    pub fn random_blobs(&self) -> &VecDeque<[u8; 10]> {
+        &self.random_blobs
+    }
+
+    /// Convert random blobs to a Vec for serialization.
+    pub fn random_blobs_to_vec(&self) -> Vec<[u8; 10]> {
+        self.random_blobs.iter().copied().collect()
     }
 
     /// Check if this path is expired at the given time.
@@ -144,9 +180,9 @@ impl PathEntry {
     pub fn add_random_blob(&mut self, blob: [u8; 10]) {
         if !self.has_random_blob(&blob) {
             if self.random_blobs.len() >= MAX_RANDOM_BLOBS {
-                self.random_blobs.remove(0);
+                self.random_blobs.pop_front();
             }
-            self.random_blobs.push(blob);
+            self.random_blobs.push_back(blob);
         }
     }
 

@@ -107,27 +107,36 @@ pub struct LinkStats {
 }
 
 /// A 64-byte derived key split into signing (first 32) and encryption (last 32).
-pub struct DerivedKey([u8; 64]);
+pub struct DerivedKey {
+    signing: [u8; 32],
+    encryption: [u8; 32],
+}
 
 impl DerivedKey {
     pub fn new(bytes: [u8; 64]) -> Self {
-        Self(bytes)
+        let mut signing = [0u8; 32];
+        let mut encryption = [0u8; 32];
+        signing.copy_from_slice(&bytes[..32]);
+        encryption.copy_from_slice(&bytes[32..]);
+        Self { signing, encryption }
     }
 
-    pub fn as_bytes(&self) -> &[u8; 64] {
-        &self.0
+    /// Reconstruct the full 64-byte key (signing || encryption).
+    pub fn to_bytes(&self) -> [u8; 64] {
+        let mut out = [0u8; 64];
+        out[..32].copy_from_slice(&self.signing);
+        out[32..].copy_from_slice(&self.encryption);
+        out
     }
 
     /// First 32 bytes: used for HMAC signing in Token encrypt/decrypt.
     pub fn signing_key(&self) -> &[u8; 32] {
-        // SAFETY: self.0 is [u8; 64], so [..32] is always exactly 32 bytes.
-        self.0[..32].try_into().unwrap()
+        &self.signing
     }
 
     /// Last 32 bytes: used for AES-256-CBC encryption in Token encrypt/decrypt.
     pub fn encryption_key(&self) -> &[u8; 32] {
-        // SAFETY: self.0 is [u8; 64], so [32..] is always exactly 32 bytes.
-        self.0[32..].try_into().unwrap()
+        &self.encryption
     }
 }
 
@@ -139,7 +148,10 @@ impl std::fmt::Debug for DerivedKey {
 
 impl Clone for DerivedKey {
     fn clone(&self) -> Self {
-        Self(self.0)
+        Self {
+            signing: self.signing,
+            encryption: self.encryption,
+        }
     }
 }
 
@@ -148,6 +160,7 @@ impl Drop for DerivedKey {
         // Zero out key material on drop.
         // This is best-effort; the compiler may optimize it away.
         // For production use, consider `zeroize` crate.
-        self.0.fill(0);
+        self.signing.fill(0);
+        self.encryption.fill(0);
     }
 }

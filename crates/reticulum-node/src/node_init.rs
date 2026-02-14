@@ -3,13 +3,6 @@
 //! These functions extract the decision logic from `Node::new()` and
 //! `Node::run()` into stateless, testable functions.
 
-/// Whether IFAC (Interface Access Control) should be enabled.
-///
-/// IFAC is enabled if either a network name or network key is configured.
-pub fn plan_ifac_config(network_name: Option<&str>, network_key: Option<&str>) -> bool {
-    network_name.is_some() || network_key.is_some()
-}
-
 /// How storage should be initialized.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StorageInitPlan {
@@ -55,28 +48,6 @@ pub fn compute_persist_config(persist_secs: u64, has_storage: bool) -> PersistCo
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    // -- plan_ifac_config tests -----------------------------------------------
-
-    #[test]
-    fn ifac_both_none() {
-        assert!(!plan_ifac_config(None, None));
-    }
-
-    #[test]
-    fn ifac_name_only() {
-        assert!(plan_ifac_config(Some("testnet"), None));
-    }
-
-    #[test]
-    fn ifac_key_only() {
-        assert!(plan_ifac_config(None, Some("secret")));
-    }
-
-    #[test]
-    fn ifac_both_set() {
-        assert!(plan_ifac_config(Some("testnet"), Some("secret")));
-    }
 
     // -- plan_storage_init tests ----------------------------------------------
 

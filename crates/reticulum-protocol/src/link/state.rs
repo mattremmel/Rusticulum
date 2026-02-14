@@ -436,7 +436,7 @@ impl LinkPending {
 
         // Encode RTT as msgpack and encrypt with Token
         let rtt_msgpack = encode_rtt_msgpack(rtt);
-        let token = Token::new(derived_key.as_bytes());
+        let token = Token::new(&derived_key.to_bytes());
         let encrypted_rtt = match fixed_iv {
             Some(iv) => token.encrypt_with_iv(&rtt_msgpack, iv),
             None => token.encrypt(&rtt_msgpack),
@@ -642,7 +642,7 @@ impl LinkHandshake {
     /// uses the larger of the initiator's RTT and our own measured RTT.
     pub fn receive_rtt(self, encrypted_rtt: &[u8]) -> Result<LinkActive, LinkError> {
         // Decrypt using Token with derived key
-        let token = Token::new(self.derived_key.as_bytes());
+        let token = Token::new(&self.derived_key.to_bytes());
         let plaintext = token.decrypt(encrypted_rtt)?;
 
         // Decode msgpack → f64
@@ -736,20 +736,20 @@ impl LinkActive {
     /// Returns `IV(16) || ciphertext || HMAC(32)`.
     pub fn encrypt(&self, plaintext: &[u8]) -> Result<Vec<u8>, LinkError> {
         tracing::trace!(plaintext_len = plaintext.len(), "encrypting link data");
-        let token = Token::new(self.derived_key.as_bytes());
+        let token = Token::new(&self.derived_key.to_bytes());
         Ok(token.encrypt(plaintext))
     }
 
     /// Encrypt data with a specific IV (for deterministic testing).
     pub fn encrypt_with_iv(&self, plaintext: &[u8], iv: &[u8; 16]) -> Result<Vec<u8>, LinkError> {
-        let token = Token::new(self.derived_key.as_bytes());
+        let token = Token::new(&self.derived_key.to_bytes());
         Ok(token.encrypt_with_iv(plaintext, iv))
     }
 
     /// Decrypt data using the link's derived key (Token format).
     pub fn decrypt(&self, ciphertext: &[u8]) -> Result<Vec<u8>, LinkError> {
         tracing::trace!(ciphertext_len = ciphertext.len(), "decrypting link data");
-        let token = Token::new(self.derived_key.as_bytes());
+        let token = Token::new(&self.derived_key.to_bytes());
         Ok(token.decrypt(ciphertext)?)
     }
 

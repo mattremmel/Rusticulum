@@ -84,7 +84,7 @@ mod tests {
     use reticulum_core::packet::context::ContextType;
     use reticulum_core::packet::flags::PacketFlags;
     use reticulum_core::types::DestinationHash;
-    use reticulum_transport::ifac::ifac_verify;
+    use reticulum_transport::ifac::{IfacCredentials, ifac_verify};
 
     use crate::link_packets::dest_hash_to_link_id;
 
@@ -157,7 +157,7 @@ mod tests {
 
     #[test]
     fn apply_ifac_with_config_modifies_output() {
-        let ifac = IfacConfig::new(Some("testnet"), Some("secret"), 8);
+        let ifac = IfacConfig::new(IfacCredentials::NameAndKey { name: "testnet", key: "secret" }, 8);
 
         // Build a minimal valid packet (at least 3 bytes: header + hops + data)
         let packet = make_test_packet([0xAA; 16]);
@@ -172,7 +172,7 @@ mod tests {
 
     #[test]
     fn apply_ifac_roundtrip_with_verify() {
-        let ifac = IfacConfig::new(Some("testnet"), Some("key123"), 8);
+        let ifac = IfacConfig::new(IfacCredentials::NameAndKey { name: "testnet", key: "key123" }, 8);
 
         let packet = make_test_packet([0xBB; 16]);
         let raw = packet.serialize();
@@ -193,7 +193,7 @@ mod tests {
 
     #[test]
     fn verify_ifac_config_no_flag_rejected() {
-        let ifac = IfacConfig::new(Some("testnet"), Some("key"), 8);
+        let ifac = IfacConfig::new(IfacCredentials::NameAndKey { name: "testnet", key: "key" }, 8);
         // Packet without IFAC flag (bit 7 clear) should be rejected when IFAC is configured
         let packet = make_test_packet([0xAA; 16]);
         let raw = packet.serialize();
@@ -222,7 +222,7 @@ mod tests {
 
     #[test]
     fn verify_ifac_config_flag_ok() {
-        let ifac = IfacConfig::new(Some("testnet"), Some("key"), 8);
+        let ifac = IfacConfig::new(IfacCredentials::NameAndKey { name: "testnet", key: "key" }, 8);
         let packet = make_test_packet([0xBB; 16]);
         let raw = packet.serialize();
 
@@ -237,7 +237,7 @@ mod tests {
 
     #[test]
     fn verify_ifac_config_flag_fail() {
-        let ifac = IfacConfig::new(Some("testnet"), Some("key"), 8);
+        let ifac = IfacConfig::new(IfacCredentials::NameAndKey { name: "testnet", key: "key" }, 8);
         let packet = make_test_packet([0xCC; 16]);
         let raw = packet.serialize();
 

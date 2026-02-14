@@ -252,20 +252,19 @@ mod tests {
             let pe = &tv.path_entry;
             let next_hop_bytes = hex::decode(&pe.next_hop).unwrap();
 
-            let entry = PathEntry {
-                timestamp: pe.timestamp,
-                next_hop: TruncatedHash::try_from(next_hop_bytes.as_slice()).unwrap(),
-                hops: pe.hops as u8,
-                expires: pe.expires,
-                random_blobs: pe
-                    .random_blobs
+            let entry = PathEntry::from_raw(
+                pe.timestamp,
+                TruncatedHash::try_from(next_hop_bytes.as_slice()).unwrap(),
+                pe.hops as u8,
+                pe.expires,
+                pe.random_blobs
                     .iter()
                     .map(|b| hex::decode(b).unwrap().try_into().unwrap())
                     .collect(),
-                receiving_interface: InterfaceId(0),
-                packet_hash: packet_hash_from_hex(&pe.packet_hash),
-                unresponsive: false,
-            };
+                InterfaceId(0),
+                packet_hash_from_hex(&pe.packet_hash),
+                false,
+            );
 
             let valid = !entry.is_expired(tv.check_time);
             assert_eq!(
@@ -322,16 +321,16 @@ mod tests {
             let initial = &tv.path_entry_initial;
             let next_hop_bytes = hex::decode(&initial.next_hop).unwrap();
 
-            let mut entry = PathEntry {
-                timestamp: initial.timestamp,
-                next_hop: TruncatedHash::try_from(next_hop_bytes.as_slice()).unwrap(),
-                hops: initial.hops as u8,
-                expires: initial.expires,
-                random_blobs: vec![],
-                receiving_interface: InterfaceId(0),
-                packet_hash: packet_hash_from_hex(&initial.packet_hash),
-                unresponsive: false,
-            };
+            let mut entry = PathEntry::from_raw(
+                initial.timestamp,
+                TruncatedHash::try_from(next_hop_bytes.as_slice()).unwrap(),
+                initial.hops as u8,
+                initial.expires,
+                vec![],
+                InterfaceId(0),
+                packet_hash_from_hex(&initial.packet_hash),
+                false,
+            );
 
             assert_eq!(entry.expires, tv.original_expiry);
 
@@ -344,16 +343,16 @@ mod tests {
             );
 
             // Check validity at test time
-            let without_refresh = !PathEntry {
-                timestamp: initial.timestamp,
-                next_hop: entry.next_hop,
-                hops: entry.hops,
-                expires: tv.original_expiry,
-                random_blobs: vec![],
-                receiving_interface: InterfaceId(0),
-                packet_hash: entry.packet_hash,
-                unresponsive: false,
-            }
+            let without_refresh = !PathEntry::from_raw(
+                initial.timestamp,
+                entry.next_hop,
+                entry.hops,
+                tv.original_expiry,
+                vec![],
+                InterfaceId(0),
+                entry.packet_hash,
+                false,
+            )
             .is_expired(tv.check_time);
             assert_eq!(
                 without_refresh, tv.without_refresh_valid,
@@ -394,16 +393,16 @@ mod tests {
 
             let next_hop_bytes = hex::decode(&pe.next_hop).unwrap();
 
-            let entry = PathEntry {
-                timestamp: pe.timestamp,
-                next_hop: TruncatedHash::try_from(next_hop_bytes.as_slice()).unwrap(),
-                hops: pe.hops as u8,
-                expires: pe.expires,
-                random_blobs: vec![],
-                receiving_interface: iface_id,
-                packet_hash: packet_hash_from_hex(&pe.packet_hash),
-                unresponsive: false,
-            };
+            let entry = PathEntry::from_raw(
+                pe.timestamp,
+                TruncatedHash::try_from(next_hop_bytes.as_slice()).unwrap(),
+                pe.hops as u8,
+                pe.expires,
+                vec![],
+                iface_id,
+                packet_hash_from_hex(&pe.packet_hash),
+                false,
+            );
 
             table.insert(dest, entry);
 
@@ -504,11 +503,11 @@ mod tests {
 
         entry.add_random_blob(make_blob(2));
         assert!(entry.has_random_blob(&make_blob(2)));
-        assert_eq!(entry.random_blobs.len(), 2);
+        assert_eq!(entry.random_blobs().len(), 2);
 
         // Adding duplicate should not increase count
         entry.add_random_blob(make_blob(2));
-        assert_eq!(entry.random_blobs.len(), 2);
+        assert_eq!(entry.random_blobs().len(), 2);
     }
 
     #[test]
@@ -527,14 +526,14 @@ mod tests {
             entry.add_random_blob(make_blob(i as u8));
         }
         assert_eq!(
-            entry.random_blobs.len(),
+            entry.random_blobs().len(),
             crate::path::constants::MAX_RANDOM_BLOBS
         );
 
         // Adding one more should evict the oldest
         entry.add_random_blob(make_blob(0xFF));
         assert_eq!(
-            entry.random_blobs.len(),
+            entry.random_blobs().len(),
             crate::path::constants::MAX_RANDOM_BLOBS
         );
         assert!(!entry.has_random_blob(&make_blob(0)));

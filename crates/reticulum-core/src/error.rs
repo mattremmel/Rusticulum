@@ -1,7 +1,6 @@
 //! Error types for the reticulum-core crate.
 
 extern crate alloc;
-use alloc::string::String;
 use core::fmt;
 
 use reticulum_crypto::CryptoError;
@@ -107,7 +106,9 @@ impl std::error::Error for FramingError {}
 #[derive(Debug)]
 pub enum AnnounceError {
     PayloadTooShort { min: usize, actual: usize },
-    InvalidSignature(String),
+    NotAnAnnounce,
+    InvalidPublicKey,
+    SignatureVerificationFailed,
     InvalidDestinationHash,
     IdentityError(IdentityError),
     PacketError(PacketError),
@@ -122,8 +123,14 @@ impl fmt::Display for AnnounceError {
                     "announce payload too short: need at least {min} bytes, got {actual}"
                 )
             }
-            AnnounceError::InvalidSignature(reason) => {
-                write!(f, "invalid announce signature: {reason}")
+            AnnounceError::NotAnAnnounce => {
+                write!(f, "packet is not an announce")
+            }
+            AnnounceError::InvalidPublicKey => {
+                write!(f, "invalid announce public key")
+            }
+            AnnounceError::SignatureVerificationFailed => {
+                write!(f, "announce signature verification failed")
             }
             AnnounceError::InvalidDestinationHash => {
                 write!(f, "destination hash does not match identity")
@@ -214,7 +221,9 @@ mod tests {
                 min: 100,
                 actual: 10,
             },
-            AnnounceError::InvalidSignature("bad sig".into()),
+            AnnounceError::NotAnAnnounce,
+            AnnounceError::InvalidPublicKey,
+            AnnounceError::SignatureVerificationFailed,
             AnnounceError::InvalidDestinationHash,
             AnnounceError::IdentityError(IdentityError::NoPrivateKey),
             AnnounceError::PacketError(PacketError::InvalidDestinationHash),

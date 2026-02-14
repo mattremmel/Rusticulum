@@ -95,7 +95,7 @@ impl ResourceManager {
 
         let prepared = prepare_resource(
             data,
-            derived_key.as_bytes(),
+            &derived_key.to_bytes(),
             &iv,
             random_hash,
             None,  // no metadata for MVP

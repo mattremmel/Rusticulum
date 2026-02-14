@@ -22,6 +22,29 @@ pub const IFAC_FLAG: u8 = 0x80;
 /// Minimum IFAC size in bytes.
 pub const IFAC_MIN_SIZE: usize = 1;
 
+/// Credentials for IFAC key derivation.
+///
+/// Enforces at compile time that at least one credential is provided.
+pub enum IfacCredentials<'a> {
+    NameOnly(&'a str),
+    KeyOnly(&'a str),
+    NameAndKey { name: &'a str, key: &'a str },
+}
+
+impl<'a> IfacCredentials<'a> {
+    /// Convenience constructor from optional name and key.
+    ///
+    /// Returns `None` if both are `None`.
+    pub fn from_options(name: Option<&'a str>, key: Option<&'a str>) -> Option<Self> {
+        match (name, key) {
+            (Some(n), Some(k)) => Some(Self::NameAndKey { name: n, key: k }),
+            (Some(n), None) => Some(Self::NameOnly(n)),
+            (None, Some(k)) => Some(Self::KeyOnly(k)),
+            (None, None) => None,
+        }
+    }
+}
+
 /// IFAC configuration and identity for an interface.
 pub struct IfacConfig {
     /// The 64-byte IFAC key.
@@ -33,16 +56,20 @@ pub struct IfacConfig {
 }
 
 impl IfacConfig {
-    /// Derive an IFAC configuration from network name and/or key.
-    ///
-    /// At least one of `netname` or `netkey` must be `Some`.
-    pub fn new(netname: Option<&str>, netkey: Option<&str>, ifac_size: usize) -> Self {
+    /// Derive an IFAC configuration from credentials.
+    pub fn new(credentials: IfacCredentials<'_>, ifac_size: usize) -> Self {
         let mut ifac_origin = Vec::new();
-        if let Some(name) = netname {
-            ifac_origin.extend_from_slice(&sha256(name.as_bytes()));
-        }
-        if let Some(key) = netkey {
-            ifac_origin.extend_from_slice(&sha256(key.as_bytes()));
+        match credentials {
+            IfacCredentials::NameOnly(name) => {
+                ifac_origin.extend_from_slice(&sha256(name.as_bytes()));
+            }
+            IfacCredentials::KeyOnly(key) => {
+                ifac_origin.extend_from_slice(&sha256(key.as_bytes()));
+            }
+            IfacCredentials::NameAndKey { name, key } => {
+                ifac_origin.extend_from_slice(&sha256(name.as_bytes()));
+                ifac_origin.extend_from_slice(&sha256(key.as_bytes()));
+            }
         }
 
         let ifac_origin_hash = sha256(&ifac_origin);
@@ -196,7 +223,9 @@ mod tests {
         netkey: Option<&str>,
         ifac_size: usize,
     ) -> IfacConfig {
-        IfacConfig::new(netname, netkey, ifac_size)
+        let credentials = IfacCredentials::from_options(netname, netkey)
+            .expect("test config needs at least one credential");
+        IfacConfig::new(credentials, ifac_size)
     }
 
     #[test]
@@ -291,19 +320,21 @@ mod tests {
 
         // Test with netname only
         let v = &kd.vectors[0];
-        let config = IfacConfig::new(Some(v.ifac_netname.as_deref().unwrap()), None, 16);
+        let config = IfacConfig::new(IfacCredentials::NameOnly(v.ifac_netname.as_deref().unwrap()), 16);
         assert_eq!(hex::encode(config.ifac_key), v.ifac_key);
 
         // Test with netkey only
         let v = &kd.vectors[1];
-        let config = IfacConfig::new(None, Some(v.ifac_netkey.as_deref().unwrap()), 16);
+        let config = IfacConfig::new(IfacCredentials::KeyOnly(v.ifac_netkey.as_deref().unwrap()), 16);
         assert_eq!(hex::encode(config.ifac_key), v.ifac_key);
 
         // Test with both
         let v = &kd.vectors[2];
         let config = IfacConfig::new(
-            Some(v.ifac_netname.as_deref().unwrap()),
-            Some(v.ifac_netkey.as_deref().unwrap()),
+            IfacCredentials::NameAndKey {
+                name: v.ifac_netname.as_deref().unwrap(),
+                key: v.ifac_netkey.as_deref().unwrap(),
+            },
             16,
         );
         assert_eq!(hex::encode(config.ifac_key), v.ifac_key);
@@ -520,7 +551,7 @@ mod tests {
             "null\0bytes\0here", // null bytes
         ];
         for name in unusual_names {
-            let config = IfacConfig::new(Some(name), None, 8);
+            let config = IfacConfig::new(IfacCredentials::NameOnly(name), 8);
             let raw = vec![0x00, 0x01, 0xAA, 0xBB, 0xCC];
             let applied = ifac_apply(&config, &raw).unwrap();
             let recovered = ifac_verify(&config, &applied).unwrap();
@@ -579,8 +610,15 @@ mod proptests {
     use std::sync::LazyLock;
 
     /// Fixed config to avoid expensive Ed25519 keygen per test case.
-    static CONFIG: LazyLock<IfacConfig> =
-        LazyLock::new(|| IfacConfig::new(Some("proptest"), Some("key"), 8));
+    static CONFIG: LazyLock<IfacConfig> = LazyLock::new(|| {
+        IfacConfig::new(
+            IfacCredentials::NameAndKey {
+                name: "proptest",
+                key: "key",
+            },
+            8,
+        )
+    });
 
     proptest! {
         #![proptest_config(ProptestConfig::with_cases(256))]

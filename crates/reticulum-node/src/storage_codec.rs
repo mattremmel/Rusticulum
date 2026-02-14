@@ -41,7 +41,7 @@ pub struct StorablePathEntry {
 ///
 /// Truncates random blobs to [`MAX_PERSISTED_BLOBS`].
 pub fn path_entry_to_storable(dest: &DestinationHash, entry: &PathEntry) -> StorablePathEntry {
-    let mut blobs = entry.random_blobs.clone();
+    let mut blobs = entry.random_blobs_to_vec();
     blobs.truncate(MAX_PERSISTED_BLOBS);
 
     let mut dest_hash = [0u8; 16];
@@ -67,16 +67,16 @@ pub fn path_entry_to_storable(dest: &DestinationHash, entry: &PathEntry) -> Stor
 /// Convert a storable entry back into a (DestinationHash, PathEntry) pair.
 pub fn storable_to_path_entry(storable: StorablePathEntry) -> (DestinationHash, PathEntry) {
     let dest = DestinationHash::new(storable.dest_hash);
-    let entry = PathEntry {
-        timestamp: storable.timestamp,
-        next_hop: TruncatedHash::new(storable.next_hop),
-        hops: storable.hops,
-        expires: storable.expires,
-        random_blobs: storable.random_blobs,
-        receiving_interface: InterfaceId(storable.receiving_interface),
-        packet_hash: PacketHash::new(storable.packet_hash),
-        unresponsive: storable.unresponsive,
-    };
+    let entry = PathEntry::from_raw(
+        storable.timestamp,
+        TruncatedHash::new(storable.next_hop),
+        storable.hops,
+        storable.expires,
+        storable.random_blobs,
+        InterfaceId(storable.receiving_interface),
+        PacketHash::new(storable.packet_hash),
+        storable.unresponsive,
+    );
     (dest, entry)
 }
 
@@ -172,16 +172,16 @@ mod tests {
     fn path_entry_to_storable_truncates_blobs() {
         let dest = make_dest(1);
         let blobs: Vec<[u8; 10]> = (0u8..64).map(|i| [i; 10]).collect();
-        let entry = PathEntry {
-            timestamp: 1000,
-            next_hop: make_next_hop(1),
-            hops: 1,
-            expires: 1000 + 604800,
-            random_blobs: blobs,
-            receiving_interface: InterfaceId(1),
-            packet_hash: make_packet_hash(1),
-            unresponsive: false,
-        };
+        let entry = PathEntry::from_raw(
+            1000,
+            make_next_hop(1),
+            1,
+            1000 + 604800,
+            blobs,
+            InterfaceId(1),
+            make_packet_hash(1),
+            false,
+        );
 
         let storable = path_entry_to_storable(&dest, &entry);
         assert_eq!(storable.random_blobs.len(), MAX_PERSISTED_BLOBS);
@@ -210,7 +210,7 @@ mod tests {
         assert_eq!(rt_entry.timestamp, entry.timestamp);
         assert_eq!(rt_entry.hops, entry.hops);
         assert_eq!(rt_entry.expires, entry.expires);
-        assert_eq!(rt_entry.random_blobs, entry.random_blobs);
+        assert_eq!(rt_entry.random_blobs_to_vec(), entry.random_blobs_to_vec());
         assert_eq!(rt_entry.receiving_interface.0, entry.receiving_interface.0);
         assert_eq!(rt_entry.packet_hash.as_ref(), entry.packet_hash.as_ref());
         assert_eq!(rt_entry.unresponsive, entry.unresponsive);
@@ -259,16 +259,16 @@ mod tests {
     #[test]
     fn serialize_path_table_preserves_all_fields() {
         let mut table = PathTable::new();
-        let entry = PathEntry {
-            timestamp: 123456,
-            next_hop: make_next_hop(0xDE),
-            hops: 12,
-            expires: 999999,
-            random_blobs: vec![[0x01; 10], [0x02; 10]],
-            receiving_interface: InterfaceId(77),
-            packet_hash: make_packet_hash(0xFE),
-            unresponsive: true,
-        };
+        let entry = PathEntry::from_raw(
+            123456,
+            make_next_hop(0xDE),
+            12,
+            999999,
+            vec![[0x01; 10], [0x02; 10]],
+            InterfaceId(77),
+            make_packet_hash(0xFE),
+            true,
+        );
         table.insert(make_dest(0xAB), entry);
 
         let bytes = serialize_path_table(&table).unwrap();
@@ -279,7 +279,7 @@ mod tests {
         assert_eq!(e.next_hop.as_ref(), &[0xDE; 16]);
         assert_eq!(e.hops, 12);
         assert_eq!(e.expires, 999999);
-        assert_eq!(e.random_blobs, vec![[0x01; 10], [0x02; 10]]);
+        assert_eq!(e.random_blobs_to_vec(), vec![[0x01; 10], [0x02; 10]]);
         assert_eq!(e.receiving_interface.0, 77);
         assert_eq!(e.packet_hash.as_ref(), &[0xFE; 32]);
         assert!(e.unresponsive);
@@ -289,22 +289,22 @@ mod tests {
     fn serialize_path_table_blob_truncation() {
         let mut table = PathTable::new();
         let blobs: Vec<[u8; 10]> = (0u8..64).map(|i| [i; 10]).collect();
-        let entry = PathEntry {
-            timestamp: 1000,
-            next_hop: make_next_hop(1),
-            hops: 1,
-            expires: 1000 + 604800,
-            random_blobs: blobs,
-            receiving_interface: InterfaceId(1),
-            packet_hash: make_packet_hash(1),
-            unresponsive: false,
-        };
+        let entry = PathEntry::from_raw(
+            1000,
+            make_next_hop(1),
+            1,
+            1000 + 604800,
+            blobs,
+            InterfaceId(1),
+            make_packet_hash(1),
+            false,
+        );
         table.insert(make_dest(1), entry);
 
         let bytes = serialize_path_table(&table).unwrap();
         let loaded = deserialize_path_table(&bytes).unwrap();
         let e = loaded.get(&make_dest(1)).unwrap();
-        assert_eq!(e.random_blobs.len(), MAX_PERSISTED_BLOBS);
+        assert_eq!(e.random_blobs().len(), MAX_PERSISTED_BLOBS);
     }
 
     #[test]

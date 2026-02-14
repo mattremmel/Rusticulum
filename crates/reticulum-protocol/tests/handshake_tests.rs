@@ -149,7 +149,7 @@ fn handshake_step2_derived_key_all_vectors() {
 
         // Verify derived key matches
         assert_eq!(
-            handshake.derived_key.as_bytes().as_slice(),
+            handshake.derived_key.to_bytes().as_slice(),
             expected_derived_key.as_slice(),
             "vector {i}: derived_key mismatch"
         );
@@ -259,7 +259,7 @@ fn handshake_step3_initiator_verify_all_vectors() {
         // Verify derived keys match (step3)
         let expected_derived_key = hex::decode(&step3.initiator_derived_key).unwrap();
         assert_eq!(
-            active.derived_key.as_bytes().as_slice(),
+            active.derived_key.to_bytes().as_slice(),
             expected_derived_key.as_slice(),
             "vector {i}: initiator derived_key mismatch"
         );
@@ -357,8 +357,8 @@ fn handshake_full_roundtrip_all_vectors() {
 
         // Verify both sides have the same derived key
         assert_eq!(
-            initiator_active.derived_key.as_bytes(),
-            responder_active.derived_key.as_bytes(),
+            initiator_active.derived_key.to_bytes(),
+            responder_active.derived_key.to_bytes(),
             "vector {i}: derived keys don't match between initiator and responder"
         );
 
@@ -578,13 +578,13 @@ fn handshake_random_keys_roundtrip() {
 
     // Both sides should have the same derived key
     assert_eq!(
-        init_active.derived_key.as_bytes(),
-        resp_active.derived_key.as_bytes(),
+        init_active.derived_key.to_bytes(),
+        resp_active.derived_key.to_bytes(),
     );
     assert_eq!(init_active.link_id, resp_active.link_id);
 
     // Derived key is 64 bytes
-    assert_eq!(init_active.derived_key.as_bytes().len(), 64);
+    assert_eq!(init_active.derived_key.to_bytes().len(), 64);
     // Link ID is 16 bytes
     assert_eq!(init_active.link_id.as_ref().len(), 16);
 

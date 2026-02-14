@@ -24,7 +24,6 @@
 //! ```
 
 extern crate alloc;
-use alloc::string::String;
 use alloc::vec::Vec;
 
 use reticulum_crypto::ed25519::{Ed25519PublicKey, Ed25519Signature};
@@ -195,9 +194,7 @@ impl Announce {
         let packet = RawPacket::parse(raw)?;
 
         if packet.flags.packet_type != PacketType::Announce {
-            return Err(AnnounceError::InvalidSignature(String::from(
-                "packet is not an announce",
-            )));
+            return Err(AnnounceError::NotAnAnnounce);
         }
 
         Self::from_payload(
@@ -231,19 +228,18 @@ impl Announce {
     /// Validate the announce: verify signature and destination hash.
     pub fn validate(&self) -> Result<(), AnnounceError> {
         // 1. Verify Ed25519 signature
-        let ed25519_pub_bytes: [u8; 32] = self.public_key[32..64].try_into().map_err(|_| {
-            AnnounceError::InvalidSignature(String::from("public key slice conversion"))
-        })?;
-        let ed25519_pub = Ed25519PublicKey::from_bytes(ed25519_pub_bytes).map_err(|e| {
-            AnnounceError::InvalidSignature(alloc::format!("invalid public key: {e}"))
-        })?;
+        let ed25519_pub_bytes: [u8; 32] = self.public_key[32..64]
+            .try_into()
+            .map_err(|_| AnnounceError::InvalidPublicKey)?;
+        let ed25519_pub =
+            Ed25519PublicKey::from_bytes(ed25519_pub_bytes).map_err(|_| AnnounceError::InvalidPublicKey)?;
 
         let signed_data = self.signed_data();
         let sig = Ed25519Signature::from_bytes(self.signature);
 
-        ed25519_pub.verify(&signed_data, &sig).map_err(|_| {
-            AnnounceError::InvalidSignature(String::from("signature verification failed"))
-        })?;
+        ed25519_pub
+            .verify(&signed_data, &sig)
+            .map_err(|_| AnnounceError::SignatureVerificationFailed)?;
 
         // 2. Verify destination hash
         let identity_hash = compute_identity_hash(&self.public_key);

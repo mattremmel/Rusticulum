@@ -92,7 +92,7 @@ impl Request {
         let value = rmpv::decode::read_value(&mut &data[..])
             .map_err(|e| RequestError::Failed(format!("msgpack decode error: {e}")))?;
 
-        let arr = match value {
+        let mut arr = match value {
             Value::Array(a) if a.len() == 3 => a,
             _ => return Err(RequestError::Failed("expected 3-element array".into())),
         };
@@ -120,8 +120,7 @@ impl Request {
             timestamp,
             path_hash,
             data: arr
-                .into_iter()
-                .nth(2)
+                .pop()
                 .ok_or_else(|| RequestError::Failed("missing element 2".into()))?,
         })
     }
@@ -157,7 +156,7 @@ impl Response {
         let value = rmpv::decode::read_value(&mut &data[..])
             .map_err(|e| RequestError::Failed(format!("msgpack decode error: {e}")))?;
 
-        let arr = match value {
+        let mut arr = match value {
             Value::Array(a) if a.len() == 2 => a,
             _ => return Err(RequestError::Failed("expected 2-element array".into())),
         };
@@ -178,8 +177,7 @@ impl Response {
         Ok(Self {
             request_id,
             data: arr
-                .into_iter()
-                .nth(1)
+                .pop()
                 .ok_or_else(|| RequestError::Failed("missing element 1".into()))?,
         })
     }

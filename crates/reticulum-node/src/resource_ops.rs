@@ -101,7 +101,7 @@ pub fn collect_and_assemble(
 
     let assembled = assemble_resource(
         &collected,
-        derived_key.as_bytes(),
+        &derived_key.to_bytes(),
         random_hash,
         resource_hash,
         compressed,
@@ -196,7 +196,7 @@ mod tests {
 
         let prepared = prepare_resource(
             data,
-            key.as_bytes(),
+            &key.to_bytes(),
             &iv,
             random_hash,
             None,
@@ -382,7 +382,7 @@ mod tests {
 
         let prepared = prepare_resource(
             data,
-            key.as_bytes(),
+            &key.to_bytes(),
             &iv,
             random_hash,
             None,
@@ -499,7 +499,7 @@ mod tests {
         let random_hash = [0xAA, 0xBB, 0xCC, 0xDD];
         let prepared = prepare_resource(
             data,
-            key.as_bytes(),
+            &key.to_bytes(),
             &iv,
             random_hash,
             None,

@@ -225,7 +225,7 @@ proptest! {
         let active2 = link_active_from_derived_key(key2, [0x42; 16]);
 
         // Only test when keys are actually different
-        if active1.derived_key.as_bytes() != active2.derived_key.as_bytes() {
+        if active1.derived_key.to_bytes() != active2.derived_key.to_bytes() {
             let encrypted = active1.encrypt(&plaintext).unwrap();
             prop_assert!(active2.decrypt(&encrypted).is_err());
         }
@@ -237,7 +237,7 @@ proptest! {
         key1 in arb_derived_key(),
         key2 in arb_derived_key(),
     ) {
-        if key1.as_bytes() != key2.as_bytes() {
+        if key1.to_bytes() != key2.to_bytes() {
             let active1 = link_active_from_derived_key(key1, [0x42; 16]);
             let active2 = link_active_from_derived_key(key2, [0x42; 16]);
             let encrypted = active1.encrypt(b"test data").unwrap();

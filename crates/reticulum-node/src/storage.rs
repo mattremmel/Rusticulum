@@ -240,7 +240,7 @@ mod tests {
         let e1 = loaded.get(&make_dest(1)).unwrap();
         assert_eq!(e1.timestamp, 1000);
         assert_eq!(e1.hops, 3);
-        assert_eq!(e1.random_blobs.len(), 2);
+        assert_eq!(e1.random_blobs().len(), 2);
 
         let e2 = loaded.get(&make_dest(2)).unwrap();
         assert_eq!(e2.timestamp, 2000);
@@ -265,17 +265,17 @@ mod tests {
 
         // Create entry with 64 blobs
         let blobs: Vec<[u8; 10]> = (0u8..64).map(|i| [i; 10]).collect();
-        let entry = PathEntry {
-            timestamp: 1000,
-            next_hop: make_next_hop(1),
-            hops: 1,
-            expires: 1000 + 604800,
-            random_blobs: blobs,
-            receiving_interface: InterfaceId(1),
-            packet_hash: make_packet_hash(1),
-            unresponsive: false,
-        };
-        assert_eq!(entry.random_blobs.len(), 64);
+        let entry = PathEntry::from_raw(
+            1000,
+            make_next_hop(1),
+            1,
+            1000 + 604800,
+            blobs,
+            InterfaceId(1),
+            make_packet_hash(1),
+            false,
+        );
+        assert_eq!(entry.random_blobs().len(), 64);
 
         let mut table = PathTable::new();
         table.insert(make_dest(1), entry);
@@ -283,7 +283,7 @@ mod tests {
         storage.save_path_table(&table).await.unwrap();
         let loaded = storage.load_path_table().await.unwrap();
         let e = loaded.get(&make_dest(1)).unwrap();
-        assert_eq!(e.random_blobs.len(), MAX_PERSISTED_BLOBS);
+        assert_eq!(e.random_blobs().len(), MAX_PERSISTED_BLOBS);
     }
 
     #[tokio::test]

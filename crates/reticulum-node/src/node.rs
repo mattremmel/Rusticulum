@@ -31,7 +31,7 @@ use reticulum_core::constants::PacketType;
 use reticulum_core::packet::context::ContextType;
 use reticulum_core::packet::wire::RawPacket;
 use reticulum_core::types::TruncatedHash;
-use reticulum_transport::ifac::IfacConfig;
+use reticulum_transport::ifac::{IfacConfig, IfacCredentials};
 use reticulum_transport::router::dispatch::PacketRouter;
 use reticulum_transport::router::types::RouterAction;
 
@@ -110,18 +110,11 @@ impl Node {
     pub fn new(config: NodeConfig) -> Self {
         let router = PacketRouter::new();
 
-        let ifac_config = if node_init::plan_ifac_config(
+        let ifac_config = IfacCredentials::from_options(
             config.node.network_name.as_deref(),
             config.node.network_key.as_deref(),
-        ) {
-            Some(IfacConfig::new(
-                config.node.network_name.as_deref(),
-                config.node.network_key.as_deref(),
-                config.node.ifac_size as usize,
-            ))
-        } else {
-            None
-        };
+        )
+        .map(|c| IfacConfig::new(c, config.node.ifac_size as usize));
 
         // Initialize storage (non-fatal)
         let storage = match node_init::plan_storage_init(
