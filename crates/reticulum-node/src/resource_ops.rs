@@ -8,7 +8,8 @@ use reticulum_protocol::link::types::DerivedKey;
 use reticulum_protocol::resource::advertisement::{ResourceAdvertisement, ResourceFlags};
 use reticulum_protocol::resource::hashmap::ResourceHashmap;
 use reticulum_protocol::resource::transfer::{
-    assemble_resource, encode_part_request, encode_proof_payload,
+    assemble_resource, decode_part_request, decode_proof_payload, encode_part_request,
+    encode_proof_payload, validate_proof,
 };
 
 /// Parsed and validated resource advertisement, ready for transfer setup.
@@ -112,6 +113,67 @@ pub fn collect_and_assemble(
     let proof_bytes = encode_proof_payload(&assembled.resource_hash, &assembled.proof);
 
     Ok((assembled.data_with_metadata, proof_bytes))
+}
+
+// ======================================================================== //
+// Extraction: select_parts_for_request
+// ======================================================================== //
+
+/// Parts selected for a part request.
+pub struct PartSelection {
+    /// The resource hash from the request.
+    pub resource_hash: [u8; 32],
+    /// The selected parts to send (MVP: all available parts).
+    pub selected_parts: Vec<Vec<u8>>,
+}
+
+/// Decode a part request and select matching parts from the available set.
+///
+/// MVP behaviour: returns all available parts regardless of which map hashes
+/// were requested. The resource_hash is extracted for the caller to validate
+/// against its outgoing transfer table.
+pub fn select_parts_for_request(
+    request_data: &[u8],
+    available_parts: &[Vec<u8>],
+) -> Result<PartSelection, String> {
+    let req = decode_part_request(request_data)
+        .map_err(|e| format!("decode part request: {e}"))?;
+
+    Ok(PartSelection {
+        resource_hash: req.resource_hash,
+        selected_parts: available_parts.to_vec(),
+    })
+}
+
+// ======================================================================== //
+// Extraction: validate_resource_proof
+// ======================================================================== //
+
+/// Result of validating a resource proof.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ProofValidation {
+    /// The proof matched the expected value.
+    Valid { resource_hash: [u8; 32] },
+    /// The proof did not match the expected value.
+    Invalid { resource_hash: [u8; 32] },
+}
+
+/// Decode a proof payload and validate it against the expected proof.
+///
+/// Returns `Valid` or `Invalid` with the resource_hash, or an error
+/// if the proof data cannot be decoded.
+pub fn validate_resource_proof(
+    proof_data: &[u8],
+    expected_proof: &[u8; 32],
+) -> Result<ProofValidation, String> {
+    let (resource_hash, _proof) =
+        decode_proof_payload(proof_data).map_err(|e| format!("decode proof: {e}"))?;
+
+    if validate_proof(proof_data, expected_proof) {
+        Ok(ProofValidation::Valid { resource_hash })
+    } else {
+        Ok(ProofValidation::Invalid { resource_hash })
+    }
 }
 
 #[cfg(test)]
@@ -314,7 +376,7 @@ mod tests {
 
     #[test]
     fn collect_and_assemble_proof_matches_prepare() {
-        use reticulum_protocol::resource::transfer::validate_proof;
+        use reticulum_protocol::resource::transfer::validate_proof as proto_validate_proof;
 
         let data = b"proof validation roundtrip";
         let key = make_test_derived_key();
@@ -355,6 +417,174 @@ mod tests {
         .unwrap();
 
         // The proof should validate against the expected proof from prepare_resource
-        assert!(validate_proof(&proof_bytes, &prepared.expected_proof));
+        assert!(proto_validate_proof(&proof_bytes, &prepared.expected_proof));
+    }
+
+    // -- select_parts_for_request tests -----------------------------------------
+
+    #[test]
+    fn select_parts_valid_request() {
+        let (adv_bytes, parts, _, _) = prepare_test_resource(b"test data");
+        let parsed = parse_advertisement(&adv_bytes).unwrap();
+
+        let selection =
+            select_parts_for_request(&parsed.initial_request, &parts).unwrap();
+        assert_eq!(selection.resource_hash, parsed.resource_hash);
+        assert_eq!(selection.selected_parts.len(), parts.len());
+    }
+
+    #[test]
+    fn select_parts_single_part() {
+        let (adv_bytes, parts, _, _) = prepare_test_resource(b"tiny");
+        let parsed = parse_advertisement(&adv_bytes).unwrap();
+        assert_eq!(parts.len(), 1);
+
+        let selection =
+            select_parts_for_request(&parsed.initial_request, &parts).unwrap();
+        assert_eq!(selection.selected_parts.len(), 1);
+        assert_eq!(selection.selected_parts[0], parts[0]);
+    }
+
+    #[test]
+    fn select_parts_multiple() {
+        let data: Vec<u8> = (0..2000u16).map(|i| (i % 256) as u8).collect();
+        let (adv_bytes, parts, _, _) = prepare_test_resource(&data);
+        let parsed = parse_advertisement(&adv_bytes).unwrap();
+        assert!(parts.len() > 1);
+
+        let selection =
+            select_parts_for_request(&parsed.initial_request, &parts).unwrap();
+        assert_eq!(selection.selected_parts.len(), parts.len());
+        for (i, part) in selection.selected_parts.iter().enumerate() {
+            assert_eq!(part, &parts[i]);
+        }
+    }
+
+    #[test]
+    fn select_parts_empty_request_error() {
+        let result = select_parts_for_request(&[], &[vec![1, 2, 3]]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn select_parts_corrupt_request_error() {
+        let result = select_parts_for_request(&[0xAB, 0xCD], &[vec![1, 2, 3]]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn select_parts_resource_hash_extracted() {
+        let (adv_bytes, parts, resource_hash, _) = prepare_test_resource(b"hash check");
+        let parsed = parse_advertisement(&adv_bytes).unwrap();
+
+        let selection =
+            select_parts_for_request(&parsed.initial_request, &parts).unwrap();
+        assert_eq!(selection.resource_hash, resource_hash);
+    }
+
+    // -- validate_resource_proof tests ------------------------------------------
+
+    #[test]
+    fn validate_proof_valid() {
+        let data = b"proof test data";
+        let key = make_test_derived_key();
+        let (adv_bytes, parts, _, _) = prepare_test_resource(data);
+        let parsed = parse_advertisement(&adv_bytes).unwrap();
+        let filled: Vec<Option<Vec<u8>>> = parts.into_iter().map(Some).collect();
+
+        let (_result_data, proof_bytes) = collect_and_assemble(
+            &filled,
+            &key,
+            &parsed.random_hash,
+            &parsed.resource_hash,
+            parsed.flags.compressed,
+        )
+        .unwrap();
+
+        // Get expected proof from prepare_resource
+        let iv = [0x42u8; 16];
+        let random_hash = [0xAA, 0xBB, 0xCC, 0xDD];
+        let prepared = prepare_resource(
+            data,
+            key.as_bytes(),
+            &iv,
+            random_hash,
+            None, false, 1, 1, None, None,
+        )
+        .unwrap();
+
+        let result = validate_resource_proof(&proof_bytes, &prepared.expected_proof).unwrap();
+        assert_eq!(
+            result,
+            ProofValidation::Valid {
+                resource_hash: parsed.resource_hash
+            }
+        );
+    }
+
+    #[test]
+    fn validate_proof_invalid() {
+        let data = b"proof test data";
+        let key = make_test_derived_key();
+        let (adv_bytes, parts, _, _) = prepare_test_resource(data);
+        let parsed = parse_advertisement(&adv_bytes).unwrap();
+        let filled: Vec<Option<Vec<u8>>> = parts.into_iter().map(Some).collect();
+
+        let (_result_data, proof_bytes) = collect_and_assemble(
+            &filled,
+            &key,
+            &parsed.random_hash,
+            &parsed.resource_hash,
+            parsed.flags.compressed,
+        )
+        .unwrap();
+
+        // Use wrong expected proof
+        let wrong_proof = [0xFFu8; 32];
+        let result = validate_resource_proof(&proof_bytes, &wrong_proof).unwrap();
+        assert_eq!(
+            result,
+            ProofValidation::Invalid {
+                resource_hash: parsed.resource_hash
+            }
+        );
+    }
+
+    #[test]
+    fn validate_proof_too_short_error() {
+        let result = validate_resource_proof(&[0x00; 10], &[0x00; 32]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn validate_proof_empty_error() {
+        let result = validate_resource_proof(&[], &[0x00; 32]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn validate_proof_wrong_length_error() {
+        // 63 bytes instead of 64
+        let result = validate_resource_proof(&[0x00; 63], &[0x00; 32]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn validate_proof_extracts_resource_hash() {
+        // Construct a valid 64-byte proof payload manually
+        let resource_hash = [0xAA; 32];
+        let proof = [0xBB; 32];
+        let mut proof_data = Vec::new();
+        proof_data.extend_from_slice(&resource_hash);
+        proof_data.extend_from_slice(&proof);
+
+        // Expected proof matches
+        let result = validate_resource_proof(&proof_data, &proof).unwrap();
+        match result {
+            ProofValidation::Valid { resource_hash: rh } => {
+                assert_eq!(rh, resource_hash);
+            }
+            _ => panic!("expected Valid"),
+        }
     }
 }

@@ -11,10 +11,7 @@ use reticulum_protocol::link::types::DerivedKey;
 use reticulum_protocol::resource::advertisement::{ResourceAdvertisement, ResourceFlags};
 use reticulum_protocol::resource::constants::SDU;
 use reticulum_protocol::resource::hashmap::ResourceHashmap;
-use reticulum_protocol::resource::transfer::{
-    decode_part_request, decode_proof_payload,
-    prepare_resource, validate_proof,
-};
+use reticulum_protocol::resource::transfer::prepare_resource;
 
 use crate::resource_ops;
 
@@ -149,63 +146,68 @@ impl ResourceManager {
         &mut self,
         request_data: &[u8],
     ) -> Result<(LinkId, Vec<Vec<u8>>), String> {
-        let req =
-            decode_part_request(request_data).map_err(|e| format!("decode part request: {e}"))?;
+        let selection = resource_ops::select_parts_for_request(request_data, &[])?;
 
         let transfer = self
             .outgoing
-            .get_mut(&req.resource_hash)
-            .ok_or_else(|| format!("unknown resource hash: {}", hex::encode(req.resource_hash)))?;
+            .get_mut(&selection.resource_hash)
+            .ok_or_else(|| {
+                format!(
+                    "unknown resource hash: {}",
+                    hex::encode(selection.resource_hash)
+                )
+            })?;
 
         transfer.state = OutgoingState::Transferring;
 
-        // Find parts matching the requested map hashes
-        // The receiver sends back the map hashes of parts it needs.
-        // For our simple MVP, the receiver requests ALL parts initially.
-        // We match by iterating our parts and checking if their map hash is in the request.
-        let mut result = Vec::new();
-
-        // Build a hashmap to verify which parts are requested
-        // For MVP: if the receiver sends all map hashes from the advertisement,
-        // we send all parts in order.
-        for part in &transfer.parts {
-            result.push(part.clone());
-        }
+        // Re-select with the actual parts now that we've validated the resource hash
+        let selection =
+            resource_ops::select_parts_for_request(request_data, &transfer.parts)?;
 
         tracing::info!(
-            resource_hash = %hex::encode(req.resource_hash),
-            parts_sent = result.len(),
+            resource_hash = %hex::encode(selection.resource_hash),
+            parts_sent = selection.selected_parts.len(),
             "handling part request"
         );
 
-        Ok((transfer.link_id, result))
+        Ok((transfer.link_id, selection.selected_parts))
     }
 
     /// Handle a proof from the receiver.
     ///
     /// Returns true if the proof is valid and the transfer is complete.
     pub fn handle_proof(&mut self, proof_data: &[u8]) -> Result<bool, String> {
-        let (resource_hash, _proof) =
-            decode_proof_payload(proof_data).map_err(|e| format!("decode proof: {e}"))?;
+        // Peek at the resource hash to find the transfer (validate with dummy first)
+        let peek = resource_ops::validate_resource_proof(proof_data, &[0u8; 32])?;
+        let resource_hash = match &peek {
+            resource_ops::ProofValidation::Valid { resource_hash }
+            | resource_ops::ProofValidation::Invalid { resource_hash } => *resource_hash,
+        };
 
         let transfer = self
             .outgoing
             .get_mut(&resource_hash)
             .ok_or_else(|| format!("unknown resource hash: {}", hex::encode(resource_hash)))?;
 
-        if validate_proof(proof_data, &transfer.expected_proof) {
-            transfer.state = OutgoingState::Complete;
-            tracing::info!(
-                resource_hash = %hex::encode(resource_hash),
-                "resource_proof_verified"
-            );
-            Ok(true)
-        } else {
-            tracing::warn!(
-                resource_hash = %hex::encode(resource_hash),
-                "resource proof validation failed"
-            );
-            Ok(false)
+        let validation =
+            resource_ops::validate_resource_proof(proof_data, &transfer.expected_proof)?;
+
+        match validation {
+            resource_ops::ProofValidation::Valid { resource_hash } => {
+                transfer.state = OutgoingState::Complete;
+                tracing::info!(
+                    resource_hash = %hex::encode(resource_hash),
+                    "resource_proof_verified"
+                );
+                Ok(true)
+            }
+            resource_ops::ProofValidation::Invalid { resource_hash } => {
+                tracing::warn!(
+                    resource_hash = %hex::encode(resource_hash),
+                    "resource proof validation failed"
+                );
+                Ok(false)
+            }
         }
     }
 

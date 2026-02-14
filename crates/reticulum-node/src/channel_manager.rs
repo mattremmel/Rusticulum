@@ -8,12 +8,14 @@ use std::collections::HashMap;
 
 use reticulum_core::types::LinkId;
 use reticulum_protocol::buffer::constants::SMT_STREAM_DATA;
-use reticulum_protocol::buffer::stream_data::StreamDataMessage;
+use reticulum_protocol::buffer::stream_data::StreamHeader;
 use reticulum_protocol::channel::envelope::Envelope;
 use reticulum_protocol::channel::state::ChannelState;
-use reticulum_protocol::request::types::{PathHash, Request, RequestId, Response};
+use reticulum_protocol::request::types::{PathHash, Request, RequestId};
 
-use crate::channel_ops;
+use crate::channel_ops::{
+    self, ChannelEnvelopeAction, ResponseMatch, StreamAccumulationResult,
+};
 
 /// Actions the node should take after processing a channel event.
 #[derive(Debug)]
@@ -110,46 +112,52 @@ impl ChannelManager {
     ) -> Option<ChannelAction> {
         let ctx = self.channels.get_mut(link_id)?;
 
-        let envelope = match Envelope::unpack(plaintext) {
-            Ok(e) => e,
+        let (action, sequence) = match channel_ops::classify_channel_envelope(
+            plaintext,
+            ctx.state.next_rx_sequence(),
+            ctx.state.window_max,
+        ) {
+            Ok(result) => result,
             Err(e) => {
                 tracing::warn!(
                     link_id = %hex::encode(link_id.as_ref()),
-                    "failed to unpack channel envelope: {e}"
+                    "failed to classify channel envelope: {e}"
                 );
                 return None;
             }
         };
 
-        // Validate sequence
-        if !ctx.state.is_rx_valid(envelope.sequence, ctx.state.window_max) {
-            tracing::warn!(
-                link_id = %hex::encode(link_id.as_ref()),
-                sequence = envelope.sequence,
-                "channel sequence rejected"
-            );
-            return None;
-        }
-        ctx.state.advance_rx_sequence();
-
-        tracing::info!(
-            link_id = %hex::encode(link_id.as_ref()),
-            msg_type = envelope.msg_type,
-            sequence = envelope.sequence,
-            payload_len = envelope.payload.len(),
-            "channel_message_received"
-        );
-
-        // Dispatch by msg_type
-        if envelope.msg_type == SMT_STREAM_DATA {
-            // Buffer stream data
-            self.handle_stream_data_inner(link_id, &envelope.payload)
-        } else {
-            // Application message
-            Some(ChannelAction::MessageReceived {
-                msg_type: envelope.msg_type,
-                payload: envelope.payload,
-            })
+        match action {
+            ChannelEnvelopeAction::SequenceRejected { sequence } => {
+                tracing::warn!(
+                    link_id = %hex::encode(link_id.as_ref()),
+                    sequence,
+                    "channel sequence rejected"
+                );
+                None
+            }
+            ChannelEnvelopeAction::StreamData { payload } => {
+                ctx.state.advance_rx_sequence();
+                tracing::info!(
+                    link_id = %hex::encode(link_id.as_ref()),
+                    msg_type = SMT_STREAM_DATA,
+                    sequence,
+                    payload_len = payload.len(),
+                    "channel_message_received"
+                );
+                self.handle_stream_data_inner(link_id, &payload)
+            }
+            ChannelEnvelopeAction::ApplicationMessage { msg_type, payload } => {
+                ctx.state.advance_rx_sequence();
+                tracing::info!(
+                    link_id = %hex::encode(link_id.as_ref()),
+                    msg_type,
+                    sequence,
+                    payload_len = payload.len(),
+                    "channel_message_received"
+                );
+                Some(ChannelAction::MessageReceived { msg_type, payload })
+            }
         }
     }
 
@@ -159,8 +167,23 @@ impl ChannelManager {
         link_id: &LinkId,
         stream_packed: &[u8],
     ) -> Option<ChannelAction> {
-        let msg = match StreamDataMessage::unpack(stream_packed) {
-            Ok(m) => m,
+        let ctx = self.channels.get_mut(link_id)?;
+
+        // Peek at the stream header to get stream_id for buffer lookup
+        let header = match StreamHeader::decode(stream_packed) {
+            Ok(h) => h,
+            Err(e) => {
+                tracing::warn!(
+                    link_id = %hex::encode(link_id.as_ref()),
+                    "failed to decode stream header: {e}"
+                );
+                return None;
+            }
+        };
+
+        let existing = ctx.rx_buffers.entry(header.stream_id).or_default();
+        let result = match channel_ops::decide_stream_accumulation(stream_packed, existing) {
+            Ok(r) => r,
             Err(e) => {
                 tracing::warn!(
                     link_id = %hex::encode(link_id.as_ref()),
@@ -170,38 +193,30 @@ impl ChannelManager {
             }
         };
 
-        let ctx = self.channels.get_mut(link_id)?;
-
-        // Accumulate data
-        let buffer = ctx.rx_buffers.entry(msg.header.stream_id).or_default();
-        buffer.extend_from_slice(&msg.data);
-
-        tracing::debug!(
-            link_id = %hex::encode(link_id.as_ref()),
-            stream_id = msg.header.stream_id,
-            chunk_len = msg.data.len(),
-            total_len = buffer.len(),
-            is_eof = msg.header.is_eof,
-            "buffer_chunk_received"
-        );
-
-        if msg.header.is_eof {
-            let complete_data = ctx
-                .rx_buffers
-                .remove(&msg.header.stream_id)
-                .unwrap_or_default();
-            tracing::info!(
-                link_id = %hex::encode(link_id.as_ref()),
-                stream_id = msg.header.stream_id,
-                total_len = complete_data.len(),
-                "buffer_complete"
-            );
-            Some(ChannelAction::BufferComplete {
-                stream_id: msg.header.stream_id,
-                data: complete_data,
-            })
-        } else {
-            None
+        match result {
+            StreamAccumulationResult::Accumulating {
+                stream_id,
+                updated_buffer,
+            } => {
+                tracing::debug!(
+                    link_id = %hex::encode(link_id.as_ref()),
+                    stream_id,
+                    total_len = updated_buffer.len(),
+                    "buffer_chunk_received"
+                );
+                *ctx.rx_buffers.entry(stream_id).or_default() = updated_buffer;
+                None
+            }
+            StreamAccumulationResult::Complete { stream_id, data } => {
+                ctx.rx_buffers.remove(&stream_id);
+                tracing::info!(
+                    link_id = %hex::encode(link_id.as_ref()),
+                    stream_id,
+                    total_len = data.len(),
+                    "buffer_complete"
+                );
+                Some(ChannelAction::BufferComplete { stream_id, data })
+            }
         }
     }
 
@@ -261,35 +276,34 @@ impl ChannelManager {
 
     /// Handle a decrypted response (from a RESPONSE context packet).
     pub fn handle_response(&mut self, link_id: &LinkId, plaintext: &[u8]) {
-        let response = match Response::from_msgpack(plaintext) {
-            Ok(r) => r,
-            Err(e) => {
+        match channel_ops::match_pending_response(plaintext, &self.pending_requests) {
+            ResponseMatch::Matched {
+                request_id,
+                path,
+                data_preview,
+            } => {
+                self.pending_requests.remove(&request_id);
+                tracing::info!(
+                    link_id = %hex::encode(link_id.as_ref()),
+                    request_id = %hex::encode(request_id),
+                    path,
+                    data_preview = %&data_preview[..data_preview.len().min(200)],
+                    "response_received"
+                );
+            }
+            ResponseMatch::Unmatched { request_id } => {
+                tracing::debug!(
+                    link_id = %hex::encode(link_id.as_ref()),
+                    request_id = %hex::encode(request_id),
+                    "received response for unknown request"
+                );
+            }
+            ResponseMatch::ParseError(e) => {
                 tracing::warn!(
                     link_id = %hex::encode(link_id.as_ref()),
-                    "failed to parse response: {e}"
+                    "{e}"
                 );
-                return;
             }
-        };
-
-        let mut key = [0u8; 16];
-        key.copy_from_slice(response.request_id.as_ref());
-
-        if let Some((_, path)) = self.pending_requests.remove(&key) {
-            let data_preview = channel_ops::format_response_preview(&response.data);
-            tracing::info!(
-                link_id = %hex::encode(link_id.as_ref()),
-                request_id = %hex::encode(key),
-                path,
-                data_preview = %&data_preview[..data_preview.len().min(200)],
-                "response_received"
-            );
-        } else {
-            tracing::debug!(
-                link_id = %hex::encode(link_id.as_ref()),
-                request_id = %hex::encode(key),
-                "received response for unknown request"
-            );
         }
     }
 
@@ -400,6 +414,8 @@ impl ChannelManager {
 mod tests {
     use super::*;
     use reticulum_core::types::TruncatedHash;
+    use reticulum_protocol::channel::envelope::Envelope;
+    use reticulum_protocol::request::types::Response;
     use rmpv::Value;
 
     #[test]
