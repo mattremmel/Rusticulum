@@ -22,9 +22,8 @@ use reticulum_interfaces::local::{
     LocalClientConfig, LocalClientInterface, LocalServerConfig, LocalServerInterface,
 };
 
-use reticulum_core::announce::{Announce, make_random_hash};
+use reticulum_core::announce::make_random_hash;
 use reticulum_core::constants::PacketType;
-use reticulum_core::destination;
 use reticulum_core::packet::context::ContextType;
 use reticulum_core::packet::wire::RawPacket;
 use reticulum_core::types::TruncatedHash;
@@ -217,39 +216,40 @@ impl Node {
 
         // Build announces from configured destinations
         if let Some(ref identity) = self.transport_identity {
-            for dest_cfg in &self.config.destinations {
-                let aspect_refs: Vec<&str> = dest_cfg.aspects.iter().map(|s| s.as_str()).collect();
-                let nh = destination::name_hash(&dest_cfg.app_name, &aspect_refs);
-                let dh = destination::destination_hash(&nh, identity.hash());
-                let random_hash = make_random_hash();
-                let app_data = dest_cfg.app_data.as_deref().map(|s| s.as_bytes());
+            let random_hashes: Vec<[u8; 10]> = self
+                .config
+                .destinations
+                .iter()
+                .map(|_| make_random_hash())
+                .collect();
 
-                // Register as link-accepting destination if configured
-                if dest_cfg.accept_links {
-                    self.link_manager.register_local_destination(
-                        dh,
-                        &dest_cfg.app_name,
-                        &dest_cfg.aspects,
-                    );
-                }
+            let build = crate::announce_builder::build_all_announces(
+                identity,
+                &self.config.destinations,
+                &random_hashes,
+            );
 
-                match Announce::create(identity, nh, dh, random_hash, None, app_data) {
-                    Ok(announce) => {
-                        let raw = announce.to_raw_packet(0).serialize();
-                        tracing::info!(
-                            destination_hash = %hex::encode(dh.as_ref()),
-                            app_name = %dest_cfg.app_name,
-                            "queued_announce"
-                        );
-                        self.pending_announces.push(raw);
-                    }
-                    Err(e) => {
-                        tracing::warn!(
-                            app_name = %dest_cfg.app_name,
-                            "failed to create announce: {e}"
-                        );
-                    }
-                }
+            for reg in &build.registrations {
+                self.link_manager.register_local_destination(
+                    reg.dest_hash,
+                    &reg.app_name,
+                    &reg.aspects,
+                );
+            }
+
+            for (dh, raw) in build.announces {
+                tracing::info!(
+                    destination_hash = %hex::encode(dh.as_ref()),
+                    "queued_announce"
+                );
+                self.pending_announces.push(raw);
+            }
+
+            for (app_name, err) in &build.errors {
+                tracing::warn!(
+                    app_name = %app_name,
+                    "failed to create announce: {err}"
+                );
             }
         }
 

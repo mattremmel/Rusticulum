@@ -13,7 +13,7 @@ use reticulum_protocol::channel::envelope::Envelope;
 use reticulum_protocol::channel::state::ChannelState;
 use reticulum_protocol::request::types::{PathHash, Request, RequestId, Response};
 
-use rmpv::Value;
+use crate::channel_ops;
 
 /// Actions the node should take after processing a channel event.
 #[derive(Debug)]
@@ -240,27 +240,14 @@ impl ChannelManager {
         let handler = self.request_handlers.get(&key)?;
 
         // Extract request data as bytes
-        let request_data = match &request.data {
-            Value::Binary(b) => b.clone(),
-            Value::String(s) => s.as_str().unwrap_or("").as_bytes().to_vec(),
-            other => {
-                let mut buf = Vec::new();
-                rmpv::encode::write_value(&mut buf, other).ok()?;
-                buf
-            }
-        };
+        let request_data = channel_ops::extract_request_data(&request.data)?;
 
         let response_data = handler(&request_data);
 
         // Compute request_id from the hashable_part of the incoming packet
         let request_id = RequestId::from_hashable_part(hashable_part);
 
-        let response = Response {
-            request_id,
-            data: Value::Binary(response_data),
-        };
-
-        let response_bytes = response.to_msgpack();
+        let response_bytes = channel_ops::build_response_bytes(request_id, response_data);
 
         tracing::info!(
             link_id = %hex::encode(link_id.as_ref()),
@@ -289,10 +276,7 @@ impl ChannelManager {
         key.copy_from_slice(response.request_id.as_ref());
 
         if let Some((_, path)) = self.pending_requests.remove(&key) {
-            let data_preview = match &response.data {
-                Value::Binary(b) => String::from_utf8_lossy(b).to_string(),
-                other => format!("{other:?}"),
-            };
+            let data_preview = channel_ops::format_response_preview(&response.data);
             tracing::info!(
                 link_id = %hex::encode(link_id.as_ref()),
                 request_id = %hex::encode(key),
@@ -340,18 +324,7 @@ impl ChannelManager {
         data: &[u8],
         eof: bool,
     ) -> Option<Vec<u8>> {
-        use reticulum_protocol::buffer::stream_data::{StreamDataMessage, StreamHeader};
-
-        let stream_msg = StreamDataMessage {
-            header: StreamHeader {
-                stream_id,
-                is_eof: eof,
-                is_compressed: false, // small data, skip compression for MVP
-            },
-            data: data.to_vec(),
-        };
-
-        let stream_packed = stream_msg.pack();
+        let stream_packed = channel_ops::build_stream_data_packed(stream_id, data, eof);
         self.build_channel_message(link_id, SMT_STREAM_DATA, &stream_packed)
     }
 
@@ -367,13 +340,7 @@ impl ChannelManager {
             .unwrap_or_default()
             .as_secs_f64();
 
-        let request = Request {
-            timestamp,
-            path_hash: PathHash::from_path(path),
-            data: Value::Binary(data.to_vec()),
-        };
-
-        let packed = request.to_msgpack();
+        let packed = channel_ops::build_request_msgpack(path, data, timestamp);
 
         tracing::debug!(
             link_id = %hex::encode(link_id.as_ref()),
@@ -433,6 +400,7 @@ impl ChannelManager {
 mod tests {
     use super::*;
     use reticulum_core::types::TruncatedHash;
+    use rmpv::Value;
 
     #[test]
     fn test_register_link() {
