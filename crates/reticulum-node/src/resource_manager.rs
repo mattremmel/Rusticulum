@@ -12,9 +12,11 @@ use reticulum_protocol::resource::advertisement::{ResourceAdvertisement, Resourc
 use reticulum_protocol::resource::constants::SDU;
 use reticulum_protocol::resource::hashmap::ResourceHashmap;
 use reticulum_protocol::resource::transfer::{
-    assemble_resource, decode_part_request, decode_proof_payload, encode_part_request,
-    encode_proof_payload, prepare_resource, validate_proof,
+    decode_part_request, decode_proof_payload,
+    prepare_resource, validate_proof,
 };
+
+use crate::resource_ops;
 
 /// State of an outgoing resource transfer.
 #[derive(Debug)]
@@ -216,53 +218,34 @@ impl ResourceManager {
         link_id: LinkId,
         adv_bytes: &[u8],
     ) -> Result<([u8; 32], Vec<u8>), String> {
-        let adv = ResourceAdvertisement::from_msgpack(adv_bytes)
-            .map_err(|e| format!("decode advertisement: {e}"))?;
-
-        let flags = adv.decoded_flags();
-        let resource_hash = adv.resource_hash;
-        let random_hash = adv.random_hash;
-
-        // Build hashmap from advertisement
-        let hashmap = ResourceHashmap::from_bytes(&adv.hashmap, random_hash)
-            .map_err(|e| format!("decode hashmap: {e}"))?;
-
-        let num_parts = hashmap.len();
-
-        // Build initial part request: request all parts
-        let all_map_hashes: Vec<[u8; 4]> = (0..num_parts)
-            .map(|i| *hashmap.get(i).unwrap())
-            .collect();
-
-        let request_bytes = encode_part_request(false, &resource_hash, &all_map_hashes, None);
-
-        // Store incoming transfer state
-        let parts = vec![None; num_parts];
+        let parsed = resource_ops::parse_advertisement(adv_bytes)?;
 
         tracing::info!(
-            resource_hash = %hex::encode(resource_hash),
+            resource_hash = %hex::encode(parsed.resource_hash),
             link_id = %hex::encode(link_id.as_ref()),
-            num_parts,
-            transfer_size = adv.transfer_size,
-            data_size = adv.data_size,
-            compressed = flags.compressed,
+            num_parts = parsed.num_parts,
+            transfer_size = parsed.advertisement.transfer_size,
+            data_size = parsed.advertisement.data_size,
+            compressed = parsed.flags.compressed,
             "accepted resource advertisement"
         );
+
+        let parts = vec![None; parsed.num_parts];
 
         self.incoming.insert(
             link_id,
             IncomingTransfer {
-                advertisement: adv,
-                flags,
-                hashmap,
+                advertisement: parsed.advertisement,
+                flags: parsed.flags,
+                hashmap: parsed.hashmap,
                 parts,
                 received_count: 0,
-                resource_hash,
-                random_hash,
+                resource_hash: parsed.resource_hash,
+                random_hash: parsed.random_hash,
             },
         );
 
-        Ok((resource_hash, request_bytes))
+        Ok((parsed.resource_hash, parsed.initial_request))
     }
 
     /// Receive a resource part.
@@ -281,18 +264,11 @@ impl ResourceManager {
             .ok_or_else(|| format!("no incoming transfer for link {}", hex::encode(link_id.as_ref())))?;
 
         // Find which part this is by matching its map hash
-        let computed_hash = transfer.hashmap.compute_map_hash(part_data);
-        let mut matched_index = None;
-
-        for (i, stored) in transfer.parts.iter().enumerate() {
-            if stored.is_none()
-                && let Some(expected) = transfer.hashmap.get(i)
-                && *expected == computed_hash
-            {
-                matched_index = Some(i);
-                break;
-            }
-        }
+        let matched_index = resource_ops::match_resource_part(
+            &transfer.parts,
+            &transfer.hashmap,
+            part_data,
+        );
 
         match matched_index {
             Some(idx) => {
@@ -340,35 +316,21 @@ impl ResourceManager {
             .get(link_id)
             .ok_or_else(|| format!("no incoming transfer for link {}", hex::encode(link_id.as_ref())))?;
 
-        // Collect all parts in order
-        let parts: Vec<Vec<u8>> = transfer
-            .parts
-            .iter()
-            .enumerate()
-            .map(|(i, p)| {
-                p.clone()
-                    .ok_or_else(|| format!("missing part {i}"))
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-
-        let assembled = assemble_resource(
-            &parts,
-            derived_key.as_bytes(),
+        let (data, proof_bytes) = resource_ops::collect_and_assemble(
+            &transfer.parts,
+            derived_key,
             &transfer.random_hash,
             &transfer.resource_hash,
             transfer.flags.compressed,
-        )
-        .map_err(|e| format!("assemble_resource failed: {e}"))?;
-
-        let proof_bytes = encode_proof_payload(&assembled.resource_hash, &assembled.proof);
+        )?;
 
         tracing::info!(
-            resource_hash = %hex::encode(assembled.resource_hash),
-            data_len = assembled.data_with_metadata.len(),
+            resource_hash = %hex::encode(transfer.resource_hash),
+            data_len = data.len(),
             "resource_received"
         );
 
-        Ok((assembled.data_with_metadata, proof_bytes))
+        Ok((data, proof_bytes))
     }
 
     /// Check if a resource transfer (outgoing) is complete.

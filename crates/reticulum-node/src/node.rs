@@ -28,7 +28,7 @@ use reticulum_core::destination;
 use reticulum_core::packet::context::ContextType;
 use reticulum_core::packet::wire::RawPacket;
 use reticulum_core::types::TruncatedHash;
-use reticulum_transport::ifac::{IfacConfig, has_ifac_flag, ifac_apply, ifac_verify};
+use reticulum_transport::ifac::{IfacConfig, has_ifac_flag, ifac_verify};
 use reticulum_transport::path::constants::PATHFINDER_M;
 use reticulum_transport::router::dispatch::PacketRouter;
 use reticulum_transport::router::types::RouterAction;
@@ -40,6 +40,7 @@ use crate::config::{NodeConfig, parse_mode, parse_socket_addr};
 use crate::error::NodeError;
 use crate::interface_enum::AnyInterface;
 use crate::link_manager::LinkManager;
+use crate::packet_helpers::{apply_ifac, extract_link_id};
 use crate::resource_manager::ResourceManager;
 use crate::routing::{self, TableMutation, TransportAction};
 use crate::storage::Storage;
@@ -574,17 +575,12 @@ impl Node {
                 continue;
             }
 
-            // Apply IFAC if configured
-            let outbound = if let Some(ref ifac) = self.ifac_config {
-                match ifac_apply(ifac, raw) {
-                    Ok(masked) => masked,
-                    Err(e) => {
-                        tracing::warn!(id = iface_id.0, "IFAC apply failed: {e}");
-                        continue;
-                    }
+            let outbound = match apply_ifac(self.ifac_config.as_ref(), raw) {
+                Ok(data) => data,
+                Err(e) => {
+                    tracing::warn!(id = iface_id.0, "IFAC apply failed: {e}");
+                    continue;
                 }
-            } else {
-                raw.to_vec()
             };
 
             if let Err(e) = iface.transmit(&outbound).await {
@@ -608,16 +604,12 @@ impl Node {
             return;
         }
 
-        let outbound = if let Some(ref ifac) = self.ifac_config {
-            match ifac_apply(ifac, raw) {
-                Ok(masked) => masked,
-                Err(e) => {
-                    tracing::warn!(id = iface_id.0, "IFAC apply failed: {e}");
-                    return;
-                }
+        let outbound = match apply_ifac(self.ifac_config.as_ref(), raw) {
+            Ok(data) => data,
+            Err(e) => {
+                tracing::warn!(id = iface_id.0, "IFAC apply failed: {e}");
+                return;
             }
-        } else {
-            raw.to_vec()
         };
 
         if let Err(e) = iface.transmit(&outbound).await {
@@ -870,9 +862,7 @@ impl Node {
                     // Check for auto-data to send after link establishment
                     // Parse the RTT packet to get the link_id
                     if let Ok(rtt_pkt) = RawPacket::parse(&rtt_raw) {
-                        let link_id_bytes: [u8; 16] =
-                            rtt_pkt.destination.as_ref().try_into().unwrap_or([0u8; 16]);
-                        let link_id = reticulum_core::types::LinkId::new(link_id_bytes);
+                        let link_id = extract_link_id(&rtt_pkt);
                         self.send_auto_data(&link_id).await;
                     }
                     return true;
@@ -1175,12 +1165,7 @@ impl Node {
             None => return false,
         };
 
-        let link_id_bytes: [u8; 16] = packet
-            .destination
-            .as_ref()
-            .try_into()
-            .unwrap_or([0u8; 16]);
-        let link_id = reticulum_core::types::LinkId::new(link_id_bytes);
+        let link_id = extract_link_id(packet);
 
         match self
             .resource_manager
@@ -1261,12 +1246,7 @@ impl Node {
             None => return false,
         };
 
-        let link_id_bytes: [u8; 16] = packet
-            .destination
-            .as_ref()
-            .try_into()
-            .unwrap_or([0u8; 16]);
-        let link_id = reticulum_core::types::LinkId::new(link_id_bytes);
+        let link_id = extract_link_id(packet);
 
         match self.resource_manager.receive_part(&link_id, &plaintext) {
             Ok(result) => {
@@ -1326,12 +1306,7 @@ impl Node {
             return false;
         }
 
-        let link_id_bytes: [u8; 16] = packet
-            .destination
-            .as_ref()
-            .try_into()
-            .unwrap_or([0u8; 16]);
-        let link_id = reticulum_core::types::LinkId::new(link_id_bytes);
+        let link_id = extract_link_id(packet);
 
         // 1. Generate and send proof (Python Channel expects delivery proofs)
         if let Some(proof_raw) = self.link_manager.prove_packet(&link_id, packet) {
@@ -1390,12 +1365,7 @@ impl Node {
             return false;
         }
 
-        let link_id_bytes: [u8; 16] = packet
-            .destination
-            .as_ref()
-            .try_into()
-            .unwrap_or([0u8; 16]);
-        let link_id = reticulum_core::types::LinkId::new(link_id_bytes);
+        let link_id = extract_link_id(packet);
 
         let plaintext = match self.link_manager.handle_link_data(packet) {
             Some(pt) => pt,
@@ -1426,12 +1396,7 @@ impl Node {
             return false;
         }
 
-        let link_id_bytes: [u8; 16] = packet
-            .destination
-            .as_ref()
-            .try_into()
-            .unwrap_or([0u8; 16]);
-        let link_id = reticulum_core::types::LinkId::new(link_id_bytes);
+        let link_id = extract_link_id(packet);
 
         let plaintext = match self.link_manager.handle_link_data(packet) {
             Some(pt) => pt,

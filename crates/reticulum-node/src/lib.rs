@@ -7,11 +7,14 @@ pub mod config;
 pub mod error;
 pub mod interface_enum;
 pub mod channel_manager;
+pub mod link_initiation;
 pub mod link_manager;
 pub mod link_packets;
 pub mod logging;
 pub mod node;
+pub mod packet_helpers;
 pub mod resource_manager;
+pub mod resource_ops;
 pub mod routing;
 pub mod storage;
 
