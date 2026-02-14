@@ -37,17 +37,21 @@ use reticulum_transport::router::types::RouterAction;
 use reticulum_core::identity::Identity;
 
 use crate::announce_processing::{self, AnnounceDecision};
-use crate::inbound_triage;
 use crate::auto_data_plan::{self, AutoDataAction, AutoQueueSnapshot};
 use crate::channel_manager::ChannelManager;
 use crate::config::NodeConfig;
 use crate::error::NodeError;
+use crate::identity_loading;
+use crate::inbound_triage;
 use crate::interface_enum::AnyInterface;
 use crate::link_dispatch::{self, LinkPacketKind};
 use crate::link_manager::LinkManager;
+use crate::link_response;
 use crate::packet_helpers::{
     apply_ifac, extract_link_id, extract_request_id, format_data_preview, verify_ifac,
 };
+use crate::post_transfer_drain;
+use crate::resource_assembly;
 use crate::resource_manager::ResourceManager;
 use crate::routing::{self, TableMutation, TransportAction};
 use crate::storage::Storage;
@@ -169,52 +173,82 @@ impl Node {
         }
 
         // Load or generate transport identity
-        if let Some(ref storage) = self.storage {
+        let identity_load_result = if let Some(ref storage) = self.storage {
             match storage.load_identity().await {
                 Ok(Some(id)) => {
-                    tracing::info!("loaded transport identity");
                     self.transport_identity = Some(id);
+                    Some(Ok(true))
                 }
-                Ok(None) => {
-                    let id = Identity::generate();
+                Ok(None) => Some(Ok(false)),
+                Err(e) => Some(Err(e)),
+            }
+        } else {
+            None
+        };
+        let identity_decision = identity_loading::classify_identity_load(
+            self.storage.is_some(),
+            identity_load_result.as_ref().map(|r| r.as_ref().map(|b| *b).map_err(|_| ())),
+        );
+        match identity_decision {
+            identity_loading::IdentityLoadDecision::Loaded => {
+                tracing::info!("loaded transport identity");
+            }
+            identity_loading::IdentityLoadDecision::GenerateAndSave => {
+                let id = Identity::generate();
+                if let Some(ref storage) = self.storage {
                     if let Err(e) = storage.save_identity(&id).await {
                         tracing::warn!("failed to save new identity: {e}");
                     } else {
                         tracing::info!("generated and saved new transport identity");
                     }
-                    self.transport_identity = Some(id);
                 }
-                Err(e) => {
-                    tracing::warn!("failed to load identity: {e}");
-                    self.transport_identity = Some(Identity::generate());
-                }
+                self.transport_identity = Some(id);
             }
+            identity_loading::IdentityLoadDecision::GenerateFallback => {
+                if let Some(Err(ref e)) = identity_load_result {
+                    tracing::warn!("failed to load identity: {e}");
+                }
+                self.transport_identity = Some(Identity::generate());
+            }
+            identity_loading::IdentityLoadDecision::NoStorage => {}
+        }
 
-            // Load path table
-            match storage.load_path_table().await {
+        // Load path table
+        if let Some(ref storage) = self.storage {
+            let pt_result = match storage.load_path_table().await {
                 Ok(table) => {
                     let count = table.len();
-                    if count > 0 {
-                        tracing::info!("loaded {count} path table entries");
-                    }
                     self.router.set_path_table(table);
+                    Ok(count)
                 }
-                Err(e) => {
-                    tracing::warn!("failed to load path table: {e}");
+                Err(e) => Err(e.to_string()),
+            };
+            match identity_loading::classify_state_load(pt_result) {
+                identity_loading::StateLoadOutcome::Loaded { count } => {
+                    tracing::info!("loaded {count} path table entries");
+                }
+                identity_loading::StateLoadOutcome::UseDefault => {}
+                identity_loading::StateLoadOutcome::Failed { error } => {
+                    tracing::warn!("failed to load path table: {error}");
                 }
             }
 
             // Load hashlist
-            match storage.load_hashlist().await {
+            let hl_result = match storage.load_hashlist().await {
                 Ok(hashlist) => {
                     let count = hashlist.len();
-                    if count > 0 {
-                        tracing::info!("loaded {count} hashlist entries");
-                    }
                     self.router.set_hashlist(hashlist);
+                    Ok(count)
                 }
-                Err(e) => {
-                    tracing::warn!("failed to load hashlist: {e}");
+                Err(e) => Err(e.to_string()),
+            };
+            match identity_loading::classify_state_load(hl_result) {
+                identity_loading::StateLoadOutcome::Loaded { count } => {
+                    tracing::info!("loaded {count} hashlist entries");
+                }
+                identity_loading::StateLoadOutcome::UseDefault => {}
+                identity_loading::StateLoadOutcome::Failed { error } => {
+                    tracing::warn!("failed to load hashlist: {error}");
                 }
             }
         }
@@ -819,48 +853,56 @@ impl Node {
 
         match kind {
             LinkPacketKind::LinkRequest => {
-                if let Some(ref identity) = self.transport_identity {
-                    // Clone identity to avoid borrow conflict
+                let has_identity = self.transport_identity.is_some();
+                let proof_raw = if let Some(ref identity) = self.transport_identity {
                     let identity = Identity::from_private_bytes(
                         &identity.private_key_bytes().unwrap_or([0u8; 64]),
                     );
-                    if let Some(proof_raw) =
-                        self.link_manager.handle_link_request(packet, &identity)
-                    {
+                    self.link_manager.handle_link_request(packet, &identity)
+                } else {
+                    None
+                };
+                match link_response::plan_link_request_response(has_identity, proof_raw) {
+                    link_response::LinkRequestOutcome::Accepted { proof_raw } => {
                         self.broadcast_to_interfaces(None, &proof_raw).await;
-                        return true;
+                        true
                     }
+                    link_response::LinkRequestOutcome::NotHandled => false,
                 }
-                false
             }
 
             LinkPacketKind::LinkProof => {
-                if let Some(rtt_raw) = self.link_manager.handle_lrproof(packet) {
-                    self.broadcast_to_interfaces(None, &rtt_raw).await;
-
-                    // Check for auto-data to send after link establishment
-                    if let Ok(rtt_pkt) = RawPacket::parse(&rtt_raw) {
-                        let link_id = extract_link_id(&rtt_pkt);
+                let rtt_raw = self.link_manager.handle_lrproof(packet);
+                match link_response::plan_link_proof_response(rtt_raw) {
+                    link_response::LinkProofOutcome::Accepted { rtt_raw, link_id } => {
+                        self.broadcast_to_interfaces(None, &rtt_raw).await;
                         self.send_auto_data(&link_id).await;
+                        true
                     }
-                    return true;
+                    link_response::LinkProofOutcome::AcceptedNoLinkId { rtt_raw } => {
+                        self.broadcast_to_interfaces(None, &rtt_raw).await;
+                        true
+                    }
+                    link_response::LinkProofOutcome::NotHandled => false,
                 }
-                false
             }
 
             LinkPacketKind::LinkRtt => {
-                if let Some(link_id) = self.link_manager.handle_lrrtt(packet) {
-                    tracing::info!(
-                        link_id = %hex::encode(link_id.as_ref()),
-                        "link_established"
-                    );
-
-                    let rtt = self.link_manager.get_rtt(&link_id).unwrap_or(0.05);
-                    self.channel_manager.register_link(link_id, rtt);
-
-                    return true;
+                let link_id = self.link_manager.handle_lrrtt(packet);
+                let rtt = link_id
+                    .as_ref()
+                    .and_then(|lid| self.link_manager.get_rtt(lid));
+                match link_response::plan_link_rtt_response(link_id, rtt) {
+                    link_response::LinkRttOutcome::Established { link_id, rtt } => {
+                        tracing::info!(
+                            link_id = %hex::encode(link_id.as_ref()),
+                            "link_established"
+                        );
+                        self.channel_manager.register_link(link_id, rtt);
+                        true
+                    }
+                    link_response::LinkRttOutcome::NotHandled => false,
                 }
-                false
             }
 
             LinkPacketKind::LinkData => {
@@ -977,17 +1019,25 @@ impl Node {
             }
         }
 
-        // After transfers, drain channel_manager queues
-        if let Some(channel_msg) = self.channel_manager.drain_auto_channel(link_id) {
-            self.send_channel_message(link_id, channel_msg.as_bytes())
-                .await;
-        }
-        if let Some(buffer_data) = self.channel_manager.drain_auto_buffer(link_id) {
-            self.send_buffer_stream(link_id, buffer_data.as_bytes())
-                .await;
-        }
-        if let Some((path, data)) = self.channel_manager.drain_auto_request(link_id) {
-            self.send_request(link_id, &path, data.as_bytes()).await;
+        // After transfers, drain channel_manager queues via pure function
+        let snapshot = post_transfer_drain::PostTransferSnapshot {
+            channel_message: self.channel_manager.drain_auto_channel(link_id),
+            buffer_data: self.channel_manager.drain_auto_buffer(link_id),
+            request: self.channel_manager.drain_auto_request(link_id),
+        };
+        for action in post_transfer_drain::plan_post_transfer_actions(&snapshot) {
+            match action {
+                post_transfer_drain::PostTransferAction::SendChannelMessage { message } => {
+                    self.send_channel_message(link_id, message.as_bytes())
+                        .await;
+                }
+                post_transfer_drain::PostTransferAction::SendBufferStream { data } => {
+                    self.send_buffer_stream(link_id, data.as_bytes()).await;
+                }
+                post_transfer_drain::PostTransferAction::SendRequest { path, data } => {
+                    self.send_request(link_id, &path, data.as_bytes()).await;
+                }
+            }
         }
     }
 
@@ -1207,52 +1257,70 @@ impl Node {
 
         let link_id = extract_link_id(packet);
 
-        match self.resource_manager.receive_part(&link_id, &plaintext) {
-            Ok(result) => {
-                if result.all_received {
-                    // All parts received — assemble and send proof
-                    let derived_key = match self.link_manager.get_derived_key(&link_id) {
-                        Some(k) => k.clone(),
-                        None => {
-                            tracing::warn!("no derived key for assembly");
-                            return true;
-                        }
-                    };
+        // Build input snapshot for the pure decision function
+        let (receive_ok, all_received, receive_error) =
+            match self.resource_manager.receive_part(&link_id, &plaintext) {
+                Ok(result) => (true, result.all_received, None),
+                Err(e) => (false, false, Some(e.to_string())),
+            };
 
-                    match self
-                        .resource_manager
-                        .assemble_and_prove(&link_id, &derived_key)
-                    {
-                        Ok((data, proof_bytes)) => {
-                            tracing::info!(
-                                link_id = %hex::encode(link_id.as_ref()),
-                                data_len = data.len(),
-                                data_preview = %format_data_preview(&data, 200),
-                                "resource_received"
-                            );
+        let has_derived_key = self.link_manager.get_derived_key(&link_id).is_some();
+        let assembly_result = if receive_ok && all_received && has_derived_key {
+            let derived_key = self.link_manager.get_derived_key(&link_id).unwrap().clone();
+            Some(
+                self.resource_manager
+                    .assemble_and_prove(&link_id, &derived_key)
+                    .map_err(|e| e.to_string()),
+            )
+        } else {
+            None
+        };
 
-                            // Send proof
-                            if let Some(raw) = self.link_manager.encrypt_and_send_with_context(
-                                &link_id,
-                                &proof_bytes,
-                                ContextType::ResourcePrf,
-                            ) {
-                                self.broadcast_to_interfaces(None, &raw).await;
-                                tracing::info!(
-                                    link_id = %hex::encode(link_id.as_ref()),
-                                    "resource proof sent"
-                                );
-                            }
-                        }
-                        Err(e) => {
-                            tracing::warn!("failed to assemble resource: {e}");
-                        }
-                    }
+        let input = resource_assembly::ResourcePartInput {
+            receive_ok,
+            all_received,
+            receive_error,
+            has_derived_key,
+            assembly_result,
+            preview_len: 200,
+        };
+
+        match resource_assembly::plan_resource_assembly(&input) {
+            resource_assembly::ResourceAssemblyOutcome::Assembled {
+                data,
+                proof_bytes,
+                data_preview,
+            } => {
+                tracing::info!(
+                    link_id = %hex::encode(link_id.as_ref()),
+                    data_len = data.len(),
+                    data_preview = %data_preview,
+                    "resource_received"
+                );
+                if let Some(raw) = self.link_manager.encrypt_and_send_with_context(
+                    &link_id,
+                    &proof_bytes,
+                    ContextType::ResourcePrf,
+                ) {
+                    self.broadcast_to_interfaces(None, &raw).await;
+                    tracing::info!(
+                        link_id = %hex::encode(link_id.as_ref()),
+                        "resource proof sent"
+                    );
                 }
                 true
             }
-            Err(e) => {
-                tracing::warn!("failed to receive resource part: {e}");
+            resource_assembly::ResourceAssemblyOutcome::PartReceived => true,
+            resource_assembly::ResourceAssemblyOutcome::NoDerivedKey => {
+                tracing::warn!("no derived key for assembly");
+                true
+            }
+            resource_assembly::ResourceAssemblyOutcome::AssemblyFailed { error } => {
+                tracing::warn!("failed to assemble resource: {error}");
+                true
+            }
+            resource_assembly::ResourceAssemblyOutcome::PartError { error } => {
+                tracing::warn!("failed to receive resource part: {error}");
                 false
             }
         }
