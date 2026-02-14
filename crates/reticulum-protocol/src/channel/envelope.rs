@@ -116,9 +116,12 @@ mod tests {
     fn test_envelope_zero_payload() {
         // 6-byte header with length field = 0 → Ok with empty payload
         let mut data = vec![0u8; 6];
-        data[0] = 0x00; data[1] = 0x01; // msg_type = 1
-        data[2] = 0x00; data[3] = 0x02; // sequence = 2
-        data[4] = 0x00; data[5] = 0x00; // length = 0
+        data[0] = 0x00;
+        data[1] = 0x01; // msg_type = 1
+        data[2] = 0x00;
+        data[3] = 0x02; // sequence = 2
+        data[4] = 0x00;
+        data[5] = 0x00; // length = 0
         let env = Envelope::unpack(&data).unwrap();
         assert_eq!(env.msg_type, 1);
         assert_eq!(env.sequence, 2);
@@ -129,7 +132,8 @@ mod tests {
     fn test_envelope_malformed_length_too_long() {
         // Header claims 100 payload bytes, but only 1 byte after header
         let mut data = vec![0u8; 7];
-        data[4] = 0x00; data[5] = 100; // length = 100
+        data[4] = 0x00;
+        data[5] = 100; // length = 100
         data[6] = 0xFF; // only 1 byte of payload
         let result = Envelope::unpack(&data);
         assert!(result.is_err());

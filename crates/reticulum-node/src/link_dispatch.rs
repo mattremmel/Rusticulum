@@ -75,9 +75,7 @@ pub fn classify_link_packet(
         (PacketType::Data, ContextType::Channel, DestinationType::Link) => {
             LinkPacketKind::ChannelData
         }
-        (PacketType::Data, ContextType::Request, DestinationType::Link) => {
-            LinkPacketKind::Request
-        }
+        (PacketType::Data, ContextType::Request, DestinationType::Link) => LinkPacketKind::Request,
         (PacketType::Data, ContextType::Response, DestinationType::Link) => {
             LinkPacketKind::Response
         }
@@ -101,7 +99,11 @@ mod tests {
     #[test]
     fn link_request() {
         assert_eq!(
-            classify_link_packet(PacketType::LinkRequest, ContextType::None, DestinationType::Single),
+            classify_link_packet(
+                PacketType::LinkRequest,
+                ContextType::None,
+                DestinationType::Single
+            ),
             LinkPacketKind::LinkRequest,
         );
     }
@@ -109,7 +111,11 @@ mod tests {
     #[test]
     fn link_proof() {
         assert_eq!(
-            classify_link_packet(PacketType::Proof, ContextType::Lrproof, DestinationType::Link),
+            classify_link_packet(
+                PacketType::Proof,
+                ContextType::Lrproof,
+                DestinationType::Link
+            ),
             LinkPacketKind::LinkProof,
         );
     }
@@ -133,7 +139,11 @@ mod tests {
     #[test]
     fn resource_advertisement() {
         assert_eq!(
-            classify_link_packet(PacketType::Data, ContextType::ResourceAdv, DestinationType::Link),
+            classify_link_packet(
+                PacketType::Data,
+                ContextType::ResourceAdv,
+                DestinationType::Link
+            ),
             LinkPacketKind::ResourceAdvertisement,
         );
     }
@@ -141,7 +151,11 @@ mod tests {
     #[test]
     fn resource_request() {
         assert_eq!(
-            classify_link_packet(PacketType::Data, ContextType::ResourceReq, DestinationType::Link),
+            classify_link_packet(
+                PacketType::Data,
+                ContextType::ResourceReq,
+                DestinationType::Link
+            ),
             LinkPacketKind::ResourceRequest,
         );
     }
@@ -149,7 +163,11 @@ mod tests {
     #[test]
     fn resource_part() {
         assert_eq!(
-            classify_link_packet(PacketType::Data, ContextType::Resource, DestinationType::Link),
+            classify_link_packet(
+                PacketType::Data,
+                ContextType::Resource,
+                DestinationType::Link
+            ),
             LinkPacketKind::ResourcePart,
         );
     }
@@ -157,7 +175,11 @@ mod tests {
     #[test]
     fn resource_proof() {
         assert_eq!(
-            classify_link_packet(PacketType::Data, ContextType::ResourcePrf, DestinationType::Link),
+            classify_link_packet(
+                PacketType::Data,
+                ContextType::ResourcePrf,
+                DestinationType::Link
+            ),
             LinkPacketKind::ResourceProof,
         );
     }
@@ -165,7 +187,11 @@ mod tests {
     #[test]
     fn channel_data() {
         assert_eq!(
-            classify_link_packet(PacketType::Data, ContextType::Channel, DestinationType::Link),
+            classify_link_packet(
+                PacketType::Data,
+                ContextType::Channel,
+                DestinationType::Link
+            ),
             LinkPacketKind::ChannelData,
         );
     }
@@ -173,7 +199,11 @@ mod tests {
     #[test]
     fn request() {
         assert_eq!(
-            classify_link_packet(PacketType::Data, ContextType::Request, DestinationType::Link),
+            classify_link_packet(
+                PacketType::Data,
+                ContextType::Request,
+                DestinationType::Link
+            ),
             LinkPacketKind::Request,
         );
     }
@@ -181,7 +211,11 @@ mod tests {
     #[test]
     fn response() {
         assert_eq!(
-            classify_link_packet(PacketType::Data, ContextType::Response, DestinationType::Link),
+            classify_link_packet(
+                PacketType::Data,
+                ContextType::Response,
+                DestinationType::Link
+            ),
             LinkPacketKind::Response,
         );
     }
@@ -189,7 +223,11 @@ mod tests {
     #[test]
     fn keepalive() {
         assert_eq!(
-            classify_link_packet(PacketType::Data, ContextType::Keepalive, DestinationType::Link),
+            classify_link_packet(
+                PacketType::Data,
+                ContextType::Keepalive,
+                DestinationType::Link
+            ),
             LinkPacketKind::Keepalive,
         );
     }
@@ -197,7 +235,11 @@ mod tests {
     #[test]
     fn link_close() {
         assert_eq!(
-            classify_link_packet(PacketType::Data, ContextType::LinkClose, DestinationType::Link),
+            classify_link_packet(
+                PacketType::Data,
+                ContextType::LinkClose,
+                DestinationType::Link
+            ),
             LinkPacketKind::LinkClose,
         );
     }
@@ -214,7 +256,11 @@ mod tests {
     fn unknown_combination() {
         // Data with Channel context but Single destination type
         assert_eq!(
-            classify_link_packet(PacketType::Data, ContextType::Channel, DestinationType::Single),
+            classify_link_packet(
+                PacketType::Data,
+                ContextType::Channel,
+                DestinationType::Single
+            ),
             LinkPacketKind::Unknown,
         );
     }
@@ -223,12 +269,20 @@ mod tests {
     fn non_link_destination_returns_unknown() {
         // Proof with Lrproof context but on Single destination
         assert_eq!(
-            classify_link_packet(PacketType::Proof, ContextType::Lrproof, DestinationType::Single),
+            classify_link_packet(
+                PacketType::Proof,
+                ContextType::Lrproof,
+                DestinationType::Single
+            ),
             LinkPacketKind::Unknown,
         );
         // Data with ResourceAdv context but on Plain destination
         assert_eq!(
-            classify_link_packet(PacketType::Data, ContextType::ResourceAdv, DestinationType::Plain),
+            classify_link_packet(
+                PacketType::Data,
+                ContextType::ResourceAdv,
+                DestinationType::Plain
+            ),
             LinkPacketKind::Unknown,
         );
     }

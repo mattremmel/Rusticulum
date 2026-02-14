@@ -458,7 +458,11 @@ mod tests {
         }
 
         // Both should be independently valid (different files)
-        let loaded_id = storage.load_identity().await.unwrap().expect("should load identity");
+        let loaded_id = storage
+            .load_identity()
+            .await
+            .unwrap()
+            .expect("should load identity");
         assert_eq!(loaded_id.public_key_bytes().len(), 64);
 
         let loaded_table = storage.load_path_table().await.unwrap();
@@ -532,7 +536,10 @@ mod tests {
         std::fs::write(dir.path().join(PATH_TABLE_FILE), &full_bytes[..5]).unwrap();
 
         let result = storage.load_path_table().await;
-        assert!(result.is_err(), "truncated postcard should fail to deserialize");
+        assert!(
+            result.is_err(),
+            "truncated postcard should fail to deserialize"
+        );
         match result {
             Err(StorageError::Deserialize(_)) => {}
             Err(other) => panic!("expected Deserialize error, got: {other}"),
@@ -557,7 +564,10 @@ mod tests {
         std::fs::write(dir.path().join(HASHLIST_FILE), &full_bytes[..5]).unwrap();
 
         let result = storage.load_hashlist().await;
-        assert!(result.is_err(), "truncated postcard should fail to deserialize");
+        assert!(
+            result.is_err(),
+            "truncated postcard should fail to deserialize"
+        );
         match result {
             Err(StorageError::Deserialize(_)) => {}
             Err(other) => panic!("expected Deserialize error, got: {other}"),
@@ -587,7 +597,10 @@ mod tests {
             std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o755)).unwrap();
         }
 
-        assert!(result.is_err(), "save to readonly dir should return Io error");
+        assert!(
+            result.is_err(),
+            "save to readonly dir should return Io error"
+        );
         match result {
             Err(StorageError::Io(_)) => {}
             Err(other) => panic!("expected Io error, got: {other}"),
@@ -610,7 +623,11 @@ mod tests {
         assert!(tmp_path.exists());
 
         // Load should return the real identity, ignoring .tmp
-        let loaded = storage.load_identity().await.unwrap().expect("should load real file");
+        let loaded = storage
+            .load_identity()
+            .await
+            .unwrap()
+            .expect("should load real file");
         assert_eq!(identity.hash().as_ref(), loaded.hash().as_ref());
     }
 }

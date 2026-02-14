@@ -161,8 +161,7 @@ impl ResourceManager {
         transfer.state = OutgoingState::Transferring;
 
         // Re-select with the actual parts now that we've validated the resource hash
-        let selection =
-            resource_ops::select_parts_for_request(request_data, &transfer.parts)?;
+        let selection = resource_ops::select_parts_for_request(request_data, &transfer.parts)?;
 
         tracing::info!(
             resource_hash = %hex::encode(selection.resource_hash),
@@ -260,17 +259,16 @@ impl ResourceManager {
         link_id: &LinkId,
         part_data: &[u8],
     ) -> Result<PartComplete, String> {
-        let transfer = self
-            .incoming
-            .get_mut(link_id)
-            .ok_or_else(|| format!("no incoming transfer for link {}", hex::encode(link_id.as_ref())))?;
+        let transfer = self.incoming.get_mut(link_id).ok_or_else(|| {
+            format!(
+                "no incoming transfer for link {}",
+                hex::encode(link_id.as_ref())
+            )
+        })?;
 
         // Find which part this is by matching its map hash
-        let matched_index = resource_ops::match_resource_part(
-            &transfer.parts,
-            &transfer.hashmap,
-            part_data,
-        );
+        let matched_index =
+            resource_ops::match_resource_part(&transfer.parts, &transfer.hashmap, part_data);
 
         match matched_index {
             Some(idx) => {
@@ -313,10 +311,12 @@ impl ResourceManager {
         link_id: &LinkId,
         derived_key: &DerivedKey,
     ) -> Result<(Vec<u8>, Vec<u8>), String> {
-        let transfer = self
-            .incoming
-            .get(link_id)
-            .ok_or_else(|| format!("no incoming transfer for link {}", hex::encode(link_id.as_ref())))?;
+        let transfer = self.incoming.get(link_id).ok_or_else(|| {
+            format!(
+                "no incoming transfer for link {}",
+                hex::encode(link_id.as_ref())
+            )
+        })?;
 
         let (data, proof_bytes) = resource_ops::collect_and_assemble(
             &transfer.parts,
@@ -375,7 +375,8 @@ mod tests {
 
         // Accept advertisement (simulating receiver)
         let recv_link_id = LinkId::new([0xBB; 16]);
-        let (recv_hash, request_bytes) = mgr.accept_advertisement(recv_link_id, &adv_bytes).unwrap();
+        let (recv_hash, request_bytes) =
+            mgr.accept_advertisement(recv_link_id, &adv_bytes).unwrap();
         assert_eq!(recv_hash, resource_hash);
         assert!(!request_bytes.is_empty());
     }
@@ -391,10 +392,14 @@ mod tests {
         let data = b"This is test resource data for a full roundtrip transfer!";
 
         // 1. Sender prepares resource
-        let (resource_hash, adv_bytes) = sender_mgr.prepare_outgoing(sender_link, data, &key).unwrap();
+        let (resource_hash, adv_bytes) = sender_mgr
+            .prepare_outgoing(sender_link, data, &key)
+            .unwrap();
 
         // 2. Receiver accepts advertisement
-        let (_recv_hash, request_bytes) = receiver_mgr.accept_advertisement(receiver_link, &adv_bytes).unwrap();
+        let (_recv_hash, request_bytes) = receiver_mgr
+            .accept_advertisement(receiver_link, &adv_bytes)
+            .unwrap();
 
         // 3. Sender handles part request
         let (_link, parts) = sender_mgr.handle_part_request(&request_bytes).unwrap();
@@ -405,7 +410,9 @@ mod tests {
         }
 
         // 5. Receiver assembles and proves
-        let (received_data, proof_bytes) = receiver_mgr.assemble_and_prove(&receiver_link, &key).unwrap();
+        let (received_data, proof_bytes) = receiver_mgr
+            .assemble_and_prove(&receiver_link, &key)
+            .unwrap();
         assert_eq!(received_data, data);
 
         // 6. Sender validates proof
@@ -426,11 +433,19 @@ mod tests {
         let data: Vec<u8> = (0..2000u16).map(|i| (i % 256) as u8).collect();
 
         // Full transfer
-        let (_resource_hash, adv_bytes) = sender_mgr.prepare_outgoing(sender_link, &data, &key).unwrap();
-        let (_recv_hash, request_bytes) = receiver_mgr.accept_advertisement(receiver_link, &adv_bytes).unwrap();
+        let (_resource_hash, adv_bytes) = sender_mgr
+            .prepare_outgoing(sender_link, &data, &key)
+            .unwrap();
+        let (_recv_hash, request_bytes) = receiver_mgr
+            .accept_advertisement(receiver_link, &adv_bytes)
+            .unwrap();
         let (_link, parts) = sender_mgr.handle_part_request(&request_bytes).unwrap();
 
-        assert!(parts.len() > 1, "expected multiple parts for 2KB data, got {}", parts.len());
+        assert!(
+            parts.len() > 1,
+            "expected multiple parts for 2KB data, got {}",
+            parts.len()
+        );
 
         let mut all_received = false;
         for part in &parts {
@@ -441,7 +456,9 @@ mod tests {
         }
         assert!(all_received);
 
-        let (received_data, proof_bytes) = receiver_mgr.assemble_and_prove(&receiver_link, &key).unwrap();
+        let (received_data, proof_bytes) = receiver_mgr
+            .assemble_and_prove(&receiver_link, &key)
+            .unwrap();
         assert_eq!(received_data, data);
 
         let valid = sender_mgr.handle_proof(&proof_bytes).unwrap();
@@ -454,8 +471,7 @@ mod tests {
         let link_id = LinkId::new([0x33; 16]);
         let key = make_test_derived_key();
 
-        let (resource_hash, adv_bytes) =
-            mgr.prepare_outgoing(link_id, b"test data", &key).unwrap();
+        let (resource_hash, adv_bytes) = mgr.prepare_outgoing(link_id, b"test data", &key).unwrap();
 
         assert_ne!(resource_hash, [0u8; 32]);
         assert!(!adv_bytes.is_empty());
@@ -586,18 +602,34 @@ mod tests {
         let key = make_test_derived_key();
 
         let data = b"duplicate part test data for checking idempotency";
-        let (_hash, adv) = sender_mgr.prepare_outgoing(sender_link, data, &key).unwrap();
-        let (_recv_hash, req) = receiver_mgr.accept_advertisement(receiver_link, &adv).unwrap();
+        let (_hash, adv) = sender_mgr
+            .prepare_outgoing(sender_link, data, &key)
+            .unwrap();
+        let (_recv_hash, req) = receiver_mgr
+            .accept_advertisement(receiver_link, &adv)
+            .unwrap();
         let (_link, parts) = sender_mgr.handle_part_request(&req).unwrap();
 
         // Deliver the first part twice
-        let result1 = receiver_mgr.receive_part(&receiver_link, &parts[0]).unwrap();
-        let count_after_first = receiver_mgr.incoming.get(&receiver_link).unwrap().received_count;
+        let result1 = receiver_mgr
+            .receive_part(&receiver_link, &parts[0])
+            .unwrap();
+        let count_after_first = receiver_mgr
+            .incoming
+            .get(&receiver_link)
+            .unwrap()
+            .received_count;
 
         // Second delivery of the same part — the map hash won't match an empty slot
         // so it should be a no-op (unmatched part)
-        let result2 = receiver_mgr.receive_part(&receiver_link, &parts[0]).unwrap();
-        let count_after_dup = receiver_mgr.incoming.get(&receiver_link).unwrap().received_count;
+        let result2 = receiver_mgr
+            .receive_part(&receiver_link, &parts[0])
+            .unwrap();
+        let count_after_dup = receiver_mgr
+            .incoming
+            .get(&receiver_link)
+            .unwrap()
+            .received_count;
 
         // received_count should not increase on duplicate
         assert_eq!(count_after_first, count_after_dup);
@@ -608,7 +640,9 @@ mod tests {
         }
 
         // Assembly should succeed
-        let (received_data, _proof) = receiver_mgr.assemble_and_prove(&receiver_link, &key).unwrap();
+        let (received_data, _proof) = receiver_mgr
+            .assemble_and_prove(&receiver_link, &key)
+            .unwrap();
         assert_eq!(received_data, data);
 
         let _ = (result1, result2); // suppress unused warnings
@@ -624,8 +658,12 @@ mod tests {
 
         // Use enough data to produce multiple parts
         let data: Vec<u8> = (0..2000u16).map(|i| (i % 256) as u8).collect();
-        let (_hash, adv) = sender_mgr.prepare_outgoing(sender_link, &data, &key).unwrap();
-        let (_recv_hash, req) = receiver_mgr.accept_advertisement(receiver_link, &adv).unwrap();
+        let (_hash, adv) = sender_mgr
+            .prepare_outgoing(sender_link, &data, &key)
+            .unwrap();
+        let (_recv_hash, req) = receiver_mgr
+            .accept_advertisement(receiver_link, &adv)
+            .unwrap();
         let (_link, parts) = sender_mgr.handle_part_request(&req).unwrap();
         assert!(parts.len() > 1, "need multiple parts for this test");
 
@@ -639,7 +677,9 @@ mod tests {
         }
         assert!(all_received);
 
-        let (received_data, proof) = receiver_mgr.assemble_and_prove(&receiver_link, &key).unwrap();
+        let (received_data, proof) = receiver_mgr
+            .assemble_and_prove(&receiver_link, &key)
+            .unwrap();
         assert_eq!(received_data, data);
 
         let valid = sender_mgr.handle_proof(&proof).unwrap();
@@ -821,7 +861,10 @@ mod tests {
         // Send garbage data that won't match any map hash
         let garbage = vec![0xDE; 100];
         let result = receiver_mgr.receive_part(&receiver_link, &garbage).unwrap();
-        assert!(!result.all_received, "garbage part should not complete transfer");
+        assert!(
+            !result.all_received,
+            "garbage part should not complete transfer"
+        );
     }
 
     #[test]
@@ -851,7 +894,10 @@ mod tests {
 
         // Attempt assembly with incomplete data — should fail
         let assembly = receiver_mgr.assemble_and_prove(&receiver_link, &key);
-        assert!(assembly.is_err(), "assembly of incomplete transfer should fail");
+        assert!(
+            assembly.is_err(),
+            "assembly of incomplete transfer should fail"
+        );
     }
 
     #[test]
@@ -877,10 +923,21 @@ mod tests {
             .accept_advertisement(receiver_link, &adv2)
             .unwrap();
 
-        assert_ne!(recv1, recv2, "different data should produce different hashes");
-        assert_eq!(receiver_mgr.incoming.len(), 1, "second should replace first");
+        assert_ne!(
+            recv1, recv2,
+            "different data should produce different hashes"
+        );
         assert_eq!(
-            receiver_mgr.incoming.get(&receiver_link).unwrap().resource_hash,
+            receiver_mgr.incoming.len(),
+            1,
+            "second should replace first"
+        );
+        assert_eq!(
+            receiver_mgr
+                .incoming
+                .get(&receiver_link)
+                .unwrap()
+                .resource_hash,
             recv2,
             "should hold the second resource"
         );
@@ -910,6 +967,9 @@ mod tests {
 
         // Receive the first part again — should not panic
         let extra_result = receiver_mgr.receive_part(&receiver_link, &parts[0]);
-        assert!(extra_result.is_ok(), "duplicate part after completion should not panic");
+        assert!(
+            extra_result.is_ok(),
+            "duplicate part after completion should not panic"
+        );
     }
 }

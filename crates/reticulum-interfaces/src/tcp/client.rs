@@ -526,10 +526,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_transmit_while_disconnected_returns_not_connected() {
-        let mut config = TcpClientConfig::initiator(
-            "test-tx-disconnected",
-            "127.0.0.1:1",
-        );
+        let mut config = TcpClientConfig::initiator("test-tx-disconnected", "127.0.0.1:1");
         config.max_reconnect_tries = Some(0);
 
         let client = TcpClientInterface::new(config, InterfaceId(51)).unwrap();
@@ -557,11 +554,8 @@ mod tests {
         tokio::time::sleep(std::time::Duration::from_millis(200)).await;
 
         // Signal stop — should exit without waiting full RECONNECT_WAIT
-        let stop_result = tokio::time::timeout(
-            std::time::Duration::from_secs(5),
-            client.stop(),
-        )
-        .await;
+        let stop_result =
+            tokio::time::timeout(std::time::Duration::from_secs(5), client.stop()).await;
 
         assert!(stop_result.is_ok(), "stop should complete quickly");
         assert!(!client.is_connected());
@@ -605,7 +599,10 @@ mod tests {
             }
             tokio::time::sleep(std::time::Duration::from_millis(100)).await;
         }
-        assert!(client.is_connected(), "should reconnect (counter was reset)");
+        assert!(
+            client.is_connected(),
+            "should reconnect (counter was reset)"
+        );
 
         client.stop().await.unwrap();
     }
@@ -639,11 +636,17 @@ mod tests {
 
         // Client should receive all 3
         let r1 = tokio::time::timeout(std::time::Duration::from_secs(2), client.receive())
-            .await.expect("timeout r1").unwrap();
+            .await
+            .expect("timeout r1")
+            .unwrap();
         let r2 = tokio::time::timeout(std::time::Duration::from_secs(2), client.receive())
-            .await.expect("timeout r2").unwrap();
+            .await
+            .expect("timeout r2")
+            .unwrap();
         let r3 = tokio::time::timeout(std::time::Duration::from_secs(2), client.receive())
-            .await.expect("timeout r3").unwrap();
+            .await
+            .expect("timeout r3")
+            .unwrap();
 
         assert_eq!(r1, p1);
         assert_eq!(r2, p2);
@@ -676,7 +679,9 @@ mod tests {
         peer_stream.write_all(&return_frame).await.unwrap();
 
         let received = tokio::time::timeout(std::time::Duration::from_secs(2), client.receive())
-            .await.expect("timeout").unwrap();
+            .await
+            .expect("timeout")
+            .unwrap();
         assert_eq!(received.len(), 450);
         assert_eq!(received, payload);
 

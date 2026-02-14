@@ -8,7 +8,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::UnixStream;
 use tokio::net::unix::OwnedWriteHalf;
 use tokio::sync::{Mutex, mpsc, watch};
-use tracing::{debug, info, warn};
+use tracing::{debug, info, trace, warn};
 
 use reticulum_core::framing::hdlc::hdlc_frame;
 use reticulum_transport::path::{InterfaceId, InterfaceMode};
@@ -316,7 +316,10 @@ impl Interface for LocalClientInterface {
         {
             let mut guard = self.inner.writer.lock().await;
             if let Some(mut writer) = guard.take() {
-                let _ = writer.shutdown().await;
+                // intentional: shutdown failure is expected during teardown
+                if let Err(e) = writer.shutdown().await {
+                    trace!("writer shutdown error (expected during teardown): {e}");
+                }
             }
         }
         self.inner.connected.store(false, Ordering::SeqCst);
@@ -324,7 +327,15 @@ impl Interface for LocalClientInterface {
         // Wait for background task to finish
         let handle = self.task_handle.lock().await.take();
         if let Some(h) = handle {
-            let _ = h.await;
+            match h.await {
+                Ok(_) => {}
+                Err(e) if e.is_cancelled() => {
+                    trace!("background task cancelled during shutdown");
+                }
+                Err(e) => {
+                    warn!("background task panicked: {e}");
+                }
+            }
         }
 
         Ok(())
@@ -532,11 +543,8 @@ mod tests {
         tokio::time::sleep(std::time::Duration::from_millis(200)).await;
 
         // Signal stop — should exit without waiting full RECONNECT_WAIT
-        let stop_result = tokio::time::timeout(
-            std::time::Duration::from_secs(5),
-            client.stop(),
-        )
-        .await;
+        let stop_result =
+            tokio::time::timeout(std::time::Duration::from_secs(5), client.stop()).await;
 
         assert!(stop_result.is_ok(), "stop should complete quickly");
         assert!(!client.is_connected());
@@ -586,7 +594,10 @@ mod tests {
         let handle = client.task_handle.lock().await.take();
         if let Some(h) = handle {
             let result = tokio::time::timeout(std::time::Duration::from_secs(30), h).await;
-            assert!(result.is_ok(), "task should exit after max retries on bad socket");
+            assert!(
+                result.is_ok(),
+                "task should exit after max retries on bad socket"
+            );
         }
 
         assert!(!client.is_connected());

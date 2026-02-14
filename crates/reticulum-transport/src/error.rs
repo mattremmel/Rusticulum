@@ -138,10 +138,7 @@ mod tests {
         assert_eq!(err.to_string(), "no path to destination: deadbeef");
 
         let err = RouterError::InvalidTransformation("bad header".into());
-        assert_eq!(
-            err.to_string(),
-            "invalid header transformation: bad header"
-        );
+        assert_eq!(err.to_string(), "invalid header transformation: bad header");
     }
 
     #[test]

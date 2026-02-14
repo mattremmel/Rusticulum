@@ -7,7 +7,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use tokio::net::UnixListener;
 use tokio::sync::{Mutex, watch};
-use tracing::{debug, info, warn};
+use tracing::{debug, info, trace, warn};
 
 use reticulum_transport::path::{InterfaceId, InterfaceMode};
 
@@ -260,8 +260,10 @@ impl Interface for LocalServerInterface {
 
 impl Drop for LocalServerInterface {
     fn drop(&mut self) {
-        // Best-effort cleanup of socket file
-        let _ = std::fs::remove_file(&self.config.socket_path);
+        // intentional: socket removal failure is expected if already cleaned up
+        if let Err(e) = std::fs::remove_file(&self.config.socket_path) {
+            trace!("socket cleanup error (expected if already removed): {e}");
+        }
     }
 }
 
@@ -279,7 +281,7 @@ mod tests {
     struct SocketCleanup(PathBuf);
     impl Drop for SocketCleanup {
         fn drop(&mut self) {
-            let _ = std::fs::remove_file(&self.0);
+            let _ = std::fs::remove_file(&self.0); // intentional: test cleanup
         }
     }
 
@@ -287,7 +289,7 @@ mod tests {
     async fn server_spawns_clients() {
         let path = test_socket_path("srv_spawn");
         let _cleanup = SocketCleanup(path.clone());
-        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&path); // intentional: test cleanup
 
         let config = LocalServerConfig::new("test-local-server", path.clone());
         let server = LocalServerInterface::new(config, InterfaceId(100));
@@ -313,7 +315,7 @@ mod tests {
     async fn test_local_server_transmit_returns_configuration_error() {
         let path = test_socket_path("srv_tx_err");
         let _cleanup = SocketCleanup(path.clone());
-        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&path); // intentional: test cleanup
 
         let config = LocalServerConfig::new("test-srv-tx", path);
         let server = LocalServerInterface::new(config, InterfaceId(500));
@@ -325,7 +327,7 @@ mod tests {
     async fn test_local_server_receive_returns_configuration_error() {
         let path = test_socket_path("srv_rx_err");
         let _cleanup = SocketCleanup(path.clone());
-        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&path); // intentional: test cleanup
 
         let config = LocalServerConfig::new("test-srv-rx", path);
         let server = LocalServerInterface::new(config, InterfaceId(501));
@@ -337,7 +339,7 @@ mod tests {
     async fn test_local_server_not_connected_before_start() {
         let path = test_socket_path("srv_not_conn");
         let _cleanup = SocketCleanup(path.clone());
-        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&path); // intentional: test cleanup
 
         let config = LocalServerConfig::new("test-srv-nc", path);
         let server = LocalServerInterface::new(config, InterfaceId(502));
@@ -350,7 +352,7 @@ mod tests {
     async fn test_local_server_prunes_disconnected_clients() {
         let path = test_socket_path("srv_prune");
         let _cleanup = SocketCleanup(path.clone());
-        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&path); // intentional: test cleanup
 
         let config = LocalServerConfig::new("test-srv-prune", path.clone());
         let server = LocalServerInterface::new(config, InterfaceId(503));
@@ -390,7 +392,7 @@ mod tests {
     async fn test_local_server_stop_clears_clients() {
         let path = test_socket_path("srv_stop_clear");
         let _cleanup = SocketCleanup(path.clone());
-        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&path); // intentional: test cleanup
 
         let config = LocalServerConfig::new("test-srv-stop", path.clone());
         let server = LocalServerInterface::new(config, InterfaceId(504));
@@ -415,7 +417,7 @@ mod tests {
     async fn server_client_roundtrip() {
         let path = test_socket_path("srv_roundtrip");
         let _cleanup = SocketCleanup(path.clone());
-        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&path); // intentional: test cleanup
 
         let config = LocalServerConfig::new("test-local-server-rt", path.clone());
         let server = LocalServerInterface::new(config, InterfaceId(200));
@@ -471,7 +473,7 @@ mod tests {
     async fn server_cleans_up_socket() {
         let path = test_socket_path("srv_cleanup");
         let _cleanup = SocketCleanup(path.clone());
-        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&path); // intentional: test cleanup
 
         let config = LocalServerConfig::new("test-cleanup", path.clone());
         let server = LocalServerInterface::new(config, InterfaceId(300));

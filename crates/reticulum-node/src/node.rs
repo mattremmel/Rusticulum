@@ -54,10 +54,10 @@ use crate::packet_helpers::{
 use crate::packet_outcome;
 use crate::post_transfer_drain;
 use crate::resource_assembly;
-use crate::transmit_filter;
 use crate::resource_manager::ResourceManager;
 use crate::routing::{self, TableMutation, TransportAction};
 use crate::storage::Storage;
+use crate::transmit_filter;
 use crate::transport_guard::{self, TransportGuardDecision};
 
 /// A handle that can trigger node shutdown from another task or signal handler.
@@ -198,7 +198,9 @@ impl Node {
         };
         let identity_decision = identity_loading::classify_identity_load(
             self.storage.is_some(),
-            identity_load_result.as_ref().map(|r| r.as_ref().map(|b| *b).map_err(|_| ())),
+            identity_load_result
+                .as_ref()
+                .map(|r| r.as_ref().map(|b| *b).map_err(|_| ())),
         );
         match identity_decision {
             identity_loading::IdentityLoadDecision::Loaded => {
@@ -336,17 +338,40 @@ impl Node {
         spec: InterfaceSpec,
     ) -> Result<(InterfaceId, AnyInterface), NodeError> {
         match spec {
-            InterfaceSpec::TcpClient { name, target, mode, id } => {
+            InterfaceSpec::TcpClient {
+                name,
+                target,
+                mode,
+                id,
+            } => {
                 let mut cfg = TcpClientConfig::initiator(&name, &target);
                 cfg.mode = mode;
-                Ok((id, AnyInterface::TcpClient(TcpClientInterface::new(cfg, id)?)))
+                Ok((
+                    id,
+                    AnyInterface::TcpClient(TcpClientInterface::new(cfg, id)?),
+                ))
             }
-            InterfaceSpec::TcpServer { name, bind, mode, id } => {
+            InterfaceSpec::TcpServer {
+                name,
+                bind,
+                mode,
+                id,
+            } => {
                 let mut cfg = TcpServerConfig::new(&name, bind);
                 cfg.mode = mode;
-                Ok((id, AnyInterface::TcpServer(TcpServerInterface::new(cfg, id))))
+                Ok((
+                    id,
+                    AnyInterface::TcpServer(TcpServerInterface::new(cfg, id)),
+                ))
             }
-            InterfaceSpec::Udp { name, bind, target, broadcast, mode, id } => {
+            InterfaceSpec::Udp {
+                name,
+                bind,
+                target,
+                broadcast,
+                mode,
+                id,
+            } => {
                 let cfg = match target {
                     Some(target_addr) if broadcast => {
                         let mut c = UdpConfig::broadcast(&name, bind, target_addr);
@@ -367,19 +392,42 @@ impl Node {
                 Ok((id, AnyInterface::Udp(UdpInterface::new(cfg, id))))
             }
             #[cfg(unix)]
-            InterfaceSpec::LocalServer { name, path, mode, id } => {
+            InterfaceSpec::LocalServer {
+                name,
+                path,
+                mode,
+                id,
+            } => {
                 let mut cfg = LocalServerConfig::new(&name, path);
                 cfg.mode = mode;
-                Ok((id, AnyInterface::LocalServer(LocalServerInterface::new(cfg, id))))
+                Ok((
+                    id,
+                    AnyInterface::LocalServer(LocalServerInterface::new(cfg, id)),
+                ))
             }
             #[cfg(unix)]
-            InterfaceSpec::LocalClient { name, path, mode, id } => {
+            InterfaceSpec::LocalClient {
+                name,
+                path,
+                mode,
+                id,
+            } => {
                 let mut cfg = LocalClientConfig::initiator(&name, path);
                 cfg.mode = mode;
-                Ok((id, AnyInterface::LocalClient(LocalClientInterface::new(cfg, id)?)))
+                Ok((
+                    id,
+                    AnyInterface::LocalClient(LocalClientInterface::new(cfg, id)?),
+                ))
             }
             #[cfg(unix)]
-            InterfaceSpec::Auto { name, mode, group_id, discovery_port, data_port, id } => {
+            InterfaceSpec::Auto {
+                name,
+                mode,
+                group_id,
+                discovery_port,
+                data_port,
+                id,
+            } => {
                 let mut cfg = AutoConfig::new(&name);
                 cfg.mode = mode;
                 if let Some(gid) = group_id {
@@ -396,11 +444,9 @@ impl Node {
             #[cfg(not(unix))]
             InterfaceSpec::LocalServer { .. }
             | InterfaceSpec::LocalClient { .. }
-            | InterfaceSpec::Auto { .. } => {
-                Err(NodeError::Config(
-                    "local/auto interfaces are only available on unix".to_string(),
-                ))
-            }
+            | InterfaceSpec::Auto { .. } => Err(NodeError::Config(
+                "local/auto interfaces are only available on unix".to_string(),
+            )),
         }
     }
 
@@ -445,6 +491,7 @@ impl Node {
                                         .await
                                         .is_err()
                                     {
+                                        tracing::debug!(id = iface_id.0, "event channel closed, ending receive bridge");
                                         break;
                                     }
                                 }
@@ -649,10 +696,16 @@ impl Node {
             transmit_filter::TransmitDecision::Skip { reason } => {
                 match reason {
                     transmit_filter::SkipReason::NotFound => {
-                        tracing::warn!(id = iface_id.0, "transmit_to_interface: interface not found");
+                        tracing::warn!(
+                            id = iface_id.0,
+                            "transmit_to_interface: interface not found"
+                        );
                     }
                     _ => {
-                        tracing::debug!(id = iface_id.0, "transmit_to_interface: interface not available");
+                        tracing::debug!(
+                            id = iface_id.0,
+                            "transmit_to_interface: interface not available"
+                        );
                     }
                 }
                 return;
@@ -823,10 +876,7 @@ impl Node {
         let handled_locally = self.handle_link_packet(&packet).await;
 
         // Transport relay guard: classify and dispatch
-        let our_hash = self
-            .transport_identity
-            .as_ref()
-            .map(|id| id.hash());
+        let our_hash = self.transport_identity.as_ref().map(|id| id.hash());
         let guard = transport_guard::classify_transport_guard(
             self.config.node.enable_transport,
             packet.flags.header_type,
@@ -1067,20 +1117,17 @@ impl Node {
                     self.channel_manager.register_link(*link_id, rtt);
                 }
                 AutoDataAction::TransferChannelQueue { message } => {
-                    self.channel_manager
-                        .queue_auto_channel(*link_id, message);
+                    self.channel_manager.queue_auto_channel(*link_id, message);
                 }
                 AutoDataAction::TransferBufferQueue { data } => {
-                    self.channel_manager
-                        .queue_auto_buffer(*link_id, data);
+                    self.channel_manager.queue_auto_buffer(*link_id, data);
                 }
                 AutoDataAction::TransferRequestQueue { path, data } => {
                     self.channel_manager
                         .queue_auto_request(*link_id, path, data);
                 }
                 AutoDataAction::SendLinkData { data } => {
-                    if let Some(raw) =
-                        self.link_manager.encrypt_and_send(link_id, data.as_bytes())
+                    if let Some(raw) = self.link_manager.encrypt_and_send(link_id, data.as_bytes())
                     {
                         tracing::info!(
                             link_id = %hex::encode(link_id.as_ref()),
@@ -1093,7 +1140,9 @@ impl Node {
                 AutoDataAction::SendResource { data } => {
                     self.send_resource(link_id, data.as_bytes()).await;
                 }
-                AutoDataAction::SendChannelMessage { .. } | AutoDataAction::SendBufferStream { .. } | AutoDataAction::SendRequest { .. } => {
+                AutoDataAction::SendChannelMessage { .. }
+                | AutoDataAction::SendBufferStream { .. }
+                | AutoDataAction::SendRequest { .. } => {
                     // These come from channel_manager queues which are populated
                     // by the transfer actions above. Drain them now.
                 }
@@ -1109,8 +1158,7 @@ impl Node {
         for action in post_transfer_drain::plan_post_transfer_actions(&snapshot) {
             match action {
                 post_transfer_drain::PostTransferAction::SendChannelMessage { message } => {
-                    self.send_channel_message(link_id, message.as_bytes())
-                        .await;
+                    self.send_channel_message(link_id, message.as_bytes()).await;
                 }
                 post_transfer_drain::PostTransferAction::SendBufferStream { data } => {
                     self.send_buffer_stream(link_id, data.as_bytes()).await;
@@ -1149,11 +1197,7 @@ impl Node {
     }
 
     /// Send a buffer stream over an active link (single chunk + EOF).
-    async fn send_buffer_stream(
-        &mut self,
-        link_id: &reticulum_core::types::LinkId,
-        data: &[u8],
-    ) {
+    async fn send_buffer_stream(&mut self, link_id: &reticulum_core::types::LinkId, data: &[u8]) {
         // Send as single chunk with EOF=true, stream_id=0
         if let Some(envelope_plaintext) = self
             .channel_manager
@@ -1219,7 +1263,10 @@ impl Node {
         };
 
         let (resource_hash, adv_bytes) =
-            match self.resource_manager.prepare_outgoing(*link_id, data, &derived_key) {
+            match self
+                .resource_manager
+                .prepare_outgoing(*link_id, data, &derived_key)
+            {
                 Ok(result) => result,
                 Err(e) => {
                     tracing::warn!(
@@ -1262,11 +1309,8 @@ impl Node {
                 .map_err(|e| e.to_string())
         });
 
-        let outcome = packet_outcome::plan_resource_adv(
-            has_link,
-            plaintext.as_deref(),
-            accept_result,
-        );
+        let outcome =
+            packet_outcome::plan_resource_adv(has_link, plaintext.as_deref(), accept_result);
 
         match outcome {
             packet_outcome::ResourceAdvOutcome::Accepted {
@@ -1311,11 +1355,8 @@ impl Node {
                 .map_err(|e| e.to_string())
         });
 
-        let outcome = packet_outcome::plan_resource_req(
-            has_link,
-            plaintext.as_deref(),
-            part_result,
-        );
+        let outcome =
+            packet_outcome::plan_resource_req(has_link, plaintext.as_deref(), part_result);
 
         match outcome {
             packet_outcome::ResourceReqOutcome::SendParts { link_id, parts } => {
@@ -1450,7 +1491,10 @@ impl Node {
             self.channel_manager
                 .handle_channel_data(&link_id, &pt)
                 .map(|a| match a {
-                    crate::channel_manager::ChannelAction::MessageReceived { msg_type, payload } => {
+                    crate::channel_manager::ChannelAction::MessageReceived {
+                        msg_type,
+                        payload,
+                    } => {
                         packet_outcome::ChannelDispatchAction::MessageReceived { msg_type, payload }
                     }
                     crate::channel_manager::ChannelAction::BufferComplete { stream_id, data } => {
@@ -1462,10 +1506,15 @@ impl Node {
                 })
         });
 
-        let outcome = packet_outcome::plan_channel_dispatch(has_link, decrypt_ok, link_id, channel_action);
+        let outcome =
+            packet_outcome::plan_channel_dispatch(has_link, decrypt_ok, link_id, channel_action);
 
         match outcome {
-            packet_outcome::ChannelDispatchOutcome::MessageReceived { link_id, msg_type, payload } => {
+            packet_outcome::ChannelDispatchOutcome::MessageReceived {
+                link_id,
+                msg_type,
+                payload,
+            } => {
                 tracing::info!(
                     link_id = %hex::encode(link_id.as_ref()),
                     msg_type,
@@ -1474,7 +1523,11 @@ impl Node {
                 );
                 true
             }
-            packet_outcome::ChannelDispatchOutcome::BufferComplete { link_id, stream_id, data } => {
+            packet_outcome::ChannelDispatchOutcome::BufferComplete {
+                link_id,
+                stream_id,
+                data,
+            } => {
                 tracing::info!(
                     link_id = %hex::encode(link_id.as_ref()),
                     stream_id,
@@ -1484,7 +1537,10 @@ impl Node {
                 );
                 true
             }
-            packet_outcome::ChannelDispatchOutcome::SendResponse { link_id, response_bytes } => {
+            packet_outcome::ChannelDispatchOutcome::SendResponse {
+                link_id,
+                response_bytes,
+            } => {
                 if let Some(raw) = self.link_manager.encrypt_and_send_with_context(
                     &link_id,
                     &response_bytes,
@@ -1518,10 +1574,14 @@ impl Node {
                 .handle_request(&link_id, &pt, &hashable)
         });
 
-        let outcome = packet_outcome::plan_request_dispatch(has_link, decrypt_ok, link_id, response_bytes);
+        let outcome =
+            packet_outcome::plan_request_dispatch(has_link, decrypt_ok, link_id, response_bytes);
 
         match outcome {
-            packet_outcome::RequestOutcome::SendResponse { link_id, response_bytes } => {
+            packet_outcome::RequestOutcome::SendResponse {
+                link_id,
+                response_bytes,
+            } => {
                 if let Some(raw) = self.link_manager.encrypt_and_send_with_context(
                     &link_id,
                     &response_bytes,
@@ -1577,11 +1637,8 @@ impl Node {
                 .map_err(|e| e.to_string())
         });
 
-        let outcome = packet_outcome::plan_resource_proof(
-            has_link,
-            plaintext.as_deref(),
-            proof_result,
-        );
+        let outcome =
+            packet_outcome::plan_resource_proof(has_link, plaintext.as_deref(), proof_result);
 
         match outcome {
             packet_outcome::ResourceProofOutcome::Verified => {
@@ -1861,7 +1918,12 @@ bind = "127.0.0.1:0"
 
     /// Set up a Node with two UDP interfaces on ephemeral ports, started, with bridges spawned.
     /// Returns (node, external_sock, sink_sock, bind_a_addr).
-    async fn setup_loopback_node() -> (Node, tokio::net::UdpSocket, tokio::net::UdpSocket, std::net::SocketAddr) {
+    async fn setup_loopback_node() -> (
+        Node,
+        tokio::net::UdpSocket,
+        tokio::net::UdpSocket,
+        std::net::SocketAddr,
+    ) {
         use reticulum_interfaces::Interface;
         use tokio::net::UdpSocket;
 

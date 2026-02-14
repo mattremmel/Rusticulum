@@ -270,7 +270,12 @@ mode = "roaming"
 
         assert_eq!(specs.len(), 2);
         match &specs[0] {
-            InterfaceSpec::TcpClient { name, target, mode, id } => {
+            InterfaceSpec::TcpClient {
+                name,
+                target,
+                mode,
+                id,
+            } => {
                 assert_eq!(name, "peer1");
                 assert_eq!(target, "192.168.1.10:4242");
                 assert_eq!(*mode, InterfaceMode::Full);
@@ -314,7 +319,12 @@ mode = "accesspoint"
 
         assert_eq!(specs.len(), 1);
         match &specs[0] {
-            InterfaceSpec::TcpServer { name, bind, mode, id } => {
+            InterfaceSpec::TcpServer {
+                name,
+                bind,
+                mode,
+                id,
+            } => {
                 assert_eq!(name, "server1");
                 assert_eq!(bind.port(), 4242);
                 assert_eq!(*mode, InterfaceMode::AccessPoint);
@@ -350,7 +360,12 @@ broadcast = true
 
         assert_eq!(specs.len(), 1);
         match &specs[0] {
-            InterfaceSpec::Udp { name, target, broadcast, .. } => {
+            InterfaceSpec::Udp {
+                name,
+                target,
+                broadcast,
+                ..
+            } => {
                 assert_eq!(name, "broadcast");
                 assert!(target.is_some());
                 assert!(*broadcast);
@@ -371,7 +386,9 @@ target = "192.168.1.20:4244"
         let specs = plan_udp(&config.interfaces.udp, 1).unwrap();
 
         match &specs[0] {
-            InterfaceSpec::Udp { target, broadcast, .. } => {
+            InterfaceSpec::Udp {
+                target, broadcast, ..
+            } => {
                 assert!(target.is_some());
                 assert!(!*broadcast);
             }
@@ -390,7 +407,9 @@ bind = "0.0.0.0:4245"
         let specs = plan_udp(&config.interfaces.udp, 1).unwrap();
 
         match &specs[0] {
-            InterfaceSpec::Udp { target, broadcast, .. } => {
+            InterfaceSpec::Udp {
+                target, broadcast, ..
+            } => {
                 assert!(target.is_none());
                 assert!(!*broadcast);
             }
@@ -424,7 +443,12 @@ mode = "gateway"
 
         assert_eq!(specs.len(), 1);
         match &specs[0] {
-            InterfaceSpec::LocalServer { name, path, mode, id } => {
+            InterfaceSpec::LocalServer {
+                name,
+                path,
+                mode,
+                id,
+            } => {
                 assert_eq!(name, "local_srv");
                 assert_eq!(path, &PathBuf::from("/tmp/rns.sock"));
                 assert_eq!(*mode, InterfaceMode::Gateway);
@@ -446,7 +470,9 @@ path = "/tmp/rns.sock"
 
         assert_eq!(specs.len(), 1);
         match &specs[0] {
-            InterfaceSpec::LocalClient { name, path, mode, .. } => {
+            InterfaceSpec::LocalClient {
+                name, path, mode, ..
+            } => {
                 assert_eq!(name, "local_cl");
                 assert_eq!(path, &PathBuf::from("/tmp/rns.sock"));
                 assert_eq!(*mode, InterfaceMode::Full);
@@ -470,7 +496,14 @@ mode = "boundary"
 
         assert_eq!(specs.len(), 1);
         match &specs[0] {
-            InterfaceSpec::Auto { name, mode, group_id, discovery_port, data_port, id } => {
+            InterfaceSpec::Auto {
+                name,
+                mode,
+                group_id,
+                discovery_port,
+                data_port,
+                id,
+            } => {
                 assert_eq!(name, "auto1");
                 assert_eq!(*mode, InterfaceMode::Boundary);
                 assert_eq!(group_id.as_deref(), Some(b"mygroup".as_slice()));
@@ -492,7 +525,12 @@ name = "auto_minimal"
         let specs = plan_auto(&config.interfaces.auto, 1).unwrap();
 
         match &specs[0] {
-            InterfaceSpec::Auto { group_id, discovery_port, data_port, .. } => {
+            InterfaceSpec::Auto {
+                group_id,
+                discovery_port,
+                data_port,
+                ..
+            } => {
                 assert!(group_id.is_none());
                 assert!(discovery_port.is_none());
                 assert!(data_port.is_none());
@@ -547,7 +585,14 @@ target = "localhost:4242"
 
     #[test]
     fn all_mode_variants() {
-        let modes = ["full", "roaming", "accesspoint", "pointtopoint", "boundary", "gateway"];
+        let modes = [
+            "full",
+            "roaming",
+            "accesspoint",
+            "pointtopoint",
+            "boundary",
+            "gateway",
+        ];
         for mode_str in modes {
             let toml = format!(
                 r#"

@@ -271,11 +271,17 @@ mod tests {
 
         // Cycle 1: sentinel moves to prev
         fill_and_rotate(&mut hl, 0xAA);
-        assert!(hl.contains(&sentinel), "sentinel should survive 1 rotation (in prev)");
+        assert!(
+            hl.contains(&sentinel),
+            "sentinel should survive 1 rotation (in prev)"
+        );
 
         // Cycle 2: prev replaced, sentinel evicted
         fill_and_rotate(&mut hl, 0xBB);
-        assert!(!hl.contains(&sentinel), "sentinel should be evicted after 2 rotations");
+        assert!(
+            !hl.contains(&sentinel),
+            "sentinel should be evicted after 2 rotations"
+        );
 
         // Cycle 3: everything from cycle 1 also gone
         fill_and_rotate(&mut hl, 0xCC);

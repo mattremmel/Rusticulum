@@ -41,9 +41,7 @@ pub fn parse_advertisement(adv_bytes: &[u8]) -> Result<ParsedAdvertisement, Stri
 
     let num_parts = hashmap.len();
 
-    let all_map_hashes: Vec<[u8; 4]> = (0..num_parts)
-        .map(|i| *hashmap.get(i).unwrap())
-        .collect();
+    let all_map_hashes: Vec<[u8; 4]> = (0..num_parts).map(|i| *hashmap.get(i).unwrap()).collect();
 
     let initial_request = encode_part_request(false, &resource_hash, &all_map_hashes, None);
 
@@ -136,8 +134,7 @@ pub fn select_parts_for_request(
     request_data: &[u8],
     available_parts: &[Vec<u8>],
 ) -> Result<PartSelection, String> {
-    let req = decode_part_request(request_data)
-        .map_err(|e| format!("decode part request: {e}"))?;
+    let req = decode_part_request(request_data).map_err(|e| format!("decode part request: {e}"))?;
 
     Ok(PartSelection {
         resource_hash: req.resource_hash,
@@ -427,8 +424,7 @@ mod tests {
         let (adv_bytes, parts, _, _) = prepare_test_resource(b"test data");
         let parsed = parse_advertisement(&adv_bytes).unwrap();
 
-        let selection =
-            select_parts_for_request(&parsed.initial_request, &parts).unwrap();
+        let selection = select_parts_for_request(&parsed.initial_request, &parts).unwrap();
         assert_eq!(selection.resource_hash, parsed.resource_hash);
         assert_eq!(selection.selected_parts.len(), parts.len());
     }
@@ -439,8 +435,7 @@ mod tests {
         let parsed = parse_advertisement(&adv_bytes).unwrap();
         assert_eq!(parts.len(), 1);
 
-        let selection =
-            select_parts_for_request(&parsed.initial_request, &parts).unwrap();
+        let selection = select_parts_for_request(&parsed.initial_request, &parts).unwrap();
         assert_eq!(selection.selected_parts.len(), 1);
         assert_eq!(selection.selected_parts[0], parts[0]);
     }
@@ -452,8 +447,7 @@ mod tests {
         let parsed = parse_advertisement(&adv_bytes).unwrap();
         assert!(parts.len() > 1);
 
-        let selection =
-            select_parts_for_request(&parsed.initial_request, &parts).unwrap();
+        let selection = select_parts_for_request(&parsed.initial_request, &parts).unwrap();
         assert_eq!(selection.selected_parts.len(), parts.len());
         for (i, part) in selection.selected_parts.iter().enumerate() {
             assert_eq!(part, &parts[i]);
@@ -477,8 +471,7 @@ mod tests {
         let (adv_bytes, parts, resource_hash, _) = prepare_test_resource(b"hash check");
         let parsed = parse_advertisement(&adv_bytes).unwrap();
 
-        let selection =
-            select_parts_for_request(&parsed.initial_request, &parts).unwrap();
+        let selection = select_parts_for_request(&parsed.initial_request, &parts).unwrap();
         assert_eq!(selection.resource_hash, resource_hash);
     }
 
@@ -509,7 +502,12 @@ mod tests {
             key.as_bytes(),
             &iv,
             random_hash,
-            None, false, 1, 1, None, None,
+            None,
+            false,
+            1,
+            1,
+            None,
+            None,
         )
         .unwrap();
 

@@ -19,9 +19,7 @@ pub fn needs_link_encryption(kind: LinkPacketKind) -> bool {
         // Resource parts bypass link encryption — resource layer encrypts
         LinkPacketKind::ResourcePart => false,
         // Handshake packets have their own crypto, not link-layer encryption
-        LinkPacketKind::LinkRequest
-        | LinkPacketKind::LinkProof
-        | LinkPacketKind::LinkRtt => false,
+        LinkPacketKind::LinkRequest | LinkPacketKind::LinkProof | LinkPacketKind::LinkRtt => false,
         // Plain link data and all other contexts use link encryption
         LinkPacketKind::LinkData
         | LinkPacketKind::LinkClose
@@ -79,9 +77,9 @@ pub fn describe_handler(kind: LinkPacketKind) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::link_dispatch::classify_link_packet;
     use reticulum_core::constants::{DestinationType, PacketType};
     use reticulum_core::packet::context::ContextType;
-    use crate::link_dispatch::classify_link_packet;
 
     // === needs_link_encryption ===
 
@@ -158,11 +156,7 @@ mod tests {
 
     #[test]
     fn link_data_requires_encryption() {
-        let kind = classify_link_packet(
-            PacketType::Data,
-            ContextType::None,
-            DestinationType::Link,
-        );
+        let kind = classify_link_packet(PacketType::Data, ContextType::None, DestinationType::Link);
         assert!(needs_link_encryption(kind));
     }
 

@@ -363,11 +363,7 @@ mod tests {
     #[test]
     fn resource_adv_rejected() {
         assert_eq!(
-            plan_resource_adv(
-                true,
-                Some(&[0xFF]),
-                Some(Err("bad format".to_string()))
-            ),
+            plan_resource_adv(true, Some(&[0xFF]), Some(Err("bad format".to_string()))),
             ResourceAdvOutcome::Rejected {
                 error: "bad format".to_string()
             }
@@ -407,11 +403,7 @@ mod tests {
         let lid = test_link_id();
         let parts = vec![vec![1, 2], vec![3, 4]];
         assert_eq!(
-            plan_resource_req(
-                true,
-                Some(&[0xFF]),
-                Some(Ok((lid, parts.clone())))
-            ),
+            plan_resource_req(true, Some(&[0xFF]), Some(Ok((lid, parts.clone())))),
             ResourceReqOutcome::SendParts {
                 link_id: lid,
                 parts,
@@ -480,11 +472,7 @@ mod tests {
     #[test]
     fn resource_proof_error() {
         assert_eq!(
-            plan_resource_proof(
-                true,
-                Some(&[0xFF]),
-                Some(Err("decode error".to_string()))
-            ),
+            plan_resource_proof(true, Some(&[0xFF]), Some(Err("decode error".to_string()))),
             ResourceProofOutcome::Error {
                 error: "decode error".to_string()
             }

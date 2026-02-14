@@ -151,11 +151,6 @@ mod tests {
     #[test]
     fn state_large_count() {
         let outcome = classify_state_load(Ok(1_000_000));
-        assert_eq!(
-            outcome,
-            StateLoadOutcome::Loaded {
-                count: 1_000_000
-            }
-        );
+        assert_eq!(outcome, StateLoadOutcome::Loaded { count: 1_000_000 });
     }
 }

@@ -23,8 +23,7 @@ pub fn hmac_sha256(key: &[u8], data: &[u8]) -> [u8; 32] {
 /// it does not match. The comparison is performed in constant time by the
 /// underlying `hmac` crate.
 pub fn hmac_sha256_verify(key: &[u8], data: &[u8], expected: &[u8; 32]) -> Result<(), CryptoError> {
-    let mut mac = HmacSha256::new_from_slice(key)
-        .map_err(|_| CryptoError::InvalidHmac)?;
+    let mut mac = HmacSha256::new_from_slice(key).map_err(|_| CryptoError::InvalidHmac)?;
     mac.update(data);
     mac.verify_slice(expected)
         .map_err(|_| CryptoError::InvalidHmac)

@@ -40,9 +40,7 @@ pub fn plan_post_transfer_actions(snapshot: &PostTransferSnapshot) -> Vec<PostTr
     }
 
     if let Some(ref data) = snapshot.buffer_data {
-        actions.push(PostTransferAction::SendBufferStream {
-            data: data.clone(),
-        });
+        actions.push(PostTransferAction::SendBufferStream { data: data.clone() });
     }
 
     if let Some((ref path, ref data)) = snapshot.request {
@@ -138,9 +136,7 @@ mod tests {
         );
         assert_eq!(
             actions[1],
-            PostTransferAction::SendBufferStream {
-                data: "buf".into()
-            }
+            PostTransferAction::SendBufferStream { data: "buf".into() }
         );
         assert_eq!(
             actions[2],

@@ -515,7 +515,7 @@ mod tests {
     #[test]
     fn test_ifac_unusual_netnames() {
         let unusual_names = &[
-            "",                   // empty string
+            "",                  // empty string
             &"x".repeat(1000),   // very long
             "null\0bytes\0here", // null bytes
         ];
@@ -524,7 +524,12 @@ mod tests {
             let raw = vec![0x00, 0x01, 0xAA, 0xBB, 0xCC];
             let applied = ifac_apply(&config, &raw).unwrap();
             let recovered = ifac_verify(&config, &applied).unwrap();
-            assert_eq!(recovered, raw, "roundtrip failed for netname len={}", name.len());
+            assert_eq!(
+                recovered,
+                raw,
+                "roundtrip failed for netname len={}",
+                name.len()
+            );
         }
     }
 

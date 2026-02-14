@@ -52,9 +52,18 @@ pub fn decide_path_update(
 /// - If the announce arrived via HEADER_2 relay with a `transport_id`, use it.
 /// - If direct (HEADER_1, no transport_id), return all-zeros.
 pub fn compute_announce_next_hop(transport_id: Option<&DestinationHash>) -> TruncatedHash {
+    let zeros = TruncatedHash::new([0u8; 16]);
     transport_id
-        .map(|tid| TruncatedHash::try_from(tid.as_ref()).unwrap_or(TruncatedHash::new([0u8; 16])))
-        .unwrap_or(TruncatedHash::new([0u8; 16]))
+        .map(|tid| {
+            TruncatedHash::try_from(tid.as_ref()).unwrap_or_else(|_| {
+                tracing::warn!(
+                    tid_len = tid.as_ref().len(),
+                    "transport_id to TruncatedHash conversion failed, using zeros"
+                );
+                zeros
+            })
+        })
+        .unwrap_or(zeros)
 }
 
 #[cfg(test)]

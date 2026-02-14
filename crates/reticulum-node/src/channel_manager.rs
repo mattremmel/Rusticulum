@@ -13,9 +13,7 @@ use reticulum_protocol::channel::envelope::Envelope;
 use reticulum_protocol::channel::state::ChannelState;
 use reticulum_protocol::request::types::{PathHash, Request, RequestId};
 
-use crate::channel_ops::{
-    self, ChannelEnvelopeAction, ResponseMatch, StreamAccumulationResult,
-};
+use crate::channel_ops::{self, ChannelEnvelopeAction, ResponseMatch, StreamAccumulationResult};
 
 /// Actions the node should take after processing a channel event.
 #[derive(Debug)]
@@ -353,12 +351,7 @@ impl ChannelManager {
     }
 
     /// Build a request message (returns plaintext for REQUEST context).
-    pub fn build_request(
-        &mut self,
-        link_id: &LinkId,
-        path: &str,
-        data: &[u8],
-    ) -> Option<Vec<u8>> {
+    pub fn build_request(&mut self, link_id: &LinkId, path: &str, data: &[u8]) -> Option<Vec<u8>> {
         let timestamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
@@ -377,12 +370,7 @@ impl ChannelManager {
     }
 
     /// Record a pending outbound request so we can match the response later.
-    pub fn record_pending_request(
-        &mut self,
-        link_id: &LinkId,
-        path: &str,
-        request_id: [u8; 16],
-    ) {
+    pub fn record_pending_request(&mut self, link_id: &LinkId, path: &str, request_id: [u8; 16]) {
         self.pending_requests
             .insert(request_id, (*link_id, path.to_string()));
     }
@@ -602,9 +590,10 @@ mod tests {
         let mut mgr = ChannelManager::new();
         let link_id = LinkId::new([0x99; 16]);
 
-        assert!(mgr
-            .build_channel_message(&link_id, 0x0101, b"test")
-            .is_none());
+        assert!(
+            mgr.build_channel_message(&link_id, 0x0101, b"test")
+                .is_none()
+        );
         assert!(mgr.handle_channel_data(&link_id, b"test").is_none());
     }
 
@@ -718,7 +707,10 @@ mod tests {
                 .build_stream_message(&link_id, sid, data_part.as_bytes(), false)
                 .unwrap();
             let action = mgr.handle_channel_data(&link_id, &chunk);
-            assert!(action.is_none(), "should still be accumulating for stream {sid}");
+            assert!(
+                action.is_none(),
+                "should still be accumulating for stream {sid}"
+            );
         }
 
         // Now send EOF for each stream
@@ -792,7 +784,10 @@ mod tests {
         let unknown = LinkId::new([0xB4; 16]);
 
         // build_channel_message for unknown link → None
-        assert!(mgr.build_channel_message(&unknown, 0x0101, b"test").is_none());
+        assert!(
+            mgr.build_channel_message(&unknown, 0x0101, b"test")
+                .is_none()
+        );
     }
 
     #[test]

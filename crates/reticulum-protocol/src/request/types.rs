@@ -119,7 +119,9 @@ impl Request {
         Ok(Self {
             timestamp,
             path_hash,
-            data: arr.into_iter().nth(2)
+            data: arr
+                .into_iter()
+                .nth(2)
                 .ok_or_else(|| RequestError::Failed("missing element 2".into()))?,
         })
     }
@@ -175,7 +177,9 @@ impl Response {
 
         Ok(Self {
             request_id,
-            data: arr.into_iter().nth(1)
+            data: arr
+                .into_iter()
+                .nth(1)
                 .ok_or_else(|| RequestError::Failed("missing element 1".into()))?,
         })
     }

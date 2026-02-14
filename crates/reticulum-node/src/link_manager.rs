@@ -20,8 +20,7 @@ use crate::link_initiation::{self, queue_auto_actions};
 use crate::link_lifecycle;
 use crate::link_packets::{
     build_delivery_proof_data, build_link_data_packet, build_link_data_packet_with_context,
-    build_lrproof_packet, build_lrrtt_packet, build_proof_packet,
-    dest_hash_to_link_id,
+    build_lrproof_packet, build_lrrtt_packet, build_proof_packet, dest_hash_to_link_id,
 };
 
 use crate::config::LinkTargetEntry;
@@ -364,7 +363,10 @@ impl LinkManager {
 
         match outcome {
             link_lifecycle::ProofReceiptOutcome::Activated => {
-                let (active, encrypted_rtt) = proof_result.unwrap();
+                let (active, encrypted_rtt) = match proof_result {
+                    Ok(val) => val,
+                    Err(_) => unreachable!("Activated requires proof_ok=true"),
+                };
 
                 tracing::info!(
                     link_id = %hex::encode(link_id.as_ref()),
@@ -563,7 +565,9 @@ impl LinkManager {
 
         active.record_outbound(ciphertext.len() as u64);
 
-        Some(build_link_data_packet_with_context(link_id, ciphertext, context))
+        Some(build_link_data_packet_with_context(
+            link_id, ciphertext, context,
+        ))
     }
 
     /// Build a link data packet with raw (unencrypted) data and a specific context.
@@ -579,7 +583,11 @@ impl LinkManager {
         let active = self.active_links.get_mut(link_id)?;
         active.record_outbound(raw_data.len() as u64);
 
-        Some(build_link_data_packet_with_context(link_id, raw_data.to_vec(), context))
+        Some(build_link_data_packet_with_context(
+            link_id,
+            raw_data.to_vec(),
+            context,
+        ))
     }
 
     /// Extract raw data from a link packet without decrypting.
@@ -594,7 +602,10 @@ impl LinkManager {
     }
 
     /// Get the derived key for an active link.
-    pub fn get_derived_key(&self, link_id: &LinkId) -> Option<&reticulum_protocol::link::types::DerivedKey> {
+    pub fn get_derived_key(
+        &self,
+        link_id: &LinkId,
+    ) -> Option<&reticulum_protocol::link::types::DerivedKey> {
         self.active_links.get(link_id).map(|a| &a.derived_key)
     }
 
@@ -616,7 +627,10 @@ impl LinkManager {
         let ed25519_seed = self.signing_keys.get(link_id)?;
 
         let packet_hash = packet.packet_hash();
-        let hash_bytes: [u8; 32] = packet_hash.as_ref().try_into().expect("PacketHash is 32 bytes");
+        let hash_bytes: [u8; 32] = packet_hash
+            .as_ref()
+            .try_into()
+            .expect("PacketHash is 32 bytes");
 
         let proof_data = build_delivery_proof_data(&hash_bytes, ed25519_seed);
 
@@ -644,11 +658,8 @@ impl LinkManager {
 
         let mut packets = Vec::new();
         for link_id in due_link_ids {
-            if let Some(raw) = self.send_raw_with_context(
-                &link_id,
-                &[0xFF],
-                ContextType::Keepalive,
-            ) {
+            if let Some(raw) = self.send_raw_with_context(&link_id, &[0xFF], ContextType::Keepalive)
+            {
                 tracing::debug!(
                     link_id = %hex::encode(link_id.as_ref()),
                     "keepalive_sent"
@@ -859,9 +870,7 @@ mod tests {
 
     /// Perform a full 4-step handshake between two LinkManagers.
     /// Returns (initiator_mgr, responder_mgr, link_id, responder_identity).
-    fn perform_full_handshake(
-        app_name: &str,
-    ) -> (LinkManager, LinkManager, LinkId, Identity) {
+    fn perform_full_handshake(app_name: &str) -> (LinkManager, LinkManager, LinkId, Identity) {
         let responder_identity = Identity::generate();
 
         let aspect_refs = &["link", "v1"];
@@ -876,8 +885,7 @@ mod tests {
         );
 
         let mut init_mgr = LinkManager::new(vec![]);
-        let resp_pub =
-            Identity::from_public_bytes(&responder_identity.public_key_bytes()).unwrap();
+        let resp_pub = Identity::from_public_bytes(&responder_identity.public_key_bytes()).unwrap();
         init_mgr.known_identities.insert(resp_dh, resp_pub);
 
         let lr_raw = init_mgr
@@ -926,18 +934,16 @@ mod tests {
     #[test]
     fn test_register_identity_no_duplicate_link() {
         // If we already have a link to a destination, auto-link should not be queued again
-        let mut mgr = LinkManager::new(vec![
-            crate::config::LinkTargetEntry {
-                app_name: "dup_test".to_string(),
-                aspects: vec!["link".to_string()],
-                auto_data: Some("data".to_string()),
-                auto_resource: None,
-                auto_channel: None,
-                auto_buffer: None,
-                auto_request_path: None,
-                auto_request_data: None,
-            },
-        ]);
+        let mut mgr = LinkManager::new(vec![crate::config::LinkTargetEntry {
+            app_name: "dup_test".to_string(),
+            aspects: vec!["link".to_string()],
+            auto_data: Some("data".to_string()),
+            auto_resource: None,
+            auto_channel: None,
+            auto_buffer: None,
+            auto_request_path: None,
+            auto_request_data: None,
+        }]);
         let identity = Identity::generate();
         let dh = DestinationHash::new([0x02; 16]);
 
@@ -1024,8 +1030,7 @@ mod tests {
         );
 
         let mut init_mgr = LinkManager::new(vec![]);
-        let resp_pub =
-            Identity::from_public_bytes(&responder_identity.public_key_bytes()).unwrap();
+        let resp_pub = Identity::from_public_bytes(&responder_identity.public_key_bytes()).unwrap();
         init_mgr.known_identities.insert(resp_dh, resp_pub);
 
         let lr_raw = init_mgr
@@ -1073,8 +1078,7 @@ mod tests {
         );
 
         let mut init_mgr = LinkManager::new(vec![]);
-        let resp_pub =
-            Identity::from_public_bytes(&responder_identity.public_key_bytes()).unwrap();
+        let resp_pub = Identity::from_public_bytes(&responder_identity.public_key_bytes()).unwrap();
         init_mgr.known_identities.insert(resp_dh, resp_pub);
 
         let lr_raw = init_mgr
@@ -1108,8 +1112,7 @@ mod tests {
         let resp_dh = destination::destination_hash(&nh, responder_identity.hash());
 
         let mut init_mgr = LinkManager::new(vec![]);
-        let resp_pub =
-            Identity::from_public_bytes(&responder_identity.public_key_bytes()).unwrap();
+        let resp_pub = Identity::from_public_bytes(&responder_identity.public_key_bytes()).unwrap();
         init_mgr.known_identities.insert(resp_dh, resp_pub);
 
         // Two initiate_link calls for the same destination
@@ -1261,8 +1264,7 @@ mod tests {
         );
 
         let mut init_mgr = LinkManager::new(vec![]);
-        let resp_pub =
-            Identity::from_public_bytes(&responder_identity.public_key_bytes()).unwrap();
+        let resp_pub = Identity::from_public_bytes(&responder_identity.public_key_bytes()).unwrap();
         init_mgr.known_identities.insert(resp_dh, resp_pub);
 
         let mut link_ids = Vec::new();
@@ -1284,9 +1286,7 @@ mod tests {
             // Quick sanity on every 10th link
             if i % 10 == 0 {
                 let msg = format!("msg-{i}");
-                let enc = init_mgr
-                    .encrypt_and_send(&link_id, msg.as_bytes())
-                    .unwrap();
+                let enc = init_mgr.encrypt_and_send(&link_id, msg.as_bytes()).unwrap();
                 let pkt = RawPacket::parse(&enc).unwrap();
                 let dec = resp_mgr.handle_link_data(&pkt).unwrap();
                 assert_eq!(dec, msg.as_bytes());
@@ -1316,8 +1316,7 @@ mod tests {
             let mut dh_bytes = [0u8; 16];
             dh_bytes[..4].copy_from_slice(&seed);
             let dh = DestinationHash::new(dh_bytes);
-            let pub_id =
-                Identity::from_public_bytes(&identity.public_key_bytes()).unwrap();
+            let pub_id = Identity::from_public_bytes(&identity.public_key_bytes()).unwrap();
             mgr.known_identities.insert(dh, pub_id);
         }
         assert_eq!(mgr.known_identities.len(), 10_000);
@@ -1329,10 +1328,8 @@ mod tests {
 
         // Push 100 pending targets
         for i in 0u8..100 {
-            mgr.pending_link_targets.push((
-                DestinationHash::new([i; 16]),
-                LinkAutoActions::default(),
-            ));
+            mgr.pending_link_targets
+                .push((DestinationHash::new([i; 16]), LinkAutoActions::default()));
         }
         assert_eq!(mgr.pending_link_targets.len(), 100);
 
@@ -1344,26 +1341,25 @@ mod tests {
         assert!(mgr.drain_pending_targets().is_empty());
 
         // Push more, drain again
-        mgr.pending_link_targets.push((
-            DestinationHash::new([0xFF; 16]),
-            LinkAutoActions::default(),
-        ));
+        mgr.pending_link_targets
+            .push((DestinationHash::new([0xFF; 16]), LinkAutoActions::default()));
         let drained2 = mgr.drain_pending_targets();
         assert_eq!(drained2.len(), 1);
     }
 
     #[test]
     fn test_linked_destinations_prevents_auto_relink() {
-        let (init_mgr, _resp_mgr, _link_id, _resp_id) =
-            perform_full_handshake("prevent_relink");
+        let (init_mgr, _resp_mgr, _link_id, _resp_id) = perform_full_handshake("prevent_relink");
 
         // After handshake, the initiator should have the destination in linked_destinations
         // (populated by the initiate_link path).
         // Try registering a new announce for the same destination — should not auto-link
         // since linked_destinations already contains it.
-        let resp_dh = *init_mgr.linked_destinations.iter().next().unwrap_or(
-            &DestinationHash::new([0; 16]),
-        );
+        let resp_dh = *init_mgr
+            .linked_destinations
+            .iter()
+            .next()
+            .unwrap_or(&DestinationHash::new([0; 16]));
         // If linked_destinations is populated, has_link_to_dest should return true
         assert!(
             init_mgr.linked_destinations.contains(&resp_dh)
@@ -1381,8 +1377,7 @@ mod tests {
         let resp_dh = destination::destination_hash(&nh, responder_identity.hash());
 
         let mut init_mgr = LinkManager::new(vec![]);
-        let resp_pub =
-            Identity::from_public_bytes(&responder_identity.public_key_bytes()).unwrap();
+        let resp_pub = Identity::from_public_bytes(&responder_identity.public_key_bytes()).unwrap();
         init_mgr.known_identities.insert(resp_dh, resp_pub);
 
         let _lr_raw = init_mgr
@@ -1413,8 +1408,7 @@ mod tests {
         );
 
         let mut init_mgr = LinkManager::new(vec![]);
-        let resp_pub =
-            Identity::from_public_bytes(&responder_identity.public_key_bytes()).unwrap();
+        let resp_pub = Identity::from_public_bytes(&responder_identity.public_key_bytes()).unwrap();
         init_mgr.known_identities.insert(resp_dh, resp_pub);
 
         let lr_raw = init_mgr
@@ -1438,8 +1432,7 @@ mod tests {
         let resp_dh = destination::destination_hash(&nh, responder_identity.hash());
 
         let mut init_mgr = LinkManager::new(vec![]);
-        let resp_pub =
-            Identity::from_public_bytes(&responder_identity.public_key_bytes()).unwrap();
+        let resp_pub = Identity::from_public_bytes(&responder_identity.public_key_bytes()).unwrap();
         init_mgr.known_identities.insert(resp_dh, resp_pub);
 
         let _lr_raw = init_mgr
@@ -1485,8 +1478,7 @@ mod tests {
         );
 
         let mut init_mgr = LinkManager::new(vec![]);
-        let resp_pub =
-            Identity::from_public_bytes(&responder_identity.public_key_bytes()).unwrap();
+        let resp_pub = Identity::from_public_bytes(&responder_identity.public_key_bytes()).unwrap();
         init_mgr.known_identities.insert(resp_dh, resp_pub);
 
         let lr_raw = init_mgr
@@ -1524,8 +1516,7 @@ mod tests {
 
     #[test]
     fn test_active_link_state_after_handshake() {
-        let (init_mgr, resp_mgr, link_id, _resp_id) =
-            perform_full_handshake("active_state");
+        let (init_mgr, resp_mgr, link_id, _resp_id) = perform_full_handshake("active_state");
 
         // Both sides should have active links
         assert_eq!(init_mgr.active_links.len(), 1);
@@ -1643,8 +1634,7 @@ mod tests {
         let resp_dh = destination::destination_hash(&nh, responder_identity.hash());
 
         let mut init_mgr = LinkManager::new(vec![]);
-        let resp_pub =
-            Identity::from_public_bytes(&responder_identity.public_key_bytes()).unwrap();
+        let resp_pub = Identity::from_public_bytes(&responder_identity.public_key_bytes()).unwrap();
         init_mgr.known_identities.insert(resp_dh, resp_pub);
 
         assert!(init_mgr.pending_initiator.is_empty());
@@ -1683,8 +1673,7 @@ mod tests {
 
     #[test]
     fn test_collect_keepalive_initiator_only() {
-        let (mut init_mgr, mut resp_mgr, link_id, _) =
-            perform_full_handshake("ka_init_only");
+        let (mut init_mgr, mut resp_mgr, link_id, _) = perform_full_handshake("ka_init_only");
 
         // Force the link's last_outbound to be old enough to trigger keepalive
         // by setting keepalive to 0 (always due)
@@ -1697,7 +1686,10 @@ mod tests {
 
         // Responder should NOT produce keepalive packets (only initiator sends)
         let resp_packets = resp_mgr.collect_keepalive_packets();
-        assert!(resp_packets.is_empty(), "responder should not send keepalives");
+        assert!(
+            resp_packets.is_empty(),
+            "responder should not send keepalives"
+        );
     }
 
     #[test]
@@ -1714,7 +1706,10 @@ mod tests {
         );
 
         let packets = init_mgr.collect_keepalive_packets();
-        assert!(packets.is_empty(), "keepalive should not be due immediately");
+        assert!(
+            packets.is_empty(),
+            "keepalive should not be due immediately"
+        );
     }
 
     #[test]
@@ -1750,7 +1745,10 @@ mod tests {
 
         // Should detect stale but not tear down yet (stale_since just set)
         let teardowns = init_mgr.check_link_health();
-        assert!(teardowns.is_empty(), "should not teardown immediately on stale");
+        assert!(
+            teardowns.is_empty(),
+            "should not teardown immediately on stale"
+        );
 
         // Link should now be marked stale
         let active = init_mgr.active_links.get(&link_id).unwrap();
@@ -1776,7 +1774,10 @@ mod tests {
 
         // Second call: should teardown
         let teardowns = init_mgr.check_link_health();
-        assert!(teardowns.contains(&link_id), "should include torn-down link");
+        assert!(
+            teardowns.contains(&link_id),
+            "should include torn-down link"
+        );
         assert!(
             !init_mgr.active_links.contains_key(&link_id),
             "link should be removed after teardown"

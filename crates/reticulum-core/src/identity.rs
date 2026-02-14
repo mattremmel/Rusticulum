@@ -472,7 +472,10 @@ mod tests {
             *byte ^= 0xFF;
         }
         let result = identity.decrypt(&ciphertext);
-        assert!(result.is_err(), "corrupted ephemeral key should fail decrypt");
+        assert!(
+            result.is_err(),
+            "corrupted ephemeral key should fail decrypt"
+        );
     }
 
     #[test]
@@ -521,7 +524,7 @@ mod tests {
         // Either error (likely) or success, no panic is the requirement
         match result {
             Err(IdentityError::CryptoError(_)) => {} // expected
-            Ok(_) => {} // also acceptable
+            Ok(_) => {}                              // also acceptable
             Err(e) => panic!("unexpected error: {e}"),
         }
     }

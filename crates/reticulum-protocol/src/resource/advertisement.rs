@@ -482,7 +482,10 @@ mod tests {
     fn test_advertisement_malformed_wrong_value_types() {
         // Build msgpack map where integer fields are strings instead
         let map = Value::Map(vec![
-            (Value::String("t".into()), Value::String("not_a_number".into())),
+            (
+                Value::String("t".into()),
+                Value::String("not_a_number".into()),
+            ),
             (Value::String("d".into()), Value::Integer(0.into())),
             (Value::String("n".into()), Value::Integer(1.into())),
             (Value::String("h".into()), Value::Binary(vec![0; 32])),

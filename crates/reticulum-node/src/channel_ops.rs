@@ -113,7 +113,10 @@ pub fn classify_channel_envelope(
     let seq = envelope.sequence;
 
     if !check_rx_sequence_valid(seq, next_rx_sequence, window_max) {
-        return Ok((ChannelEnvelopeAction::SequenceRejected { sequence: seq }, seq));
+        return Ok((
+            ChannelEnvelopeAction::SequenceRejected { sequence: seq },
+            seq,
+        ));
     }
 
     if envelope.msg_type == SMT_STREAM_DATA {
@@ -405,7 +408,10 @@ mod tests {
 
         // next_rx=0, window=5 → sequence 3 is valid
         let (action, _) = classify_channel_envelope(&packed, 0, 5).unwrap();
-        assert!(matches!(action, ChannelEnvelopeAction::ApplicationMessage { .. }));
+        assert!(matches!(
+            action,
+            ChannelEnvelopeAction::ApplicationMessage { .. }
+        ));
     }
 
     #[test]
@@ -420,7 +426,10 @@ mod tests {
         // next_rx=5, window=2, sequence=0 → outside window, no wraparound
         let (action, seq) = classify_channel_envelope(&packed, 5, 2).unwrap();
         assert_eq!(seq, 0);
-        assert_eq!(action, ChannelEnvelopeAction::SequenceRejected { sequence: 0 });
+        assert_eq!(
+            action,
+            ChannelEnvelopeAction::SequenceRejected { sequence: 0 }
+        );
     }
 
     #[test]
@@ -447,7 +456,10 @@ mod tests {
         // next_rx=65534, window=5 → window wraps around 0, sequence 0 is valid
         let (action, seq) = classify_channel_envelope(&packed, 65534, 5).unwrap();
         assert_eq!(seq, 0);
-        assert!(matches!(action, ChannelEnvelopeAction::ApplicationMessage { .. }));
+        assert!(matches!(
+            action,
+            ChannelEnvelopeAction::ApplicationMessage { .. }
+        ));
     }
 
     #[test]

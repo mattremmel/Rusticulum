@@ -243,7 +243,8 @@ impl PacketRouter {
 
         let next_hop = compute_announce_next_hop(transport_id.as_ref());
 
-        let decision = decide_path_update(self.path_table.get(&dest), hops, now, &announce.random_hash);
+        let decision =
+            decide_path_update(self.path_table.get(&dest), hops, now, &announce.random_hash);
         let path_updated = match decision {
             PathUpdateDecision::InsertNew | PathUpdateDecision::Replace => {
                 let entry = PathEntry::new(
@@ -911,8 +912,8 @@ mod tests {
         let dh = destination::destination_hash(&nh, identity.hash());
         let random_hash = [0xAA; 10];
 
-        let announce = Announce::create(&identity, nh, dh, random_hash, None, None)
-            .expect("create failed");
+        let announce =
+            Announce::create(&identity, nh, dh, random_hash, None, None).expect("create failed");
         let raw_packet = announce.to_raw_packet(2);
 
         let mut router = PacketRouter::new();
@@ -995,8 +996,8 @@ mod tests {
         let dh = destination::destination_hash(&nh, identity.hash());
         let random_hash = [0xCC; 10];
 
-        let announce = Announce::create(&identity, nh, dh, random_hash, None, None)
-            .expect("create failed");
+        let announce =
+            Announce::create(&identity, nh, dh, random_hash, None, None).expect("create failed");
         let raw_packet = announce.to_raw_packet(1);
 
         let mut router = PacketRouter::new();
@@ -1004,14 +1005,7 @@ mod tests {
 
         // Direct announce: no transport_id
         let result = router
-            .process_inbound_announce(
-                &raw_packet,
-                iface,
-                InterfaceMode::Full,
-                1000,
-                1000.0,
-                None,
-            )
+            .process_inbound_announce(&raw_packet, iface, InterfaceMode::Full, 1000, 1000.0, None)
             .expect("process failed");
 
         assert!(result.path_updated);

@@ -204,8 +204,7 @@ pub fn check_rx_sequence_valid(sequence: u16, next_rx_sequence: u16, window_max:
 
     // sequence < next_rx_sequence — could be genuinely old, or could be
     // a wraparound case where the window spans the 0 boundary.
-    let window_overflow =
-        ((next_rx_sequence as u32 + window_max as u32) % SEQ_MODULUS) as u16;
+    let window_overflow = ((next_rx_sequence as u32 + window_max as u32) % SEQ_MODULUS) as u16;
 
     if window_overflow < next_rx_sequence {
         // Window wraps around 0. Sequences in [0..=window_overflow] are valid.
@@ -406,7 +405,10 @@ impl ChannelState {
         let adaptation = compute_timeout_adaptation(input);
 
         if adaptation.new_window != self.window {
-            tracing::debug!(window = adaptation.new_window, "channel: window shrank on timeout");
+            tracing::debug!(
+                window = adaptation.new_window,
+                "channel: window shrank on timeout"
+            );
         }
         if adaptation.new_window_max != self.window_max {
             tracing::debug!(
@@ -476,26 +478,58 @@ mod tests {
     #[test]
     fn init_very_slow_rtt_all_ones() {
         let iw = compute_initial_window(2.0);
-        assert_eq!(iw, InitialWindow { window: 1, window_max: 1, window_min: 1, window_flexibility: 1 });
+        assert_eq!(
+            iw,
+            InitialWindow {
+                window: 1,
+                window_max: 1,
+                window_min: 1,
+                window_flexibility: 1
+            }
+        );
     }
 
     #[test]
     fn init_normal_rtt_defaults() {
         let iw = compute_initial_window(0.5);
-        assert_eq!(iw, InitialWindow { window: 2, window_max: 5, window_min: 2, window_flexibility: 4 });
+        assert_eq!(
+            iw,
+            InitialWindow {
+                window: 2,
+                window_max: 5,
+                window_min: 2,
+                window_flexibility: 4
+            }
+        );
     }
 
     #[test]
     fn init_fast_rtt_same_as_normal() {
         let iw = compute_initial_window(0.01);
-        assert_eq!(iw, InitialWindow { window: 2, window_max: 5, window_min: 2, window_flexibility: 4 });
+        assert_eq!(
+            iw,
+            InitialWindow {
+                window: 2,
+                window_max: 5,
+                window_min: 2,
+                window_flexibility: 4
+            }
+        );
     }
 
     #[test]
     fn init_exact_boundary() {
         // RTT == RTT_SLOW exactly → normal (condition is >, not >=)
         let iw = compute_initial_window(RTT_SLOW);
-        assert_eq!(iw, InitialWindow { window: 2, window_max: 5, window_min: 2, window_flexibility: 4 });
+        assert_eq!(
+            iw,
+            InitialWindow {
+                window: 2,
+                window_max: 5,
+                window_min: 2,
+                window_flexibility: 4
+            }
+        );
     }
 
     // ================================================================== //
@@ -829,7 +863,10 @@ mod tests {
 
     #[test]
     fn channel_mdu_exactly_u16_max_plus_overhead() {
-        assert_eq!(ChannelState::channel_mdu(0xFFFF + ENVELOPE_OVERHEAD), 0xFFFF);
+        assert_eq!(
+            ChannelState::channel_mdu(0xFFFF + ENVELOPE_OVERHEAD),
+            0xFFFF
+        );
     }
 
     // ================================================================== //

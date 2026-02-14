@@ -179,7 +179,10 @@ mod tests {
                 "bit 7 should not affect parse success for byte 0x{byte:02x}"
             );
             if let (Ok(a), Ok(b)) = (with_bit7, without_bit7) {
-                assert_eq!(a, b, "bit 7 should not affect parsed flags for 0x{byte:02x}");
+                assert_eq!(
+                    a, b,
+                    "bit 7 should not affect parsed flags for 0x{byte:02x}"
+                );
             }
         }
     }
@@ -191,9 +194,8 @@ mod proptests {
     use proptest::prelude::*;
 
     fn valid_flags_byte() -> impl Strategy<Value = u8> {
-        (0..=1u8, 0..=1u8, 0..=1u8, 0..=3u8, 0..=3u8).prop_map(|(ht, cf, tt, dt, pt)| {
-            (ht << 6) | (cf << 5) | (tt << 4) | (dt << 2) | pt
-        })
+        (0..=1u8, 0..=1u8, 0..=1u8, 0..=3u8, 0..=3u8)
+            .prop_map(|(ht, cf, tt, dt, pt)| (ht << 6) | (cf << 5) | (tt << 4) | (dt << 2) | pt)
     }
 
     proptest! {

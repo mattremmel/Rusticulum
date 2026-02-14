@@ -126,7 +126,10 @@ mod tests {
         let rtt_raw = make_valid_packet([0xAB; 16]);
         let outcome = plan_link_proof_response(Some(rtt_raw.clone()));
         match outcome {
-            LinkProofOutcome::Accepted { rtt_raw: r, link_id } => {
+            LinkProofOutcome::Accepted {
+                rtt_raw: r,
+                link_id,
+            } => {
                 assert_eq!(r, rtt_raw);
                 assert_eq!(link_id.as_ref(), &[0xAB; 16]);
             }
@@ -169,7 +172,10 @@ mod tests {
 
     #[test]
     fn rtt_response_none_returns_not_handled() {
-        assert_eq!(plan_link_rtt_response(None, None), LinkRttOutcome::NotHandled);
+        assert_eq!(
+            plan_link_rtt_response(None, None),
+            LinkRttOutcome::NotHandled
+        );
     }
 
     #[test]

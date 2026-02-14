@@ -287,7 +287,9 @@ mod tests {
         let mut any_rejected = false;
         for bytes in patterns {
             match Ed25519PublicKey::from_bytes(*bytes) {
-                Err(_) => { any_rejected = true; }
+                Err(_) => {
+                    any_rejected = true;
+                }
                 Ok(pk) => {
                     // If accepted, verify must still not panic
                     let garbage_sig = Ed25519Signature::from_bytes([0xAB; 64]);
@@ -295,7 +297,10 @@ mod tests {
                 }
             }
         }
-        assert!(any_rejected, "at least one non-curve pattern should be rejected");
+        assert!(
+            any_rejected,
+            "at least one non-curve pattern should be rejected"
+        );
     }
 
     #[test]

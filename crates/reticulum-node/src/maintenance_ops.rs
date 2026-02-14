@@ -36,9 +36,7 @@ pub fn plan_announce_retransmission(
 }
 
 /// Collect IDs of connected interfaces for table culling.
-pub fn collect_active_interface_ids(
-    interfaces: &[(InterfaceId, bool)],
-) -> Vec<InterfaceId> {
+pub fn collect_active_interface_ids(interfaces: &[(InterfaceId, bool)]) -> Vec<InterfaceId> {
     interfaces
         .iter()
         .filter(|(_, connected)| *connected)
@@ -146,20 +144,14 @@ mod tests {
 
     #[test]
     fn collect_all_disconnected() {
-        let interfaces = vec![
-            (InterfaceId(1), false),
-            (InterfaceId(2), false),
-        ];
+        let interfaces = vec![(InterfaceId(1), false), (InterfaceId(2), false)];
         let active = collect_active_interface_ids(&interfaces);
         assert!(active.is_empty());
     }
 
     #[test]
     fn collect_all_connected() {
-        let interfaces = vec![
-            (InterfaceId(1), true),
-            (InterfaceId(2), true),
-        ];
+        let interfaces = vec![(InterfaceId(1), true), (InterfaceId(2), true)];
         let active = collect_active_interface_ids(&interfaces);
         assert_eq!(active.len(), 2);
     }

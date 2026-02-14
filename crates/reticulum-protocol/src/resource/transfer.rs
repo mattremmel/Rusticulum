@@ -1248,18 +1248,23 @@ mod tests {
         let iv = [0x00; 16];
         let random_hash = [0x11; RANDOM_HASH_SIZE];
 
-        let prepared =
-            prepare_resource(raw_data, &key_a, &iv, random_hash, None, false, 1, 1, None, None)
-                .unwrap();
+        let prepared = prepare_resource(
+            raw_data,
+            &key_a,
+            &iv,
+            random_hash,
+            None,
+            false,
+            1,
+            1,
+            None,
+            None,
+        )
+        .unwrap();
         let parts = split_encrypted_data(&prepared.encrypted_data, prepared.hashmap.len());
 
-        let result = assemble_resource(
-            &parts,
-            &key_b,
-            &random_hash,
-            &prepared.resource_hash,
-            false,
-        );
+        let result =
+            assemble_resource(&parts, &key_b, &random_hash, &prepared.resource_hash, false);
         assert!(result.is_err(), "assemble with wrong key should fail");
     }
 
@@ -1270,14 +1275,27 @@ mod tests {
         let iv = [0x00; 16];
         let random_hash = [0x22; RANDOM_HASH_SIZE];
 
-        let prepared =
-            prepare_resource(raw_data, &key, &iv, random_hash, None, false, 1, 1, None, None)
-                .unwrap();
+        let prepared = prepare_resource(
+            raw_data,
+            &key,
+            &iv,
+            random_hash,
+            None,
+            false,
+            1,
+            1,
+            None,
+            None,
+        )
+        .unwrap();
         let parts = split_encrypted_data(&prepared.encrypted_data, prepared.hashmap.len());
 
         let wrong_hash = [0xFF; 32];
         let result = assemble_resource(&parts, &key, &random_hash, &wrong_hash, false);
-        assert!(result.is_err(), "assemble with wrong resource_hash should fail");
+        assert!(
+            result.is_err(),
+            "assemble with wrong resource_hash should fail"
+        );
     }
 
     #[test]
@@ -1287,9 +1305,19 @@ mod tests {
         let iv = [0x00; 16];
         let random_hash = [0x33; RANDOM_HASH_SIZE];
 
-        let prepared =
-            prepare_resource(raw_data, &key, &iv, random_hash, None, false, 1, 1, None, None)
-                .unwrap();
+        let prepared = prepare_resource(
+            raw_data,
+            &key,
+            &iv,
+            random_hash,
+            None,
+            false,
+            1,
+            1,
+            None,
+            None,
+        )
+        .unwrap();
         let mut parts = split_encrypted_data(&prepared.encrypted_data, prepared.hashmap.len());
 
         // Flip a byte in the first part
@@ -1297,13 +1325,7 @@ mod tests {
             parts[0][0] ^= 0xFF;
         }
 
-        let result = assemble_resource(
-            &parts,
-            &key,
-            &random_hash,
-            &prepared.resource_hash,
-            false,
-        );
+        let result = assemble_resource(&parts, &key, &random_hash, &prepared.resource_hash, false);
         assert!(result.is_err(), "corrupt ciphertext should fail assembly");
     }
 

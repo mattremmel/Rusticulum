@@ -137,7 +137,13 @@ mod tests {
                 }
             }
         }
-        assert_eq!(success_count, 21, "exactly 21 context types should be valid");
-        assert_eq!(fail_count, 235, "exactly 235 context types should be invalid");
+        assert_eq!(
+            success_count, 21,
+            "exactly 21 context types should be valid"
+        );
+        assert_eq!(
+            fail_count, 235,
+            "exactly 235 context types should be invalid"
+        );
     }
 }

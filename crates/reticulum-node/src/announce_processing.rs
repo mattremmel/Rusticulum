@@ -63,9 +63,7 @@ pub fn decide_announce_action(
 mod tests {
     use super::*;
     use reticulum_core::announce::make_random_hash;
-    use reticulum_core::constants::{
-        DestinationType, HeaderType, PacketType, TransportType,
-    };
+    use reticulum_core::constants::{DestinationType, HeaderType, PacketType, TransportType};
     use reticulum_core::destination;
     use reticulum_core::identity::Identity;
     use reticulum_core::packet::context::ContextType;
@@ -217,8 +215,8 @@ mod tests {
         let dh = destination::destination_hash(&nh, identity.hash());
         let random_hash = make_random_hash();
 
-        let announce = Announce::create(&identity, nh, dh, random_hash, None, None)
-            .expect("create announce");
+        let announce =
+            Announce::create(&identity, nh, dh, random_hash, None, None).expect("create announce");
         let packet = announce.to_raw_packet(0);
         let result = AnnounceResult {
             destination_hash: dh,

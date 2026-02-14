@@ -206,10 +206,16 @@ impl WindowState {
             );
         }
         if adaptation.new_window_min != self.window_min {
-            tracing::trace!(window_min = adaptation.new_window_min, "resource: window_min grew");
+            tracing::trace!(
+                window_min = adaptation.new_window_min,
+                "resource: window_min grew"
+            );
         }
         if adaptation.new_window_max != self.window_max {
-            tracing::debug!(window_max = adaptation.new_window_max, "resource: rate transition");
+            tracing::debug!(
+                window_max = adaptation.new_window_max,
+                "resource: rate transition"
+            );
         }
 
         self.window = adaptation.new_window;
@@ -233,10 +239,16 @@ impl WindowState {
         let adaptation = compute_window_timeout(input);
 
         if adaptation.new_window != self.window {
-            tracing::debug!(window = adaptation.new_window, "resource: window shrank on timeout");
+            tracing::debug!(
+                window = adaptation.new_window,
+                "resource: window shrank on timeout"
+            );
         }
         if adaptation.new_window_max != self.window_max {
-            tracing::trace!(window_max = adaptation.new_window_max, "resource: window_max shrank");
+            tracing::trace!(
+                window_max = adaptation.new_window_max,
+                "resource: window_max shrank"
+            );
         }
 
         self.window = adaptation.new_window;
@@ -538,7 +550,7 @@ mod tests {
     #[test]
     fn complete_very_slow_blocked_by_fast() {
         let input = WindowCompleteInput {
-            rate: 100.0, // < RATE_VERY_SLOW
+            rate: 100.0,         // < RATE_VERY_SLOW
             fast_rate_rounds: 2, // > 0 → blocks very_slow tracking
             very_slow_rate_rounds: 0,
             ..default_complete_input(100.0)

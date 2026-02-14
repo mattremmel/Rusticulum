@@ -231,9 +231,9 @@ impl Announce {
     /// Validate the announce: verify signature and destination hash.
     pub fn validate(&self) -> Result<(), AnnounceError> {
         // 1. Verify Ed25519 signature
-        let ed25519_pub_bytes: [u8; 32] = self.public_key[32..64]
-            .try_into()
-            .map_err(|_| AnnounceError::InvalidSignature(String::from("public key slice conversion")))?;
+        let ed25519_pub_bytes: [u8; 32] = self.public_key[32..64].try_into().map_err(|_| {
+            AnnounceError::InvalidSignature(String::from("public key slice conversion"))
+        })?;
         let ed25519_pub = Ed25519PublicKey::from_bytes(ed25519_pub_bytes).map_err(|e| {
             AnnounceError::InvalidSignature(alloc::format!("invalid public key: {e}"))
         })?;
@@ -747,11 +747,13 @@ mod tests {
         let dh = destination::destination_hash(&nh, identity.hash());
         let random_hash = [0x01; 10];
 
-        let mut announce =
-            Announce::create(&identity, nh, dh, random_hash, None, None).unwrap();
+        let mut announce = Announce::create(&identity, nh, dh, random_hash, None, None).unwrap();
         // Flip one bit in the signature
         announce.signature[0] ^= 0x01;
-        assert!(announce.validate().is_err(), "flipped signature should fail validation");
+        assert!(
+            announce.validate().is_err(),
+            "flipped signature should fail validation"
+        );
     }
 
     #[test]
@@ -761,11 +763,13 @@ mod tests {
         let dh = destination::destination_hash(&nh, identity.hash());
         let random_hash = [0x02; 10];
 
-        let mut announce =
-            Announce::create(&identity, nh, dh, random_hash, None, None).unwrap();
+        let mut announce = Announce::create(&identity, nh, dh, random_hash, None, None).unwrap();
         // Zero out the ed25519 public key portion (bytes 32..64)
         announce.public_key[32..64].fill(0);
-        assert!(announce.validate().is_err(), "zero ed25519 pubkey should fail validation");
+        assert!(
+            announce.validate().is_err(),
+            "zero ed25519 pubkey should fail validation"
+        );
     }
 
     #[test]
@@ -775,13 +779,15 @@ mod tests {
         let dh = destination::destination_hash(&nh, identity.hash());
         let random_hash = [0x03; 10];
 
-        let mut announce =
-            Announce::create(&identity, nh, dh, random_hash, None, None).unwrap();
+        let mut announce = Announce::create(&identity, nh, dh, random_hash, None, None).unwrap();
         // Swap to a different destination hash
         let wrong_dh = DestinationHash::new([0xFF; 16]);
         announce.destination_hash = wrong_dh;
         // Signature was computed over original dest_hash, so validate fails
-        assert!(announce.validate().is_err(), "wrong dest_hash should fail validation");
+        assert!(
+            announce.validate().is_err(),
+            "wrong dest_hash should fail validation"
+        );
     }
 
     #[test]
@@ -794,7 +800,9 @@ mod tests {
 
         let announce =
             Announce::create(&identity, nh, dh, random_hash, None, Some(&big_app_data)).unwrap();
-        announce.validate().expect("large app_data should still validate");
+        announce
+            .validate()
+            .expect("large app_data should still validate");
         assert_eq!(announce.app_data.as_ref().unwrap().len(), 10_000);
     }
 
@@ -803,7 +811,10 @@ mod tests {
         let dh = DestinationHash::new([0x00; 16]);
         let result = Announce::from_payload(dh, false, ContextType::None, &[]);
         assert!(
-            matches!(result, Err(crate::error::AnnounceError::PayloadTooShort { .. })),
+            matches!(
+                result,
+                Err(crate::error::AnnounceError::PayloadTooShort { .. })
+            ),
             "empty payload should return PayloadTooShort"
         );
     }
@@ -816,8 +827,7 @@ mod tests {
         let random_hash = [0x06; 10];
 
         // Create with None app_data
-        let announce_none =
-            Announce::create(&identity, nh, dh, random_hash, None, None).unwrap();
+        let announce_none = Announce::create(&identity, nh, dh, random_hash, None, None).unwrap();
         // Create with Some(empty) app_data
         let announce_empty =
             Announce::create(&identity, nh, dh, random_hash, None, Some(b"")).unwrap();
@@ -868,8 +878,10 @@ mod tests {
                     // The signature was over the full payload including app_data,
                     // so truncated versions should fail validation
                     if truncate_at < payload.len() {
-                        assert!(ann.validate().is_err(),
-                            "truncated at {truncate_at} should fail validate");
+                        assert!(
+                            ann.validate().is_err(),
+                            "truncated at {truncate_at} should fail validate"
+                        );
                     }
                 }
             }

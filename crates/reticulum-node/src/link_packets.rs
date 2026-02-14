@@ -310,10 +310,12 @@ mod tests {
             ContextType::Resource,
         ];
         for ctx in contexts {
-            let raw =
-                build_link_data_packet_with_context(&test_link_id(), vec![0xAA; 16], ctx);
+            let raw = build_link_data_packet_with_context(&test_link_id(), vec![0xAA; 16], ctx);
             let pkt = RawPacket::parse(&raw).unwrap();
-            assert!(pkt.flags.context_flag, "context_flag must be true for {ctx:?}");
+            assert!(
+                pkt.flags.context_flag,
+                "context_flag must be true for {ctx:?}"
+            );
             assert_eq!(pkt.context, ctx, "context mismatch for {ctx:?}");
         }
     }
@@ -378,11 +380,8 @@ mod tests {
         // Packets with non-None context:
         let lrproof = build_lrproof_packet(&test_link_id(), vec![0; 99]);
         let lrrtt = build_lrrtt_packet(&test_link_id(), vec![0; 48]);
-        let ctx_data = build_link_data_packet_with_context(
-            &test_link_id(),
-            vec![0; 32],
-            ContextType::Channel,
-        );
+        let ctx_data =
+            build_link_data_packet_with_context(&test_link_id(), vec![0; 32], ContextType::Channel);
 
         // LRPROOF: context=Lrproof but context_flag=false (protocol convention)
         let pkt = RawPacket::parse(&lrproof).unwrap();
@@ -406,11 +405,7 @@ mod tests {
             build_lrproof_packet(&test_link_id(), vec![0; 99]),
             build_lrrtt_packet(&test_link_id(), vec![0; 48]),
             build_link_data_packet(&test_link_id(), vec![0; 64]),
-            build_link_data_packet_with_context(
-                &test_link_id(),
-                vec![0; 32],
-                ContextType::Channel,
-            ),
+            build_link_data_packet_with_context(&test_link_id(), vec![0; 32], ContextType::Channel),
             build_proof_packet(&test_link_id(), vec![0; 96]),
         ];
         for (i, raw) in packets.iter().enumerate() {
@@ -450,11 +445,7 @@ mod tests {
             build_lrproof_packet(&test_link_id(), vec![0; 99]),
             build_lrrtt_packet(&test_link_id(), vec![0; 48]),
             build_link_data_packet(&test_link_id(), vec![0; 64]),
-            build_link_data_packet_with_context(
-                &test_link_id(),
-                vec![0; 32],
-                ContextType::Request,
-            ),
+            build_link_data_packet_with_context(&test_link_id(), vec![0; 32], ContextType::Request),
             build_proof_packet(&test_link_id(), vec![0; 96]),
         ];
         for (i, raw) in packets.iter().enumerate() {
@@ -469,10 +460,19 @@ mod tests {
     #[test]
     fn test_packet_serialize_parse_roundtrip() {
         let cases: Vec<(&str, Vec<u8>)> = vec![
-            ("linkrequest", build_linkrequest_packet(test_dest_hash(), vec![0xAA; 67])),
-            ("lrproof", build_lrproof_packet(&test_link_id(), vec![0xBB; 99])),
+            (
+                "linkrequest",
+                build_linkrequest_packet(test_dest_hash(), vec![0xAA; 67]),
+            ),
+            (
+                "lrproof",
+                build_lrproof_packet(&test_link_id(), vec![0xBB; 99]),
+            ),
             ("lrrtt", build_lrrtt_packet(&test_link_id(), vec![0xCC; 48])),
-            ("link_data", build_link_data_packet(&test_link_id(), vec![0xDD; 64])),
+            (
+                "link_data",
+                build_link_data_packet(&test_link_id(), vec![0xDD; 64]),
+            ),
             (
                 "link_data_ctx",
                 build_link_data_packet_with_context(

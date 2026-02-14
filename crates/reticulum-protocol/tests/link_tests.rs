@@ -497,13 +497,9 @@ fn link_role_debug() {
 #[test]
 fn traffic_timeout_boundary_values() {
     // Min keepalive (5) → 5*6 = 30
-    assert!(
-        (LinkActive::compute_traffic_timeout(link::KEEPALIVE_MIN) - 30.0).abs() < 1e-10
-    );
+    assert!((LinkActive::compute_traffic_timeout(link::KEEPALIVE_MIN) - 30.0).abs() < 1e-10);
     // Max keepalive (360) → 360*6 = 2160
-    assert!(
-        (LinkActive::compute_traffic_timeout(link::KEEPALIVE_MAX) - 2160.0).abs() < 1e-10
-    );
+    assert!((LinkActive::compute_traffic_timeout(link::KEEPALIVE_MAX) - 2160.0).abs() < 1e-10);
     // Zero → 0
     assert!((LinkActive::compute_traffic_timeout(0.0)).abs() < 1e-10);
 }
@@ -555,8 +551,8 @@ fn establishment_timeout_all_vectors() {
     let vectors = reticulum_test_vectors::retry_timers::load();
     for v in &vectors.link_establishment.vectors {
         let expected = v.timeout as f64;
-        let computed = link::ESTABLISHMENT_TIMEOUT_PER_HOP * (v.hops.max(1) as f64)
-            + link::KEEPALIVE_DEFAULT;
+        let computed =
+            link::ESTABLISHMENT_TIMEOUT_PER_HOP * (v.hops.max(1) as f64) + link::KEEPALIVE_DEFAULT;
         assert!(
             (computed - expected).abs() < 1e-6,
             "establishment timeout mismatch for hops={}: got {}, expected {} ({})",

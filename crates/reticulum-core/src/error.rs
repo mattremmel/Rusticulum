@@ -158,10 +158,7 @@ mod tests {
     #[test]
     fn test_packet_error_display_all_variants() {
         let variants: &[PacketError] = &[
-            PacketError::TooShort {
-                min: 19,
-                actual: 5,
-            },
+            PacketError::TooShort { min: 19, actual: 5 },
             PacketError::InvalidHeaderType(0xFF),
             PacketError::InvalidTransportType(0x03),
             PacketError::InvalidDestinationType(0x04),

@@ -334,9 +334,12 @@ mod tests {
         let key: [u8; 64] = [0xAA; 64];
         let token = Token::new(&key);
         let result = token.decrypt(&[0u8; 47]);
-        assert_eq!(result, Err(CryptoError::InvalidLength {
-            reason: "token too short: need at least 48 bytes (16 IV + 0 ciphertext + 32 HMAC)",
-        }));
+        assert_eq!(
+            result,
+            Err(CryptoError::InvalidLength {
+                reason: "token too short: need at least 48 bytes (16 IV + 0 ciphertext + 32 HMAC)",
+            })
+        );
     }
 
     #[test]

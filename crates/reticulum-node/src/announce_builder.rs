@@ -152,8 +152,7 @@ mod tests {
         let id = test_identity();
         let aspects = vec!["echo".to_string()];
         let random_hash = [0xAA; 10];
-        let (_, raw) =
-            build_single_announce(&id, "testapp", &aspects, random_hash, None).unwrap();
+        let (_, raw) = build_single_announce(&id, "testapp", &aspects, random_hash, None).unwrap();
 
         let packet = RawPacket::parse(&raw).unwrap();
         assert_eq!(
@@ -183,8 +182,7 @@ mod tests {
         let id = test_identity();
         let aspects = vec!["echo".to_string()];
         let random_hash = [0xCC; 10];
-        let (_, raw) =
-            build_single_announce(&id, "testapp", &aspects, random_hash, None).unwrap();
+        let (_, raw) = build_single_announce(&id, "testapp", &aspects, random_hash, None).unwrap();
 
         let packet = RawPacket::parse(&raw).unwrap();
         let announce = Announce::from_payload(
@@ -202,8 +200,7 @@ mod tests {
         let id = test_identity();
         let aspects = vec!["echo".to_string()];
         let random_hash = [0xDD; 10];
-        let (_, raw) =
-            build_single_announce(&id, "testapp", &aspects, random_hash, None).unwrap();
+        let (_, raw) = build_single_announce(&id, "testapp", &aspects, random_hash, None).unwrap();
 
         let packet = RawPacket::parse(&raw).unwrap();
         assert_eq!(

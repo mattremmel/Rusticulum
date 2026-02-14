@@ -120,10 +120,7 @@ mod tests {
     fn test_local_client_config_initiator_defaults() {
         let config = LocalClientConfig::initiator("test-init", PathBuf::from("/tmp/test.sock"));
         assert_eq!(config.name, "test-init");
-        assert_eq!(
-            config.socket_path,
-            Some(PathBuf::from("/tmp/test.sock"))
-        );
+        assert_eq!(config.socket_path, Some(PathBuf::from("/tmp/test.sock")));
         assert_eq!(config.mode, InterfaceMode::Full);
         assert!(config.max_reconnect_tries.is_none());
         assert_eq!(config.connect_timeout, INITIAL_CONNECT_TIMEOUT);

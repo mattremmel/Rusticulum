@@ -80,9 +80,7 @@ pub fn plan_resource_assembly(input: &ResourcePartInput) -> ResourceAssemblyOutc
                 data_preview,
             }
         }
-        Some(Err(e)) => ResourceAssemblyOutcome::AssemblyFailed {
-            error: e.clone(),
-        },
+        Some(Err(e)) => ResourceAssemblyOutcome::AssemblyFailed { error: e.clone() },
         None => ResourceAssemblyOutcome::AssemblyFailed {
             error: "assembly not attempted".to_string(),
         },
@@ -221,10 +219,7 @@ mod tests {
     #[test]
     fn preview_truncated() {
         let input = ResourcePartInput {
-            assembly_result: Some(Ok((
-                b"long resource data here".to_vec(),
-                b"proof".to_vec(),
-            ))),
+            assembly_result: Some(Ok((b"long resource data here".to_vec(), b"proof".to_vec()))),
             preview_len: 10,
             ..base_input()
         };
@@ -266,10 +261,7 @@ mod tests {
             ..base_input()
         };
         let outcome = plan_resource_assembly(&input);
-        assert_eq!(
-            outcome,
-            ResourceAssemblyOutcome::PartError { error: msg }
-        );
+        assert_eq!(outcome, ResourceAssemblyOutcome::PartError { error: msg });
     }
 
     // --- priority: receive error takes precedence ---

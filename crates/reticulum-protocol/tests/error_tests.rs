@@ -155,10 +155,7 @@ fn channel_error_display_remaining() {
         expected: 10,
         actual: 20,
     };
-    assert_eq!(
-        err.to_string(),
-        "sequence error: expected 10, got 20"
-    );
+    assert_eq!(err.to_string(), "sequence error: expected 10, got 20");
 }
 
 #[test]

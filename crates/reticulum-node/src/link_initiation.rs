@@ -80,14 +80,7 @@ pub fn build_link_request(dest_hash: DestinationHash) -> Result<LinkRequestOutpu
         let temp_packet = RawPacket::parse(&temp_raw).expect("just built a valid packet");
         let hashable = temp_packet.hashable_part();
 
-        LinkPending::new_initiator(
-            dest_hash,
-            MTU as u32,
-            LinkMode::default(),
-            0,
-            &hashable,
-            67,
-        )?
+        LinkPending::new_initiator(dest_hash, MTU as u32, LinkMode::default(), 0, &hashable, 67)?
     };
 
     // Pass 2: real packet with actual request data
@@ -315,7 +308,10 @@ mod tests {
         assert_eq!(queues.auto_resource.as_deref(), Some("resource"));
         assert_eq!(queues.auto_channel.as_deref(), Some("channel"));
         assert_eq!(queues.auto_buffer.as_deref(), Some("buffer"));
-        assert_eq!(queues.auto_request, Some(("/test".to_string(), "body".to_string())));
+        assert_eq!(
+            queues.auto_request,
+            Some(("/test".to_string(), "body".to_string()))
+        );
     }
 
     #[test]

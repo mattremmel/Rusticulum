@@ -66,9 +66,7 @@ pub fn should_teardown_at(
     elapsed_inbound: f64,
     keepalive: f64,
 ) -> bool {
-    if is_stale
-        && let Some(stale_elapsed) = elapsed_stale
-    {
+    if is_stale && let Some(stale_elapsed) = elapsed_stale {
         return stale_elapsed > STALE_GRACE;
     }
     elapsed_inbound > keepalive * KEEPALIVE_TIMEOUT_FACTOR
@@ -171,7 +169,8 @@ pub fn build_signed_data(
     ed25519_pub: &[u8],
     signalling: &[u8],
 ) -> Vec<u8> {
-    let mut data = Vec::with_capacity(link_id.len() + x25519_pub.len() + ed25519_pub.len() + signalling.len());
+    let mut data =
+        Vec::with_capacity(link_id.len() + x25519_pub.len() + ed25519_pub.len() + signalling.len());
     data.extend_from_slice(link_id);
     data.extend_from_slice(x25519_pub);
     data.extend_from_slice(ed25519_pub);
@@ -1248,7 +1247,10 @@ mod tests {
         let result = decode_rtt_msgpack(&buf);
         assert!(result.is_err(), "integer should not decode as RTT float");
         assert!(
-            result.unwrap_err().to_string().contains("RTT must be a float"),
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("RTT must be a float"),
             "error should mention float requirement"
         );
     }

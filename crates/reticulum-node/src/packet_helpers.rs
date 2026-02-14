@@ -16,11 +16,7 @@ use reticulum_transport::ifac::{IfacConfig, has_ifac_flag, ifac_apply, ifac_veri
 /// let link_id = LinkId::new(link_id_bytes);
 /// ```
 pub fn extract_link_id(packet: &RawPacket) -> LinkId {
-    let link_id_bytes: [u8; 16] = packet
-        .destination
-        .as_ref()
-        .try_into()
-        .unwrap_or([0u8; 16]);
+    let link_id_bytes: [u8; 16] = packet.destination.as_ref().try_into().unwrap_or([0u8; 16]);
     LinkId::new(link_id_bytes)
 }
 
@@ -67,8 +63,7 @@ pub fn verify_ifac(config: Option<&IfacConfig>, raw: &[u8]) -> Result<Vec<u8>, I
 pub fn extract_request_id(raw: &[u8]) -> Option<[u8; 16]> {
     let pkt = RawPacket::parse(raw).ok()?;
     let hashable = pkt.hashable_part();
-    let request_id =
-        reticulum_protocol::request::types::RequestId::from_hashable_part(&hashable);
+    let request_id = reticulum_protocol::request::types::RequestId::from_hashable_part(&hashable);
     let mut id_bytes = [0u8; 16];
     id_bytes.copy_from_slice(request_id.as_ref());
     Some(id_bytes)
@@ -205,7 +200,10 @@ mod tests {
         assert!(raw[0] & 0x80 == 0, "test packet should not have IFAC flag");
 
         let result = verify_ifac(Some(&ifac), &raw);
-        assert!(result.is_err(), "non-IFAC packet should be rejected when IFAC is configured");
+        assert!(
+            result.is_err(),
+            "non-IFAC packet should be rejected when IFAC is configured"
+        );
     }
 
     #[test]
@@ -216,7 +214,10 @@ mod tests {
         raw[0] |= 0x80; // Set IFAC flag
 
         let result = verify_ifac(None, &raw);
-        assert!(result.is_err(), "IFAC-flagged packet should be rejected when no IFAC is configured");
+        assert!(
+            result.is_err(),
+            "IFAC-flagged packet should be rejected when no IFAC is configured"
+        );
     }
 
     #[test]

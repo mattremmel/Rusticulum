@@ -449,7 +449,10 @@ target = "[::1]:4242"
         assert!(parse_mode("").is_err());
         assert!(parse_mode("mesh").is_err());
         // "FULL" → case-insensitive → should succeed (to_lowercase)
-        assert!(parse_mode("FULL").is_ok(), "FULL should work (case-insensitive)");
+        assert!(
+            parse_mode("FULL").is_ok(),
+            "FULL should work (case-insensitive)"
+        );
         // But completely invalid string → error
         assert!(parse_mode("foobar").is_err());
     }

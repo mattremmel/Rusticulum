@@ -9,8 +9,8 @@ use reticulum_core::constants::{DestinationType, PacketType};
 use reticulum_core::packet::context::ContextType;
 use reticulum_core::packet::wire::RawPacket;
 use reticulum_core::types::{DestinationHash, LinkId, TruncatedHash};
-use reticulum_transport::path::types::InterfaceId;
 use reticulum_transport::path::PathTable;
+use reticulum_transport::path::types::InterfaceId;
 use reticulum_transport::router::dispatch::{
     compute_link_id_from_raw, inject_transport_header, strip_transport_header,
 };
@@ -21,7 +21,10 @@ use reticulum_transport::router::types::{LinkTableEntry, ReverseEntry};
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TransportAction {
     /// Send data to a specific interface.
-    TransmitTo { interface: InterfaceId, data: Vec<u8> },
+    TransmitTo {
+        interface: InterfaceId,
+        data: Vec<u8>,
+    },
     /// Broadcast data to all interfaces except the excluded one.
     Broadcast {
         exclude: Option<InterfaceId>,
@@ -174,9 +177,7 @@ pub fn decide_transport_relay(
     let new_hops = packet.hops.saturating_add(1);
 
     // LRPROOF: route via link table back to initiator.
-    if packet.flags.packet_type == PacketType::Proof
-        && packet.context == ContextType::Lrproof
-    {
+    if packet.flags.packet_type == PacketType::Proof && packet.context == ContextType::Lrproof {
         return decide_relay_lrproof(packet, raw, from_iface, link_table, new_hops);
     }
 
@@ -188,9 +189,9 @@ pub fn decide_transport_relay(
     }
 
     // All other packets (including LINKREQUEST): use path table.
-    let path_info = path_table.get(&packet.destination).map(|e| {
-        (e.next_hop, e.hops, e.receiving_interface)
-    });
+    let path_info = path_table
+        .get(&packet.destination)
+        .map(|e| (e.next_hop, e.hops, e.receiving_interface));
 
     let (next_hop, remaining_hops, outbound_iface) = match path_info {
         Some(info) => info,
@@ -214,10 +215,7 @@ pub fn decide_transport_relay(
                 validated: false,
                 proof_timeout,
             };
-            mutations.push(TableMutation::InsertLinkTableEntry {
-                link_id,
-                entry,
-            });
+            mutations.push(TableMutation::InsertLinkTableEntry { link_id, entry });
         }
     } else {
         // For non-link-request packets: create reverse table entry.
@@ -682,8 +680,14 @@ mod tests {
 
         let link_table = LinkTable::new();
 
-        let (actions, _) =
-            decide_transport_relay(&packet, &raw, InterfaceId(1), &path_table, &link_table, 1000);
+        let (actions, _) = decide_transport_relay(
+            &packet,
+            &raw,
+            InterfaceId(1),
+            &path_table,
+            &link_table,
+            1000,
+        );
 
         assert_eq!(actions.len(), 1);
         match &actions[0] {
@@ -707,8 +711,14 @@ mod tests {
 
         let link_table = LinkTable::new();
 
-        let (actions, _) =
-            decide_transport_relay(&packet, &raw, InterfaceId(1), &path_table, &link_table, 1000);
+        let (actions, _) = decide_transport_relay(
+            &packet,
+            &raw,
+            InterfaceId(1),
+            &path_table,
+            &link_table,
+            1000,
+        );
 
         assert_eq!(actions.len(), 1);
         match &actions[0] {
@@ -732,8 +742,14 @@ mod tests {
 
         let link_table = LinkTable::new();
 
-        let (actions, _) =
-            decide_transport_relay(&packet, &raw, InterfaceId(1), &path_table, &link_table, 1000);
+        let (actions, _) = decide_transport_relay(
+            &packet,
+            &raw,
+            InterfaceId(1),
+            &path_table,
+            &link_table,
+            1000,
+        );
 
         assert_eq!(actions.len(), 1);
         match &actions[0] {
@@ -758,8 +774,14 @@ mod tests {
 
         let link_table = LinkTable::new();
 
-        let (actions, _) =
-            decide_transport_relay(&packet, &raw, InterfaceId(1), &path_table, &link_table, 1000);
+        let (actions, _) = decide_transport_relay(
+            &packet,
+            &raw,
+            InterfaceId(1),
+            &path_table,
+            &link_table,
+            1000,
+        );
 
         match &actions[0] {
             TransportAction::TransmitTo { data, .. } => {
@@ -833,7 +855,10 @@ mod tests {
         let recv_iface = InterfaceId(3);
 
         let mut link_table = LinkTable::new();
-        link_table.insert(link_id, make_link_table_entry(next_hop_iface, recv_iface, 2));
+        link_table.insert(
+            link_id,
+            make_link_table_entry(next_hop_iface, recv_iface, 2),
+        );
 
         let (actions, mutations) = decide_header1_forwarding(
             &packet,
@@ -851,9 +876,11 @@ mod tests {
             }
             other => panic!("expected TransmitTo, got: {other:?}"),
         }
-        assert!(mutations
-            .iter()
-            .any(|m| matches!(m, TableMutation::ValidateLinkTableEntry { .. })));
+        assert!(
+            mutations
+                .iter()
+                .any(|m| matches!(m, TableMutation::ValidateLinkTableEntry { .. }))
+        );
     }
 
     #[test]
@@ -865,7 +892,10 @@ mod tests {
         let recv_iface = InterfaceId(3);
 
         let mut link_table = LinkTable::new();
-        link_table.insert(link_id, make_link_table_entry(next_hop_iface, recv_iface, 2));
+        link_table.insert(
+            link_id,
+            make_link_table_entry(next_hop_iface, recv_iface, 2),
+        );
 
         let (actions, _) = decide_header1_forwarding(
             &packet,
@@ -888,14 +918,8 @@ mod tests {
 
         let link_table = LinkTable::new(); // empty
 
-        let (actions, _) = decide_header1_forwarding(
-            &packet,
-            &raw,
-            InterfaceId(1),
-            false,
-            true,
-            &link_table,
-        );
+        let (actions, _) =
+            decide_header1_forwarding(&packet, &raw, InterfaceId(1), false, true, &link_table);
 
         assert_eq!(actions.len(), 1);
         assert!(matches!(actions[0], TransportAction::Broadcast { .. }));
@@ -910,16 +934,13 @@ mod tests {
         let recv_iface = InterfaceId(3);
 
         let mut link_table = LinkTable::new();
-        link_table.insert(link_id, make_link_table_entry(next_hop_iface, recv_iface, 2));
-
-        let (_, mutations) = decide_header1_forwarding(
-            &packet,
-            &raw,
-            next_hop_iface,
-            false,
-            true,
-            &link_table,
+        link_table.insert(
+            link_id,
+            make_link_table_entry(next_hop_iface, recv_iface, 2),
         );
+
+        let (_, mutations) =
+            decide_header1_forwarding(&packet, &raw, next_hop_iface, false, true, &link_table);
 
         assert!(mutations.iter().any(
             |m| matches!(m, TableMutation::ValidateLinkTableEntry { link_id: lid } if *lid == link_id)
@@ -935,7 +956,10 @@ mod tests {
         let recv_iface = InterfaceId(3);
 
         let mut link_table = LinkTable::new();
-        link_table.insert(link_id, make_link_table_entry(next_hop_iface, recv_iface, 2));
+        link_table.insert(
+            link_id,
+            make_link_table_entry(next_hop_iface, recv_iface, 2),
+        );
 
         let (actions, _) = decide_header1_forwarding(
             &packet,
@@ -964,7 +988,10 @@ mod tests {
         let recv_iface = InterfaceId(3);
 
         let mut link_table = LinkTable::new();
-        link_table.insert(link_id, make_link_table_entry(next_hop_iface, recv_iface, 2));
+        link_table.insert(
+            link_id,
+            make_link_table_entry(next_hop_iface, recv_iface, 2),
+        );
 
         let (actions, _) = decide_header1_forwarding(
             &packet,
@@ -993,7 +1020,10 @@ mod tests {
         let recv_iface = InterfaceId(3);
 
         let mut link_table = LinkTable::new();
-        link_table.insert(link_id, make_link_table_entry(next_hop_iface, recv_iface, 2));
+        link_table.insert(
+            link_id,
+            make_link_table_entry(next_hop_iface, recv_iface, 2),
+        );
 
         let (actions, _) = decide_header1_forwarding(
             &packet,
@@ -1022,12 +1052,20 @@ mod tests {
 
         let link_table = LinkTable::new();
 
-        let (_, mutations) =
-            decide_transport_relay(&packet, &raw, InterfaceId(1), &path_table, &link_table, 1000);
+        let (_, mutations) = decide_transport_relay(
+            &packet,
+            &raw,
+            InterfaceId(1),
+            &path_table,
+            &link_table,
+            1000,
+        );
 
-        assert!(mutations
-            .iter()
-            .any(|m| matches!(m, TableMutation::InsertLinkTableEntry { .. })));
+        assert!(
+            mutations
+                .iter()
+                .any(|m| matches!(m, TableMutation::InsertLinkTableEntry { .. }))
+        );
     }
 
     #[test]
@@ -1042,12 +1080,20 @@ mod tests {
 
         let link_table = LinkTable::new();
 
-        let (_, mutations) =
-            decide_transport_relay(&packet, &raw, InterfaceId(1), &path_table, &link_table, 1000);
+        let (_, mutations) = decide_transport_relay(
+            &packet,
+            &raw,
+            InterfaceId(1),
+            &path_table,
+            &link_table,
+            1000,
+        );
 
-        assert!(mutations
-            .iter()
-            .any(|m| matches!(m, TableMutation::InsertReverseTableEntry { .. })));
+        assert!(
+            mutations
+                .iter()
+                .any(|m| matches!(m, TableMutation::InsertReverseTableEntry { .. }))
+        );
     }
 
     #[test]
@@ -1059,8 +1105,14 @@ mod tests {
         let path_table = PathTable::new(); // empty
         let link_table = LinkTable::new();
 
-        let (actions, _) =
-            decide_transport_relay(&packet, &raw, InterfaceId(1), &path_table, &link_table, 1000);
+        let (actions, _) = decide_transport_relay(
+            &packet,
+            &raw,
+            InterfaceId(1),
+            &path_table,
+            &link_table,
+            1000,
+        );
 
         assert_eq!(actions, vec![TransportAction::Drop]);
     }
@@ -1075,7 +1127,10 @@ mod tests {
         let recv_iface = InterfaceId(3);
 
         let mut link_table = LinkTable::new();
-        link_table.insert(link_id, make_link_table_entry(next_hop_iface, recv_iface, 2));
+        link_table.insert(
+            link_id,
+            make_link_table_entry(next_hop_iface, recv_iface, 2),
+        );
 
         let path_table = PathTable::new();
 
@@ -1095,9 +1150,11 @@ mod tests {
             }
             other => panic!("expected TransmitTo, got: {other:?}"),
         }
-        assert!(mutations
-            .iter()
-            .any(|m| matches!(m, TableMutation::ValidateLinkTableEntry { .. })));
+        assert!(
+            mutations
+                .iter()
+                .any(|m| matches!(m, TableMutation::ValidateLinkTableEntry { .. }))
+        );
     }
 
     #[test]
@@ -1109,20 +1166,17 @@ mod tests {
         let recv_iface = InterfaceId(3);
 
         let mut link_table = LinkTable::new();
-        link_table.insert(link_id, make_link_table_entry(next_hop_iface, recv_iface, 2));
+        link_table.insert(
+            link_id,
+            make_link_table_entry(next_hop_iface, recv_iface, 2),
+        );
 
         let path_table = PathTable::new();
 
         // Forward direction: from recv → next_hop
         let (packet1, raw1) = make_header2_link_data(transport_id, link_id, 1);
-        let (actions1, _) = decide_transport_relay(
-            &packet1,
-            &raw1,
-            recv_iface,
-            &path_table,
-            &link_table,
-            1000,
-        );
+        let (actions1, _) =
+            decide_transport_relay(&packet1, &raw1, recv_iface, &path_table, &link_table, 1000);
         match &actions1[0] {
             TransportAction::TransmitTo { interface, .. } => {
                 assert_eq!(*interface, next_hop_iface);

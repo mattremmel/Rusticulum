@@ -284,10 +284,7 @@ mod tests {
                 data[0] = 0x00; // H1 flags
             }
             let result = RawPacket::parse(&data);
-            assert!(
-                result.is_err(),
-                "H1 packet of {len} bytes should fail"
-            );
+            assert!(result.is_err(), "H1 packet of {len} bytes should fail");
         }
         // H2 packets: anything < 35 bytes (with H2 flag) should fail
         for len in HEADER_1_SIZE..HEADER_2_SIZE {
@@ -295,10 +292,7 @@ mod tests {
             data[0] = 0x40; // H2 flag
             data[18] = 0x00; // valid context for H1 check (won't be reached)
             let result = RawPacket::parse(&data);
-            assert!(
-                result.is_err(),
-                "H2 packet of {len} bytes should fail"
-            );
+            assert!(result.is_err(), "H2 packet of {len} bytes should fail");
         }
     }
 
@@ -377,24 +371,40 @@ mod proptests {
     /// Valid context byte values (21 valid values from the ContextType enum).
     fn valid_context_byte() -> impl Strategy<Value = u8> {
         prop_oneof![
-            Just(0u8), Just(1), Just(2), Just(3), Just(4), Just(5), Just(6), Just(7),
-            Just(8), Just(9), Just(10), Just(11), Just(12), Just(13), Just(14),
-            Just(250), Just(251), Just(252), Just(253), Just(254), Just(255),
+            Just(0u8),
+            Just(1),
+            Just(2),
+            Just(3),
+            Just(4),
+            Just(5),
+            Just(6),
+            Just(7),
+            Just(8),
+            Just(9),
+            Just(10),
+            Just(11),
+            Just(12),
+            Just(13),
+            Just(14),
+            Just(250),
+            Just(251),
+            Just(252),
+            Just(253),
+            Just(254),
+            Just(255),
         ]
     }
 
     /// Valid H1 flags byte (header_type=0, lower 6 bits vary).
     fn h1_flags_byte() -> impl Strategy<Value = u8> {
-        (0..=1u8, 0..=1u8, 0..=3u8, 0..=3u8).prop_map(|(cf, tt, dt, pt)| {
-            (cf << 5) | (tt << 4) | (dt << 2) | pt
-        })
+        (0..=1u8, 0..=1u8, 0..=3u8, 0..=3u8)
+            .prop_map(|(cf, tt, dt, pt)| (cf << 5) | (tt << 4) | (dt << 2) | pt)
     }
 
     /// Valid H2 flags byte (header_type=1, lower 6 bits vary).
     fn h2_flags_byte() -> impl Strategy<Value = u8> {
-        (0..=1u8, 0..=1u8, 0..=3u8, 0..=3u8).prop_map(|(cf, tt, dt, pt)| {
-            0x40 | (cf << 5) | (tt << 4) | (dt << 2) | pt
-        })
+        (0..=1u8, 0..=1u8, 0..=3u8, 0..=3u8)
+            .prop_map(|(cf, tt, dt, pt)| 0x40 | (cf << 5) | (tt << 4) | (dt << 2) | pt)
     }
 
     /// Generate a valid H1 raw packet: flags(1) + hops(1) + dest(16) + ctx(1) + data(0..128).

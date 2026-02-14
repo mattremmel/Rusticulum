@@ -260,9 +260,7 @@ mod tests {
         );
         assert_eq!(
             actions[2],
-            AutoDataAction::TransferBufferQueue {
-                data: "lb".into()
-            }
+            AutoDataAction::TransferBufferQueue { data: "lb".into() }
         );
         assert_eq!(
             actions[3],
@@ -273,9 +271,7 @@ mod tests {
         );
         assert_eq!(
             actions[4],
-            AutoDataAction::SendLinkData {
-                data: "ld".into()
-            }
+            AutoDataAction::SendLinkData { data: "ld".into() }
         );
         assert_eq!(
             actions[5],
@@ -291,9 +287,7 @@ mod tests {
         );
         assert_eq!(
             actions[7],
-            AutoDataAction::SendBufferStream {
-                data: "cb".into()
-            }
+            AutoDataAction::SendBufferStream { data: "cb".into() }
         );
         assert_eq!(
             actions[8],

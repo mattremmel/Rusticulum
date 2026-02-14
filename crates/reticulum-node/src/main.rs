@@ -46,10 +46,9 @@ async fn main() {
     {
         let handle2 = node.shutdown_handle();
         tokio::spawn(async move {
-            let mut sigterm = tokio::signal::unix::signal(
-                tokio::signal::unix::SignalKind::terminate(),
-            )
-            .expect("failed to register SIGTERM handler");
+            let mut sigterm =
+                tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+                    .expect("failed to register SIGTERM handler");
             sigterm.recv().await;
             tracing::info!("received SIGTERM, shutting down");
             handle2.shutdown();
