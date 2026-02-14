@@ -368,3 +368,92 @@ mod tests {
         assert_eq!(serialized, data);
     }
 }
+
+#[cfg(test)]
+mod proptests {
+    use super::*;
+    use proptest::prelude::*;
+
+    /// Valid context byte values (21 valid values from the ContextType enum).
+    fn valid_context_byte() -> impl Strategy<Value = u8> {
+        prop_oneof![
+            Just(0u8), Just(1), Just(2), Just(3), Just(4), Just(5), Just(6), Just(7),
+            Just(8), Just(9), Just(10), Just(11), Just(12), Just(13), Just(14),
+            Just(250), Just(251), Just(252), Just(253), Just(254), Just(255),
+        ]
+    }
+
+    /// Valid H1 flags byte (header_type=0, lower 6 bits vary).
+    fn h1_flags_byte() -> impl Strategy<Value = u8> {
+        (0..=1u8, 0..=1u8, 0..=3u8, 0..=3u8).prop_map(|(cf, tt, dt, pt)| {
+            (cf << 5) | (tt << 4) | (dt << 2) | pt
+        })
+    }
+
+    /// Valid H2 flags byte (header_type=1, lower 6 bits vary).
+    fn h2_flags_byte() -> impl Strategy<Value = u8> {
+        (0..=1u8, 0..=1u8, 0..=3u8, 0..=3u8).prop_map(|(cf, tt, dt, pt)| {
+            0x40 | (cf << 5) | (tt << 4) | (dt << 2) | pt
+        })
+    }
+
+    /// Generate a valid H1 raw packet: flags(1) + hops(1) + dest(16) + ctx(1) + data(0..128).
+    fn valid_h1_packet() -> impl Strategy<Value = Vec<u8>> {
+        (
+            h1_flags_byte(),
+            any::<u8>(),
+            any::<[u8; 16]>(),
+            valid_context_byte(),
+            proptest::collection::vec(any::<u8>(), 0..128),
+        )
+            .prop_map(|(flags, hops, dest, ctx, data)| {
+                let mut raw = Vec::with_capacity(19 + data.len());
+                raw.push(flags);
+                raw.push(hops);
+                raw.extend_from_slice(&dest);
+                raw.push(ctx);
+                raw.extend_from_slice(&data);
+                raw
+            })
+    }
+
+    /// Generate a valid H2 raw packet: flags(1) + hops(1) + tid(16) + dest(16) + ctx(1) + data(0..128).
+    fn valid_h2_packet() -> impl Strategy<Value = Vec<u8>> {
+        (
+            h2_flags_byte(),
+            any::<u8>(),
+            any::<[u8; 16]>(),
+            any::<[u8; 16]>(),
+            valid_context_byte(),
+            proptest::collection::vec(any::<u8>(), 0..128),
+        )
+            .prop_map(|(flags, hops, tid, dest, ctx, data)| {
+                let mut raw = Vec::with_capacity(35 + data.len());
+                raw.push(flags);
+                raw.push(hops);
+                raw.extend_from_slice(&tid);
+                raw.extend_from_slice(&dest);
+                raw.push(ctx);
+                raw.extend_from_slice(&data);
+                raw
+            })
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(256))]
+
+        #[test]
+        fn h1_parse_serialize_roundtrip(raw in valid_h1_packet()) {
+            let packet = RawPacket::parse(&raw).unwrap();
+            let serialized = packet.serialize();
+            prop_assert_eq!(&serialized, &raw);
+        }
+
+        #[test]
+        fn h2_parse_serialize_roundtrip(raw in valid_h2_packet()) {
+            let packet = RawPacket::parse(&raw).unwrap();
+            let serialized = packet.serialize();
+            prop_assert_eq!(&serialized, &raw);
+        }
+    }
+}

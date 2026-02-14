@@ -676,3 +676,39 @@ mod tests {
         assert!(!table.contains(&make_dest(1)));
     }
 }
+
+#[cfg(test)]
+mod proptests {
+    use super::*;
+    use crate::path::types::InterfaceMode;
+    use proptest::prelude::*;
+    use reticulum_core::types::{PacketHash, TruncatedHash};
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(256))]
+
+        #[test]
+        fn insert_then_has_path(
+            dest_bytes in any::<[u8; 16]>(),
+            timestamp in 1000..1_000_000u64,
+            hops in 0..128u8,
+        ) {
+            let mut table = PathTable::new();
+            let dest = DestinationHash::new(dest_bytes);
+            let iface = InterfaceId(1);
+            let entry = PathEntry::new(
+                timestamp,
+                TruncatedHash::new([0xAA; 16]),
+                hops,
+                InterfaceMode::Full,
+                vec![],
+                iface,
+                PacketHash::new([0xBB; 32]),
+            );
+            table.insert(dest, entry);
+            // Full mode TTL = 604800, so query at timestamp is always before expiry
+            prop_assert!(table.has_path(&dest, timestamp));
+            prop_assert_eq!(table.hops_to(&dest, timestamp), hops);
+        }
+    }
+}

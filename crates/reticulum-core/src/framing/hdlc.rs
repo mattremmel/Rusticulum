@@ -144,3 +144,22 @@ mod tests {
         assert!(result.is_err());
     }
 }
+
+#[cfg(test)]
+mod proptests {
+    use super::*;
+    use proptest::prelude::*;
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(256))]
+
+        #[test]
+        fn hdlc_frame_unframe_roundtrip(
+            data in proptest::collection::vec(any::<u8>(), 0..512),
+        ) {
+            let framed = hdlc_frame(&data);
+            let recovered = hdlc_unframe(&framed).unwrap();
+            prop_assert_eq!(&recovered, &data);
+        }
+    }
+}

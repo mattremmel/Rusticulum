@@ -184,3 +184,25 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+mod proptests {
+    use super::*;
+    use proptest::prelude::*;
+
+    fn valid_flags_byte() -> impl Strategy<Value = u8> {
+        (0..=1u8, 0..=1u8, 0..=1u8, 0..=3u8, 0..=3u8).prop_map(|(ht, cf, tt, dt, pt)| {
+            (ht << 6) | (cf << 5) | (tt << 4) | (dt << 2) | pt
+        })
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(256))]
+
+        #[test]
+        fn flags_roundtrip(byte in valid_flags_byte()) {
+            let flags = PacketFlags::from_byte(byte).unwrap();
+            prop_assert_eq!(flags.to_byte(), byte);
+        }
+    }
+}

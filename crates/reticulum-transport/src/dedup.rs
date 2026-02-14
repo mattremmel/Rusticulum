@@ -299,3 +299,22 @@ mod tests {
         assert!(!hl.contains(&h));
     }
 }
+
+#[cfg(test)]
+mod proptests {
+    use super::*;
+    use proptest::prelude::*;
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(256))]
+
+        #[test]
+        fn insert_then_contains(hash_bytes in any::<[u8; 32]>()) {
+            let mut hl = PacketHashlist::new();
+            let hash = PacketHash::new(hash_bytes);
+            prop_assert!(hl.insert(hash));
+            prop_assert!(hl.contains(&hash));
+            prop_assert!(!hl.insert(hash));
+        }
+    }
+}

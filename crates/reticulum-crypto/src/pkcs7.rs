@@ -213,3 +213,23 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+mod proptests {
+    use super::*;
+    use proptest::prelude::*;
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(256))]
+
+        #[test]
+        fn pkcs7_roundtrip(
+            data in proptest::collection::vec(any::<u8>(), 0..256),
+            block_size in 1..=255usize,
+        ) {
+            let padded = pkcs7_pad(&data, block_size);
+            let unpadded = pkcs7_unpad(&padded).unwrap();
+            prop_assert_eq!(unpadded, &data[..]);
+        }
+    }
+}

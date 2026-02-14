@@ -95,3 +95,22 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+mod proptests {
+    use super::*;
+    use proptest::prelude::*;
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(256))]
+
+        #[test]
+        fn hmac_verify_roundtrip(
+            key in proptest::collection::vec(any::<u8>(), 1..128),
+            data in proptest::collection::vec(any::<u8>(), 0..512),
+        ) {
+            let mac = hmac_sha256(&key, &data);
+            prop_assert!(hmac_sha256_verify(&key, &data, &mac).is_ok());
+        }
+    }
+}

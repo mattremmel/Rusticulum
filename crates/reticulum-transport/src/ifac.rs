@@ -565,3 +565,28 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+mod proptests {
+    use super::*;
+    use proptest::prelude::*;
+    use std::sync::LazyLock;
+
+    /// Fixed config to avoid expensive Ed25519 keygen per test case.
+    static CONFIG: LazyLock<IfacConfig> =
+        LazyLock::new(|| IfacConfig::new(Some("proptest"), Some("key"), 8));
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(256))]
+
+        #[test]
+        fn ifac_apply_verify_roundtrip(
+            raw in proptest::collection::vec(any::<u8>(), 3..128)
+                .prop_map(|mut v| { v[0] &= !IFAC_FLAG; v }),
+        ) {
+            let applied = ifac_apply(&CONFIG, &raw).unwrap();
+            let recovered = ifac_verify(&CONFIG, &applied).unwrap();
+            prop_assert_eq!(&recovered, &raw);
+        }
+    }
+}

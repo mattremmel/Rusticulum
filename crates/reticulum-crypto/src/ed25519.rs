@@ -341,3 +341,24 @@ mod tests {
         assert!(result.is_err(), "all-zero signature should not verify");
     }
 }
+
+#[cfg(test)]
+mod proptests {
+    use super::*;
+    use proptest::prelude::*;
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(256))]
+
+        #[test]
+        fn sign_verify_roundtrip(
+            seed in any::<[u8; 32]>(),
+            msg in proptest::collection::vec(any::<u8>(), 0..1024),
+        ) {
+            let private_key = Ed25519PrivateKey::from_bytes(seed);
+            let public_key = private_key.public_key();
+            let sig = private_key.sign(&msg);
+            prop_assert!(public_key.verify(&msg, &sig).is_ok());
+        }
+    }
+}

@@ -434,3 +434,24 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+mod proptests {
+    use super::*;
+    use proptest::prelude::*;
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(256))]
+
+        #[test]
+        fn token_encrypt_decrypt_roundtrip(
+            key in any::<[u8; 64]>(),
+            plaintext in proptest::collection::vec(any::<u8>(), 0..512),
+        ) {
+            let token = Token::new(&key);
+            let encrypted = token.encrypt(&plaintext);
+            let decrypted = token.decrypt(&encrypted).unwrap();
+            prop_assert_eq!(&decrypted, &plaintext);
+        }
+    }
+}

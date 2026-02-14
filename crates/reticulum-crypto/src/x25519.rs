@@ -186,3 +186,22 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+mod proptests {
+    use super::*;
+    use proptest::prelude::*;
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(256))]
+
+        #[test]
+        fn dh_symmetry(seed_a in any::<[u8; 32]>(), seed_b in any::<[u8; 32]>()) {
+            let key_a = X25519PrivateKey::from_bytes(seed_a);
+            let key_b = X25519PrivateKey::from_bytes(seed_b);
+            let pub_a = key_a.public_key();
+            let pub_b = key_b.public_key();
+            prop_assert_eq!(key_a.diffie_hellman(&pub_b), key_b.diffie_hellman(&pub_a));
+        }
+    }
+}

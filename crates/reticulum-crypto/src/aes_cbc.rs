@@ -210,3 +210,35 @@ mod tests {
         assert_eq!(result, Err(CryptoError::InvalidPadding));
     }
 }
+
+#[cfg(test)]
+mod proptests {
+    use super::*;
+    use proptest::prelude::*;
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(256))]
+
+        #[test]
+        fn aes_cbc_roundtrip(
+            key in any::<[u8; 32]>(),
+            iv in any::<[u8; 16]>(),
+            plaintext in proptest::collection::vec(any::<u8>(), 0..512),
+        ) {
+            let ciphertext = aes256_cbc_encrypt(&key, &iv, &plaintext);
+            let recovered = aes256_cbc_decrypt(&key, &iv, &ciphertext).unwrap();
+            prop_assert_eq!(&recovered, &plaintext);
+        }
+
+        #[test]
+        fn aes_cbc_ciphertext_block_aligned(
+            key in any::<[u8; 32]>(),
+            iv in any::<[u8; 16]>(),
+            plaintext in proptest::collection::vec(any::<u8>(), 0..512),
+        ) {
+            let ciphertext = aes256_cbc_encrypt(&key, &iv, &plaintext);
+            prop_assert_eq!(ciphertext.len() % 16, 0);
+            prop_assert!(ciphertext.len() >= plaintext.len() + 1);
+        }
+    }
+}
