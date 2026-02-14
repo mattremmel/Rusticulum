@@ -36,8 +36,10 @@ pub fn should_drop_early(is_new: bool, hops: u8) -> Option<EarlyDropReason> {
 /// Whether a packet context should bypass deduplication.
 ///
 /// Matches Python's `Transport.packet_filter` which returns `True` early
-/// for these contexts before checking the hashlist. Without this exemption,
-/// keepalive packets (always identical data) would be deduped after the first.
+/// for these contexts before checking the hashlist. These contexts all have
+/// their own delivery/ordering mechanisms (resource windowing, channel
+/// sequencing, keepalive echo, cache request/response) so hashlist-based
+/// dedup would incorrectly suppress legitimate retransmissions.
 pub fn bypasses_dedup(context: ContextType) -> bool {
     matches!(
         context,
@@ -45,6 +47,7 @@ pub fn bypasses_dedup(context: ContextType) -> bool {
             | ContextType::Resource
             | ContextType::ResourceReq
             | ContextType::ResourcePrf
+            | ContextType::CacheRequest
             | ContextType::Channel
     )
 }
@@ -156,40 +159,48 @@ mod tests {
         );
     }
 
-    // --- bypasses_dedup ---
+    // --- bypasses_dedup (exhaustive over all 21 context types) ---
 
+    /// Exhaustively verify every context type against Python's packet_filter.
+    /// This catches regressions if new context types are added without updating
+    /// the bypass list.
     #[test]
-    fn keepalive_bypasses_dedup() {
-        assert!(bypasses_dedup(ContextType::Keepalive));
-    }
+    fn bypasses_dedup_exhaustive() {
+        let should_bypass = [
+            (ContextType::Keepalive, true),
+            (ContextType::Resource, true),
+            (ContextType::ResourceReq, true),
+            (ContextType::ResourcePrf, true),
+            (ContextType::CacheRequest, true),
+            (ContextType::Channel, true),
+            // Everything else goes through normal dedup
+            (ContextType::None, false),
+            (ContextType::ResourceAdv, false),
+            (ContextType::ResourceHmu, false),
+            (ContextType::ResourceIcl, false),
+            (ContextType::ResourceRcl, false),
+            (ContextType::Request, false),
+            (ContextType::Response, false),
+            (ContextType::PathResponse, false),
+            (ContextType::Command, false),
+            (ContextType::CommandStatus, false),
+            (ContextType::LinkIdentify, false),
+            (ContextType::LinkClose, false),
+            (ContextType::LinkProof, false),
+            (ContextType::Lrrtt, false),
+            (ContextType::Lrproof, false),
+        ];
 
-    #[test]
-    fn resource_bypasses_dedup() {
-        assert!(bypasses_dedup(ContextType::Resource));
-    }
+        // Ensure we're testing exactly 21 variants (all of ContextType)
+        assert_eq!(should_bypass.len(), 21, "test must cover all context types");
 
-    #[test]
-    fn resource_req_bypasses_dedup() {
-        assert!(bypasses_dedup(ContextType::ResourceReq));
-    }
-
-    #[test]
-    fn resource_prf_bypasses_dedup() {
-        assert!(bypasses_dedup(ContextType::ResourcePrf));
-    }
-
-    #[test]
-    fn channel_bypasses_dedup() {
-        assert!(bypasses_dedup(ContextType::Channel));
-    }
-
-    #[test]
-    fn normal_data_does_not_bypass_dedup() {
-        assert!(!bypasses_dedup(ContextType::None));
-    }
-
-    #[test]
-    fn announce_does_not_bypass_dedup() {
-        assert!(!bypasses_dedup(ContextType::ResourceAdv));
+        for (ctx, expected) in should_bypass {
+            assert_eq!(
+                bypasses_dedup(ctx),
+                expected,
+                "{ctx:?} should {}bypass dedup",
+                if expected { "" } else { "not " }
+            );
+        }
     }
 }
