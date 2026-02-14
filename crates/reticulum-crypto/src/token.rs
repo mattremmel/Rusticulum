@@ -328,4 +328,68 @@ mod tests {
             "should fail with InvalidHmac when token data is corrupted"
         );
     }
+
+    #[test]
+    fn test_token_malformed_undersized_47_bytes() {
+        let key: [u8; 64] = [0xAA; 64];
+        let token = Token::new(&key);
+        let result = token.decrypt(&[0u8; 47]);
+        assert_eq!(result, Err(CryptoError::InvalidLength {
+            reason: "token too short: need at least 48 bytes (16 IV + 0 ciphertext + 32 HMAC)",
+        }));
+    }
+
+    #[test]
+    fn test_token_malformed_minimum_size_48_bytes() {
+        // Craft 48-byte token: 16 IV + 0 ciphertext + 32 HMAC (with valid HMAC)
+        let key: [u8; 64] = [0xBB; 64];
+        let token = Token::new(&key);
+        let iv = [0x11u8; 16];
+        // Compute valid HMAC over just the IV (no ciphertext)
+        let hmac = crate::hmac::hmac_sha256(&key[..32], &iv);
+        let mut data = Vec::with_capacity(48);
+        data.extend_from_slice(&iv);
+        data.extend_from_slice(&hmac);
+        assert_eq!(data.len(), 48);
+        // HMAC is valid but AES-CBC gets empty ciphertext → DecryptionFailed
+        let result = token.decrypt(&data);
+        assert_eq!(result, Err(CryptoError::DecryptionFailed));
+    }
+
+    #[test]
+    fn test_token_adversarial_hmac_position_corruption() {
+        let key: [u8; 64] = [0xCC; 64];
+        let token = Token::new(&key);
+        let encrypted = token.encrypt(b"hmac corruption test");
+        let len = encrypted.len();
+
+        // Flip bytes at various HMAC positions (last 32 bytes)
+        for &offset in &[0, 15, 31] {
+            let mut corrupted = encrypted.clone();
+            corrupted[len - 32 + offset] ^= 0x01;
+            assert_eq!(
+                token.decrypt(&corrupted),
+                Err(CryptoError::InvalidHmac),
+                "corrupting HMAC byte at offset {offset} should fail"
+            );
+        }
+    }
+
+    #[test]
+    fn test_token_adversarial_iv_corruption() {
+        let key: [u8; 64] = [0xDD; 64];
+        let token = Token::new(&key);
+        let encrypted = token.encrypt(b"iv corruption test");
+
+        // Corrupt IV bytes — HMAC covers IV, so HMAC check should fail
+        for &offset in &[0, 7, 15] {
+            let mut corrupted = encrypted.clone();
+            corrupted[offset] ^= 0x01;
+            assert_eq!(
+                token.decrypt(&corrupted),
+                Err(CryptoError::InvalidHmac),
+                "corrupting IV byte at offset {offset} should fail with InvalidHmac"
+            );
+        }
+    }
 }

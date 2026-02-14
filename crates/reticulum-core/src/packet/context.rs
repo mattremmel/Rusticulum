@@ -116,4 +116,28 @@ mod tests {
             assert!(ContextType::from_byte(v).is_err());
         }
     }
+
+    #[test]
+    fn test_context_type_malformed_exhaustive() {
+        // Exhaustively test all 256 byte values: exactly 21 succeed, 235 fail
+        let mut success_count = 0u32;
+        let mut fail_count = 0u32;
+        for byte in 0..=255u8 {
+            match ContextType::from_byte(byte) {
+                Ok(ct) => {
+                    assert_eq!(ct.to_byte(), byte, "roundtrip failed for byte {byte}");
+                    success_count += 1;
+                }
+                Err(PacketError::InvalidContextType(v)) => {
+                    assert_eq!(v, byte);
+                    fail_count += 1;
+                }
+                Err(other) => {
+                    panic!("unexpected error variant for byte {byte}: {other}");
+                }
+            }
+        }
+        assert_eq!(success_count, 21, "exactly 21 context types should be valid");
+        assert_eq!(fail_count, 235, "exactly 235 context types should be invalid");
+    }
 }

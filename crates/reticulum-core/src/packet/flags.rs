@@ -164,4 +164,23 @@ mod tests {
             }
         }
     }
+
+    #[test]
+    fn test_flags_malformed_reserved_bit_set() {
+        // Bit 7 (0x80) is reserved/unused. The parser shifts byte>>6 & 0x01,
+        // so bit 7 is effectively shifted out. Verify that bytes 0x80..0xFF
+        // parse identically to their lower 7-bit equivalents.
+        for byte in 0x80..=0xFFu8 {
+            let with_bit7 = PacketFlags::from_byte(byte);
+            let without_bit7 = PacketFlags::from_byte(byte & 0x7F);
+            assert_eq!(
+                with_bit7.is_ok(),
+                without_bit7.is_ok(),
+                "bit 7 should not affect parse success for byte 0x{byte:02x}"
+            );
+            if let (Ok(a), Ok(b)) = (with_bit7, without_bit7) {
+                assert_eq!(a, b, "bit 7 should not affect parsed flags for 0x{byte:02x}");
+            }
+        }
+    }
 }

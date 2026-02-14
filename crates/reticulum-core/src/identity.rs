@@ -434,4 +434,103 @@ mod tests {
         // Rest is the fernet token
         assert_eq!(&ciphertext[32..], expected_fernet.as_slice());
     }
+
+    #[test]
+    fn test_identity_malformed_decrypt_truncated() {
+        let identity = Identity::generate();
+        // Various lengths below the minimum (80 bytes)
+        for &len in &[0usize, 1, 31, 32, 48, 79] {
+            let data = vec![0xAA; len];
+            let result = identity.decrypt(&data);
+            assert!(
+                matches!(result, Err(IdentityError::PayloadTooShort { .. })),
+                "len={len} should return PayloadTooShort, got: {result:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_identity_malformed_decrypt_exactly_minimum() {
+        let identity = Identity::generate();
+        // Exactly 80 random bytes: ephemeral_pub(32) + IV(16) + HMAC(32)
+        let data = vec![0xBB; 80];
+        let result = identity.decrypt(&data);
+        // HMAC won't match → DecryptionFailed (not panic)
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_identity_malformed_decrypt_corrupted_ephemeral() {
+        let identity = Identity::generate();
+        let plaintext = b"ephemeral corruption test";
+        let mut ciphertext = identity.encrypt(plaintext);
+        // Corrupt the first 32 bytes (ephemeral public key)
+        for byte in ciphertext[..32].iter_mut() {
+            *byte ^= 0xFF;
+        }
+        let result = identity.decrypt(&ciphertext);
+        assert!(result.is_err(), "corrupted ephemeral key should fail decrypt");
+    }
+
+    #[test]
+    fn test_identity_adversarial_cross_identity_decrypt() {
+        let identity_a = Identity::generate();
+        let identity_b = Identity::generate();
+        let plaintext = b"cross identity decrypt test";
+        let ciphertext = identity_a.encrypt(plaintext);
+        let result = identity_b.decrypt(&ciphertext);
+        assert!(result.is_err(), "decrypt with wrong identity should fail");
+    }
+
+    #[test]
+    fn test_identity_adversarial_decrypt_garbage() {
+        let identity = Identity::generate();
+        let garbage = vec![0xDE; 128];
+        let result = identity.decrypt(&garbage);
+        assert!(result.is_err(), "garbage data should fail decrypt");
+    }
+
+    #[test]
+    fn test_identity_malformed_invalid_ed25519_in_public_bytes() {
+        // ed25519 portion (bytes 32..64) all-zero
+        let mut pubkey_bytes = [0u8; 64];
+        // x25519 portion can be anything valid
+        pubkey_bytes[..32].copy_from_slice(&[0x01; 32]);
+        // ed25519 portion all-zero
+        pubkey_bytes[32..64].fill(0);
+        let result = Identity::from_public_bytes(&pubkey_bytes);
+        // All-zero may or may not be valid for ed25519-dalek. Either error or success is OK.
+        // The key thing is no panic.
+        match result {
+            Err(IdentityError::CryptoError(_)) => {} // expected
+            Ok(_) => {} // also acceptable — dalek may accept identity point
+            Err(e) => panic!("unexpected error: {e}"),
+        }
+    }
+
+    #[test]
+    fn test_identity_malformed_non_curve_ed25519_in_public_bytes() {
+        let mut pubkey_bytes = [0u8; 64];
+        pubkey_bytes[..32].copy_from_slice(&[0x01; 32]);
+        // ed25519 portion all-0xFF — likely not a valid curve point
+        pubkey_bytes[32..64].fill(0xFF);
+        let result = Identity::from_public_bytes(&pubkey_bytes);
+        // Either error (likely) or success, no panic is the requirement
+        match result {
+            Err(IdentityError::CryptoError(_)) => {} // expected
+            Ok(_) => {} // also acceptable
+            Err(e) => panic!("unexpected error: {e}"),
+        }
+    }
+
+    #[test]
+    fn test_identity_malformed_sign_public_only_explicit() {
+        let identity = Identity::generate();
+        let public_only = Identity::from_public_bytes(&identity.public_key_bytes()).unwrap();
+        let result = public_only.sign(b"should fail");
+        assert!(
+            matches!(result, Err(IdentityError::NoPrivateKey)),
+            "public-only identity should return NoPrivateKey"
+        );
+    }
 }

@@ -80,3 +80,72 @@ impl Envelope {
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_envelope_pack_unpack_roundtrip() {
+        let env = Envelope {
+            msg_type: 0x1234,
+            sequence: 0x5678,
+            payload: vec![0xAA, 0xBB, 0xCC],
+        };
+        let packed = env.pack();
+        let unpacked = Envelope::unpack(&packed).unwrap();
+        assert_eq!(unpacked, env);
+    }
+
+    #[test]
+    fn test_envelope_malformed_too_short() {
+        for len in 0..6 {
+            let data = vec![0u8; len];
+            let result = Envelope::unpack(&data);
+            assert!(result.is_err(), "len={len} should fail");
+        }
+    }
+
+    #[test]
+    fn test_envelope_malformed_empty() {
+        let result = Envelope::unpack(&[]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_envelope_zero_payload() {
+        // 6-byte header with length field = 0 → Ok with empty payload
+        let mut data = vec![0u8; 6];
+        data[0] = 0x00; data[1] = 0x01; // msg_type = 1
+        data[2] = 0x00; data[3] = 0x02; // sequence = 2
+        data[4] = 0x00; data[5] = 0x00; // length = 0
+        let env = Envelope::unpack(&data).unwrap();
+        assert_eq!(env.msg_type, 1);
+        assert_eq!(env.sequence, 2);
+        assert!(env.payload.is_empty());
+    }
+
+    #[test]
+    fn test_envelope_malformed_length_too_long() {
+        // Header claims 100 payload bytes, but only 1 byte after header
+        let mut data = vec![0u8; 7];
+        data[4] = 0x00; data[5] = 100; // length = 100
+        data[6] = 0xFF; // only 1 byte of payload
+        let result = Envelope::unpack(&data);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_envelope_malformed_length_too_short() {
+        // Pack a valid envelope, then append an extra byte → length mismatch
+        let env = Envelope {
+            msg_type: 1,
+            sequence: 1,
+            payload: vec![0xAA],
+        };
+        let mut packed = env.pack();
+        packed.push(0xFF); // extra byte
+        let result = Envelope::unpack(&packed);
+        assert!(result.is_err());
+    }
+}

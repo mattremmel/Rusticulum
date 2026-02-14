@@ -252,4 +252,92 @@ mod tests {
             .verify(message, &sig)
             .expect("signature from restored key should verify");
     }
+
+    #[test]
+    fn test_ed25519_malformed_all_zero_pubkey() {
+        // All-zero bytes may or may not be a valid curve point depending on
+        // the dalek version. Either way, no panic, and if accepted, verify
+        // with a garbage signature must fail cleanly.
+        match Ed25519PublicKey::from_bytes([0u8; 32]) {
+            Err(_) => {} // rejected at parse time — fine
+            Ok(pk) => {
+                let garbage_sig = Ed25519Signature::from_bytes([0xAB; 64]);
+                assert!(pk.verify(b"test", &garbage_sig).is_err());
+            }
+        }
+    }
+
+    #[test]
+    fn test_ed25519_malformed_non_curve_point() {
+        // Try several byte patterns that are likely not on the curve.
+        // At least one should be rejected; none should panic.
+        let patterns: &[[u8; 32]] = &[
+            [0xFF; 32],
+            {
+                let mut b = [0u8; 32];
+                b[31] = 0x80; // high bit set → negative x, y=0
+                b
+            },
+            {
+                let mut b = [0xEE; 32];
+                b[0] = 0x02;
+                b
+            },
+        ];
+        let mut any_rejected = false;
+        for bytes in patterns {
+            match Ed25519PublicKey::from_bytes(*bytes) {
+                Err(_) => { any_rejected = true; }
+                Ok(pk) => {
+                    // If accepted, verify must still not panic
+                    let garbage_sig = Ed25519Signature::from_bytes([0xAB; 64]);
+                    assert!(pk.verify(b"test", &garbage_sig).is_err());
+                }
+            }
+        }
+        assert!(any_rejected, "at least one non-curve pattern should be rejected");
+    }
+
+    #[test]
+    fn test_ed25519_adversarial_signature_bitflip() {
+        let private_key = Ed25519PrivateKey::generate();
+        let public_key = private_key.public_key();
+        let message = b"bitflip signature test";
+        let sig = private_key.sign(message);
+
+        let mut sig_bytes = sig.to_bytes();
+        sig_bytes[0] ^= 0x01; // flip one bit
+        let bad_sig = Ed25519Signature::from_bytes(sig_bytes);
+        assert_eq!(
+            public_key.verify(message, &bad_sig),
+            Err(CryptoError::InvalidSignature),
+        );
+    }
+
+    #[test]
+    fn test_ed25519_adversarial_cross_identity_verify() {
+        let key_a = Ed25519PrivateKey::generate();
+        let key_b = Ed25519PrivateKey::generate();
+        let pub_b = key_b.public_key();
+
+        let message = b"cross identity test";
+        let sig_a = key_a.sign(message);
+
+        // Verify signature from A using B's public key → should fail
+        assert_eq!(
+            pub_b.verify(message, &sig_a),
+            Err(CryptoError::InvalidSignature),
+        );
+    }
+
+    #[test]
+    fn test_ed25519_malformed_all_zero_signature() {
+        let private_key = Ed25519PrivateKey::generate();
+        let public_key = private_key.public_key();
+        let message = b"zero signature test";
+
+        let zero_sig = Ed25519Signature::from_bytes([0u8; 64]);
+        let result = public_key.verify(message, &zero_sig);
+        assert!(result.is_err(), "all-zero signature should not verify");
+    }
 }

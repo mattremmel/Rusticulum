@@ -465,6 +465,41 @@ mod tests {
     }
 
     // ============================================================== //
+    // Malformed input tests
+    // ============================================================== //
+
+    #[test]
+    fn test_advertisement_malformed_truncated_msgpack() {
+        // Take a valid advertisement, pack it, then truncate at half
+        let vectors = load_vectors();
+        let v = &vectors[0];
+        let packed = hex_to_bytes(&v.advertisement_packed_hex);
+        let truncated = &packed[..packed.len() / 2];
+        assert!(ResourceAdvertisement::from_msgpack(truncated).is_err());
+    }
+
+    #[test]
+    fn test_advertisement_malformed_wrong_value_types() {
+        // Build msgpack map where integer fields are strings instead
+        let map = Value::Map(vec![
+            (Value::String("t".into()), Value::String("not_a_number".into())),
+            (Value::String("d".into()), Value::Integer(0.into())),
+            (Value::String("n".into()), Value::Integer(1.into())),
+            (Value::String("h".into()), Value::Binary(vec![0; 32])),
+            (Value::String("r".into()), Value::Binary(vec![0; 4])),
+            (Value::String("o".into()), Value::Binary(vec![0; 32])),
+            (Value::String("i".into()), Value::Integer(0.into())),
+            (Value::String("l".into()), Value::Integer(1.into())),
+            (Value::String("q".into()), Value::Nil),
+            (Value::String("f".into()), Value::Integer(1.into())),
+            (Value::String("m".into()), Value::Binary(vec![0; 4])),
+        ]);
+        let mut buf = Vec::new();
+        rmpv::encode::write_value(&mut buf, &map).unwrap();
+        assert!(ResourceAdvertisement::from_msgpack(&buf).is_err());
+    }
+
+    // ============================================================== //
     // Property tests
     // ============================================================== //
 

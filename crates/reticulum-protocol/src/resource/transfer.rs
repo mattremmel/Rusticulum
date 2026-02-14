@@ -1049,6 +1049,56 @@ mod tests {
     }
 
     // ============================================================== //
+    // Malformed input tests
+    // ============================================================== //
+
+    #[test]
+    fn test_decode_metadata_malformed_truncated() {
+        // 0, 1, 2 bytes → error (need at least 3 for size prefix)
+        for len in 0..3 {
+            let data = vec![0u8; len];
+            assert!(decode_metadata(&data).is_err(), "len={len} should fail");
+        }
+    }
+
+    #[test]
+    fn test_decode_metadata_malformed_invalid_msgpack() {
+        // Size prefix claims 3 bytes, provide a map16 header that needs entries but has none
+        // 0xDE = map16 marker, 0x00 0x0A = 10 entries, but no entries follow
+        let mut data = vec![0x00, 0x00, 0x03]; // size = 3
+        data.extend_from_slice(&[0xDE, 0x00, 0x0A]); // map16 with 10 entries, no data
+        let result = decode_metadata(&data);
+        assert!(result.is_err(), "truncated map should fail msgpack decode");
+    }
+
+    #[test]
+    fn test_decode_metadata_malformed_size_overflow() {
+        // Size prefix claims 0xFFFFFF bytes but we only have a few trailing bytes
+        let mut data = vec![0xFF, 0xFF, 0xFF]; // size = 16777215
+        data.extend_from_slice(&[0x00, 0x01, 0x02]); // only 3 bytes
+        let result = decode_metadata(&data);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_decode_part_request_malformed() {
+        // Empty → error
+        assert!(decode_part_request(&[]).is_err());
+        // Single byte (not exhausted) → too short for resource hash
+        assert!(decode_part_request(&[0x00]).is_err());
+        // Exhausted flag but too short
+        assert!(decode_part_request(&[0xFF]).is_err());
+        assert!(decode_part_request(&[0xFF, 0x00, 0x00, 0x00]).is_err());
+    }
+
+    #[test]
+    fn test_decompress_resource_data_malformed() {
+        // Garbage bytes → DecompressionFailed
+        let result = decompress_resource_data(&[0xDE, 0xAD, 0xBE, 0xEF]);
+        assert!(result.is_err());
+    }
+
+    // ============================================================== //
     // Property tests
     // ============================================================== //
 

@@ -422,6 +422,29 @@ mod tests {
         assert!(msg.data.iter().all(|&b| b == 0x5a));
     }
 
+    #[test]
+    fn test_stream_header_malformed_too_short() {
+        assert!(StreamHeader::decode(&[]).is_err());
+        assert!(StreamHeader::decode(&[0x00]).is_err());
+    }
+
+    #[test]
+    fn test_stream_data_malformed_truncated() {
+        // 0 and 1 byte → header decode fails → unpack fails
+        assert!(StreamDataMessage::unpack(&[]).is_err());
+        assert!(StreamDataMessage::unpack(&[0x00]).is_err());
+    }
+
+    #[test]
+    fn test_stream_data_malformed_invalid_bz2() {
+        // Compressed flag set + garbage data → DecompressionFailed
+        // Header: stream_id=0, is_eof=false, is_compressed=true → 0x4000
+        let mut data = vec![0x40, 0x00]; // compressed flag set
+        data.extend_from_slice(&[0xDE, 0xAD, 0xBE, 0xEF]); // garbage "compressed" data
+        let result = StreamDataMessage::unpack(&data);
+        assert!(result.is_err());
+    }
+
     mod proptests {
         use super::*;
         use proptest::prelude::*;

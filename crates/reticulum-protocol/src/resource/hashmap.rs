@@ -625,6 +625,49 @@ mod tests {
     }
 
     // ============================================================== //
+    // Adversarial collision tests
+    // ============================================================== //
+
+    #[test]
+    fn test_hashmap_adversarial_collision_at_guard_boundary() {
+        let rh = [0u8; RANDOM_HASH_SIZE];
+        let dup = [0x01, 0x02, 0x03, 0x04];
+        let filler = [0x05, 0x06, 0x07, 0x08];
+
+        // Duplicate within COLLISION_GUARD_SIZE window → detected
+        let mut parts_within = vec![dup];
+        for _ in 1..COLLISION_GUARD_SIZE {
+            parts_within.push(filler);
+        }
+        parts_within.push(dup); // at index COLLISION_GUARD_SIZE (within window)
+        let hm_within = ResourceHashmap {
+            random_hash: rh,
+            parts: parts_within,
+        };
+        assert!(
+            hm_within.check_collisions().is_some(),
+            "duplicate within guard window should be detected"
+        );
+
+        // Duplicate outside COLLISION_GUARD_SIZE window → NOT detected
+        // Need COLLISION_GUARD_SIZE + 1 distinct fillers between the duplicates
+        let mut parts_outside = vec![dup];
+        for i in 1..=COLLISION_GUARD_SIZE + 1 {
+            // Use unique fillers to avoid collisions with each other
+            parts_outside.push([(i & 0xFF) as u8, ((i >> 8) & 0xFF) as u8, 0xAA, 0xBB]);
+        }
+        parts_outside.push(dup); // well outside the guard window
+        let hm_outside = ResourceHashmap {
+            random_hash: rh,
+            parts: parts_outside,
+        };
+        assert!(
+            hm_outside.check_collisions().is_none(),
+            "duplicate outside guard window should NOT be detected"
+        );
+    }
+
+    // ============================================================== //
     // Property tests
     // ============================================================== //
 

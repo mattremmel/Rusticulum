@@ -460,6 +460,74 @@ mod tests {
     }
 
     #[test]
+    fn test_ifac_malformed_size_1() {
+        let config = config_from_test(Some("testnet"), None, 1);
+        // Minimum packet: 2 header + 1 payload = 3 bytes
+        let raw = vec![0x00, 0x01, 0xAA];
+        let applied = ifac_apply(&config, &raw).unwrap();
+        let recovered = ifac_verify(&config, &applied).unwrap();
+        assert_eq!(recovered, raw);
+    }
+
+    #[test]
+    fn test_ifac_malformed_size_32() {
+        let config = config_from_test(Some("testnet"), None, 32);
+        // Need at least 2 + 32 + 1 = 35 bytes for verify to work
+        let raw = vec![0x00; 35];
+        let applied = ifac_apply(&config, &raw).unwrap();
+        let recovered = ifac_verify(&config, &applied).unwrap();
+        assert_eq!(recovered, raw);
+    }
+
+    #[test]
+    fn test_ifac_malformed_size_64() {
+        let config = config_from_test(Some("testnet"), None, 64);
+        // Need at least 2 + 64 + 1 = 67 bytes
+        let raw = vec![0x00; 67];
+        let applied = ifac_apply(&config, &raw).unwrap();
+        let recovered = ifac_verify(&config, &applied).unwrap();
+        assert_eq!(recovered, raw);
+    }
+
+    #[test]
+    fn test_ifac_malformed_all_zero_content() {
+        let config = config_from_test(Some("zeroes"), None, 8);
+        let raw = vec![0x00; 30];
+        let applied = ifac_apply(&config, &raw).unwrap();
+        // Applied output should differ from input (IFAC flag set, masked)
+        assert_ne!(applied, raw);
+        let recovered = ifac_verify(&config, &applied).unwrap();
+        assert_eq!(recovered, raw);
+    }
+
+    #[test]
+    fn test_ifac_malformed_all_ff_content() {
+        let config = config_from_test(Some("ones"), None, 8);
+        // Byte 0 must have bit 7 clear (IFAC flag is reserved for IFAC layer)
+        let mut raw = vec![0xFF; 30];
+        raw[0] = 0x7F; // clear IFAC flag bit
+        let applied = ifac_apply(&config, &raw).unwrap();
+        let recovered = ifac_verify(&config, &applied).unwrap();
+        assert_eq!(recovered, raw);
+    }
+
+    #[test]
+    fn test_ifac_unusual_netnames() {
+        let unusual_names = &[
+            "",                   // empty string
+            &"x".repeat(1000),   // very long
+            "null\0bytes\0here", // null bytes
+        ];
+        for name in unusual_names {
+            let config = IfacConfig::new(Some(name), None, 8);
+            let raw = vec![0x00, 0x01, 0xAA, 0xBB, 0xCC];
+            let applied = ifac_apply(&config, &raw).unwrap();
+            let recovered = ifac_verify(&config, &applied).unwrap();
+            assert_eq!(recovered, raw, "roundtrip failed for netname len={}", name.len());
+        }
+    }
+
+    #[test]
     fn test_ifac_full_pipeline_hdlc() {
         let vectors = reticulum_test_vectors::interface_framing::load();
 

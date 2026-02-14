@@ -739,4 +739,106 @@ mod tests {
             }
         }
     }
+
+    #[test]
+    fn test_announce_adversarial_signature_bitflip() {
+        let identity = Identity::generate();
+        let nh = destination::name_hash("test_app", &["sigflip"]);
+        let dh = destination::destination_hash(&nh, identity.hash());
+        let random_hash = [0x01; 10];
+
+        let mut announce =
+            Announce::create(&identity, nh, dh, random_hash, None, None).unwrap();
+        // Flip one bit in the signature
+        announce.signature[0] ^= 0x01;
+        assert!(announce.validate().is_err(), "flipped signature should fail validation");
+    }
+
+    #[test]
+    fn test_announce_malformed_all_zero_pubkey() {
+        let identity = Identity::generate();
+        let nh = destination::name_hash("test_app", &["zeropk"]);
+        let dh = destination::destination_hash(&nh, identity.hash());
+        let random_hash = [0x02; 10];
+
+        let mut announce =
+            Announce::create(&identity, nh, dh, random_hash, None, None).unwrap();
+        // Zero out the ed25519 public key portion (bytes 32..64)
+        announce.public_key[32..64].fill(0);
+        assert!(announce.validate().is_err(), "zero ed25519 pubkey should fail validation");
+    }
+
+    #[test]
+    fn test_announce_adversarial_wrong_destination_hash() {
+        let identity = Identity::generate();
+        let nh = destination::name_hash("test_app", &["wrongdest"]);
+        let dh = destination::destination_hash(&nh, identity.hash());
+        let random_hash = [0x03; 10];
+
+        let mut announce =
+            Announce::create(&identity, nh, dh, random_hash, None, None).unwrap();
+        // Swap to a different destination hash
+        let wrong_dh = DestinationHash::new([0xFF; 16]);
+        announce.destination_hash = wrong_dh;
+        // Signature was computed over original dest_hash, so validate fails
+        assert!(announce.validate().is_err(), "wrong dest_hash should fail validation");
+    }
+
+    #[test]
+    fn test_announce_malformed_oversized_app_data() {
+        let identity = Identity::generate();
+        let nh = destination::name_hash("test_app", &["bigdata"]);
+        let dh = destination::destination_hash(&nh, identity.hash());
+        let random_hash = [0x04; 10];
+        let big_app_data = vec![0x42; 10_000];
+
+        let announce =
+            Announce::create(&identity, nh, dh, random_hash, None, Some(&big_app_data)).unwrap();
+        announce.validate().expect("large app_data should still validate");
+        assert_eq!(announce.app_data.as_ref().unwrap().len(), 10_000);
+    }
+
+    #[test]
+    fn test_announce_malformed_zero_length_payload() {
+        let dh = DestinationHash::new([0x00; 16]);
+        let result = Announce::from_payload(dh, false, ContextType::None, &[]);
+        assert!(
+            matches!(result, Err(crate::error::AnnounceError::PayloadTooShort { .. })),
+            "empty payload should return PayloadTooShort"
+        );
+    }
+
+    #[test]
+    fn test_announce_malformed_truncated_systematic() {
+        // Create a valid announce, then truncate its payload at every position
+        let identity = Identity::generate();
+        let nh = destination::name_hash("test_app", &["truncate"]);
+        let dh = destination::destination_hash(&nh, identity.hash());
+        let random_hash = [0x05; 10];
+
+        let announce =
+            Announce::create(&identity, nh, dh, random_hash, None, Some(b"test")).unwrap();
+        let payload = announce.to_payload();
+
+        for truncate_at in 0..payload.len() {
+            let truncated = &payload[..truncate_at];
+            let result = Announce::from_payload(dh, false, ContextType::None, truncated);
+            match result {
+                Err(_) => {} // parse rejection is correct
+                Ok(ann) => {
+                    // If it parses (e.g. just missing app_data), validation must fail
+                    // unless we have all signature+key bytes (which only happens at full length)
+                    if truncate_at < 148 {
+                        panic!("should not parse with only {truncate_at} bytes");
+                    }
+                    // The signature was over the full payload including app_data,
+                    // so truncated versions should fail validation
+                    if truncate_at < payload.len() {
+                        assert!(ann.validate().is_err(),
+                            "truncated at {truncate_at} should fail validate");
+                    }
+                }
+            }
+        }
+    }
 }

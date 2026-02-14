@@ -189,4 +189,20 @@ mod tests {
             "HKDF with None salt and empty salt should produce identical output"
         );
     }
+
+    #[test]
+    fn test_hkdf_counter_wraparound_256_blocks() {
+        // 256 blocks = 8192 bytes, counter wraps at (i+1)%256
+        let result = hkdf(8192, b"wraparound test", None, None);
+        assert_eq!(result.len(), 8192);
+        // Verify deterministic: same inputs produce same output
+        let result2 = hkdf(8192, b"wraparound test", None, None);
+        assert_eq!(result, result2);
+    }
+
+    #[test]
+    fn test_hkdf_zero_length_output() {
+        let result = hkdf(0, b"zero length", None, None);
+        assert!(result.is_empty());
+    }
 }

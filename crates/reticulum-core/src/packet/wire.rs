@@ -274,4 +274,51 @@ mod tests {
         let result = RawPacket::parse(&data);
         assert!(result.is_err());
     }
+
+    #[test]
+    fn test_parse_malformed_truncated_systematic() {
+        // H1 packets: anything < 19 bytes should fail with TooShort
+        for len in 1..HEADER_1_SIZE {
+            let mut data = vec![0x00; len];
+            if len > 0 {
+                data[0] = 0x00; // H1 flags
+            }
+            let result = RawPacket::parse(&data);
+            assert!(
+                result.is_err(),
+                "H1 packet of {len} bytes should fail"
+            );
+        }
+        // H2 packets: anything < 35 bytes (with H2 flag) should fail
+        for len in HEADER_1_SIZE..HEADER_2_SIZE {
+            let mut data = vec![0x00; len];
+            data[0] = 0x40; // H2 flag
+            data[18] = 0x00; // valid context for H1 check (won't be reached)
+            let result = RawPacket::parse(&data);
+            assert!(
+                result.is_err(),
+                "H2 packet of {len} bytes should fail"
+            );
+        }
+    }
+
+    #[test]
+    fn test_parse_malformed_zero_length_payload() {
+        // Exactly 19 bytes H1 packet → Ok with empty data
+        let mut data = vec![0x00; HEADER_1_SIZE];
+        data[0] = 0x00; // valid H1 flags
+        data[18] = 0x00; // valid context (None)
+        let packet = RawPacket::parse(&data).unwrap();
+        assert!(packet.data.is_empty());
+    }
+
+    #[test]
+    fn test_parse_malformed_oversized_payload() {
+        // 600-byte packet → Ok (RawPacket doesn't enforce MTU)
+        let mut data = vec![0x00; 600];
+        data[0] = 0x00; // valid H1 flags
+        data[18] = 0x00; // valid context
+        let packet = RawPacket::parse(&data).unwrap();
+        assert_eq!(packet.data.len(), 600 - HEADER_1_SIZE);
+    }
 }

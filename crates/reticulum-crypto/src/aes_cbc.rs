@@ -173,4 +173,40 @@ mod tests {
             Err(CryptoError::DecryptionFailed)
         );
     }
+
+    #[test]
+    fn test_aes256_cbc_malformed_all_zero_key_iv() {
+        let key = [0u8; 32];
+        let iv = [0u8; 16];
+        // Roundtrip with all-zero key/IV works
+        let data = b"test data for zero key";
+        let ct = aes256_cbc_encrypt(&key, &iv, data);
+        let recovered = aes256_cbc_decrypt(&key, &iv, &ct).unwrap();
+        assert_eq!(recovered, data);
+        // Decrypt garbage with valid alignment → InvalidPadding
+        let garbage = [0xAB; 16];
+        let result = aes256_cbc_decrypt(&key, &iv, &garbage);
+        assert_eq!(result, Err(CryptoError::InvalidPadding));
+    }
+
+    #[test]
+    fn test_aes256_cbc_malformed_corrupted_ciphertext() {
+        let key = [0x42u8; 32];
+        let iv = [0x24u8; 16];
+        let data = b"bitflip test data";
+        let mut ct = aes256_cbc_encrypt(&key, &iv, data);
+        // Flip a bit in the last block (affects padding validation)
+        let last_block_start = ct.len() - 16;
+        ct[last_block_start] ^= 0x01;
+        let result = aes256_cbc_decrypt(&key, &iv, &ct);
+        assert_eq!(result, Err(CryptoError::InvalidPadding));
+    }
+
+    #[test]
+    fn test_aes256_cbc_malformed_single_zero_block() {
+        let key = [0x42u8; 32];
+        let iv = [0x24u8; 16];
+        let result = aes256_cbc_decrypt(&key, &iv, &[0u8; 16]);
+        assert_eq!(result, Err(CryptoError::InvalidPadding));
+    }
 }
