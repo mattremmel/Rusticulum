@@ -489,3 +489,81 @@ fn link_role_debug() {
     assert_eq!(format!("{:?}", LinkRole::Initiator), "Initiator");
     assert_eq!(format!("{:?}", LinkRole::Responder), "Responder");
 }
+
+// ---------------------------------------------------------------------------
+// Traffic timeout, stale timeout, total timeout from retry_timers vectors
+// ---------------------------------------------------------------------------
+
+#[test]
+fn traffic_timeout_boundary_values() {
+    // Min keepalive (5) → 5*6 = 30
+    assert!(
+        (LinkActive::compute_traffic_timeout(link::KEEPALIVE_MIN) - 30.0).abs() < 1e-10
+    );
+    // Max keepalive (360) → 360*6 = 2160
+    assert!(
+        (LinkActive::compute_traffic_timeout(link::KEEPALIVE_MAX) - 2160.0).abs() < 1e-10
+    );
+    // Zero → 0
+    assert!((LinkActive::compute_traffic_timeout(0.0)).abs() < 1e-10);
+}
+
+#[test]
+fn stale_timeout_all_retry_vectors() {
+    // Vector stale_timeout = rtt * KEEPALIVE_TIMEOUT_FACTOR + STALE_GRACE
+    // This is the grace period after a link goes stale before teardown.
+    let vectors = reticulum_test_vectors::retry_timers::load();
+    for v in &vectors.link_keepalive.vectors {
+        let expected_stale_timeout = v.rtt * link::KEEPALIVE_TIMEOUT_FACTOR + link::STALE_GRACE;
+        assert!(
+            (expected_stale_timeout - v.stale_timeout).abs() < 1e-6,
+            "stale_timeout mismatch for RTT={}: got {}, expected {} ({})",
+            v.rtt,
+            expected_stale_timeout,
+            v.stale_timeout,
+            v.description
+        );
+    }
+}
+
+#[test]
+fn total_timeout_all_retry_vectors() {
+    // Vector total_timeout = stale_time + stale_timeout
+    // Where stale_time = keepalive * STALE_FACTOR
+    // And stale_timeout = rtt * KEEPALIVE_TIMEOUT_FACTOR + STALE_GRACE
+    let vectors = reticulum_test_vectors::retry_timers::load();
+    for v in &vectors.link_keepalive.vectors {
+        let keepalive = LinkActive::compute_keepalive(v.rtt);
+        let stale_time = LinkActive::compute_stale_time(keepalive);
+        let stale_timeout = v.rtt * link::KEEPALIVE_TIMEOUT_FACTOR + link::STALE_GRACE;
+        let total = stale_time + stale_timeout;
+        assert!(
+            (total - v.total_timeout).abs() < 1e-6,
+            "total_timeout mismatch for RTT={}: got {} (stale_time={} + stale_timeout={}), expected {} ({})",
+            v.rtt,
+            total,
+            stale_time,
+            stale_timeout,
+            v.total_timeout,
+            v.description
+        );
+    }
+}
+
+#[test]
+fn establishment_timeout_all_vectors() {
+    let vectors = reticulum_test_vectors::retry_timers::load();
+    for v in &vectors.link_establishment.vectors {
+        let expected = v.timeout as f64;
+        let computed = link::ESTABLISHMENT_TIMEOUT_PER_HOP * (v.hops.max(1) as f64)
+            + link::KEEPALIVE_DEFAULT;
+        assert!(
+            (computed - expected).abs() < 1e-6,
+            "establishment timeout mismatch for hops={}: got {}, expected {} ({})",
+            v.hops,
+            computed,
+            expected,
+            v.description
+        );
+    }
+}

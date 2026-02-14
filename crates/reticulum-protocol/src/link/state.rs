@@ -41,6 +41,148 @@ use super::types::{DerivedKey, LinkMode, LinkRole, LinkStats, TeardownReason};
 use crate::error::LinkError;
 
 // ---------------------------------------------------------------------------
+// Pure time-decision functions
+// ---------------------------------------------------------------------------
+
+/// Whether a keepalive should be sent, given seconds since last outbound.
+pub fn should_send_keepalive_at(elapsed_outbound: f64, keepalive: f64) -> bool {
+    elapsed_outbound > keepalive
+}
+
+/// Whether a link should transition to stale, given current stale flag and
+/// seconds since last inbound.
+pub fn should_go_stale_at(is_stale: bool, elapsed_inbound: f64, stale_time: f64) -> bool {
+    !is_stale && elapsed_inbound > stale_time
+}
+
+/// Whether a link should be torn down.
+///
+/// For stale links with a known `stale_since` elapsed time: tears down after
+/// `STALE_GRACE` seconds. For non-stale links (or stale without `stale_since`):
+/// tears down if no inbound traffic for `keepalive * KEEPALIVE_TIMEOUT_FACTOR`.
+pub fn should_teardown_at(
+    is_stale: bool,
+    elapsed_stale: Option<f64>,
+    elapsed_inbound: f64,
+    keepalive: f64,
+) -> bool {
+    if is_stale
+        && let Some(stale_elapsed) = elapsed_stale
+    {
+        return stale_elapsed > STALE_GRACE;
+    }
+    elapsed_inbound > keepalive * KEEPALIVE_TIMEOUT_FACTOR
+}
+
+/// Whether the establishment timeout has elapsed.
+pub fn is_establishment_timed_out_at(elapsed: f64, timeout: f64) -> bool {
+    elapsed > timeout
+}
+
+// ---------------------------------------------------------------------------
+// Handshake data parsing/building
+// ---------------------------------------------------------------------------
+
+/// Parsed fields from an LRPROOF data payload.
+#[derive(Debug, Clone)]
+pub struct ParsedProofData {
+    /// Ed25519 signature (64 bytes).
+    pub signature: [u8; 64],
+    /// Responder's ephemeral X25519 public key (32 bytes).
+    pub x25519_public: [u8; 32],
+    /// Optional signalling bytes (MTU/mode negotiation).
+    pub signalling: Vec<u8>,
+}
+
+/// Parsed fields from a LINKREQUEST data payload.
+#[derive(Debug, Clone)]
+pub struct ParsedRequestData {
+    /// Initiator's ephemeral X25519 public key (32 bytes).
+    pub x25519_public: [u8; 32],
+    /// Initiator's ephemeral Ed25519 public key (32 bytes).
+    pub ed25519_public: [u8; 32],
+    /// Optional signalling bytes (MTU/mode negotiation).
+    pub signalling: Vec<u8>,
+}
+
+/// Parse an LRPROOF data payload into its component fields.
+///
+/// Layout: `signature(64) || x25519_pub(32) || [signalling(3)]`
+pub fn parse_proof_data(data: &[u8]) -> Result<ParsedProofData, LinkError> {
+    let min_len = SIGNATURE_SIZE + LINK_KEYSIZE;
+    if data.len() < min_len {
+        return Err(LinkError::InvalidProof);
+    }
+
+    let signature: [u8; 64] = data[..SIGNATURE_SIZE].try_into().unwrap();
+    let x25519_public: [u8; 32] = data[SIGNATURE_SIZE..min_len].try_into().unwrap();
+    let signalling = if data.len() > min_len {
+        data[min_len..].to_vec()
+    } else {
+        Vec::new()
+    };
+
+    Ok(ParsedProofData {
+        signature,
+        x25519_public,
+        signalling,
+    })
+}
+
+/// Parse a LINKREQUEST data payload into its component fields.
+///
+/// Layout: `x25519_pub(32) || ed25519_pub(32) || [signalling(3)]`
+pub fn parse_request_data(data: &[u8]) -> Result<ParsedRequestData, LinkError> {
+    if data.len() < ECPUBSIZE {
+        return Err(LinkError::HandshakeFailed(
+            "request data too short".to_string(),
+        ));
+    }
+
+    let x25519_public: [u8; 32] = data[..32].try_into().unwrap();
+    let ed25519_public: [u8; 32] = data[32..64].try_into().unwrap();
+    let signalling = if data.len() > ECPUBSIZE {
+        data[ECPUBSIZE..].to_vec()
+    } else {
+        Vec::new()
+    };
+
+    Ok(ParsedRequestData {
+        x25519_public,
+        ed25519_public,
+        signalling,
+    })
+}
+
+/// Build the signed data for link handshake verification.
+///
+/// Layout: `link_id(16) || x25519_pub(32) || ed25519_pub(32) || [signalling]`
+pub fn build_signed_data(
+    link_id: &[u8],
+    x25519_pub: &[u8],
+    ed25519_pub: &[u8],
+    signalling: &[u8],
+) -> Vec<u8> {
+    let mut data = Vec::with_capacity(link_id.len() + x25519_pub.len() + ed25519_pub.len() + signalling.len());
+    data.extend_from_slice(link_id);
+    data.extend_from_slice(x25519_pub);
+    data.extend_from_slice(ed25519_pub);
+    data.extend_from_slice(signalling);
+    data
+}
+
+/// Build an LRPROOF data payload from its component fields.
+///
+/// Layout: `signature(64) || x25519_pub(32) || [signalling]`
+pub fn build_proof_data(signature: &[u8], x25519_pub: &[u8], signalling: &[u8]) -> Vec<u8> {
+    let mut data = Vec::with_capacity(signature.len() + x25519_pub.len() + signalling.len());
+    data.extend_from_slice(signature);
+    data.extend_from_slice(x25519_pub);
+    data.extend_from_slice(signalling);
+    data
+}
+
+// ---------------------------------------------------------------------------
 // Helper functions
 // ---------------------------------------------------------------------------
 
@@ -219,7 +361,10 @@ impl LinkPending {
 
     /// Whether the establishment timeout has elapsed.
     pub fn is_timed_out(&self) -> bool {
-        self.request_time.elapsed().as_secs_f64() > self.establishment_timeout
+        is_establishment_timed_out_at(
+            self.request_time.elapsed().as_secs_f64(),
+            self.establishment_timeout,
+        )
     }
 
     /// Process a received LRPROOF on the initiator side.
@@ -252,27 +397,15 @@ impl LinkPending {
 
     fn receive_proof_inner(
         self,
-        proof_data: &[u8],
+        raw_proof_data: &[u8],
         responder_ed25519_pub: &Ed25519PublicKey,
         rtt: f64,
         fixed_iv: Option<&[u8; 16]>,
     ) -> Result<(LinkActive, Vec<u8>), LinkError> {
-        // Parse proof_data: signature(64) + x25519_pub(32) + [signalling(3)]
-        let min_len = SIGNATURE_SIZE + LINK_KEYSIZE;
-        if proof_data.len() < min_len {
-            return Err(LinkError::InvalidProof);
-        }
+        let parsed = parse_proof_data(raw_proof_data)?;
 
-        let signature_bytes: [u8; 64] = proof_data[..SIGNATURE_SIZE].try_into().unwrap();
-        let peer_x25519_bytes: [u8; 32] = proof_data[SIGNATURE_SIZE..min_len].try_into().unwrap();
-        let signalling_bytes = if proof_data.len() > min_len {
-            &proof_data[min_len..]
-        } else {
-            &[]
-        };
-
-        let peer_x25519_pub = X25519PublicKey::from_bytes(peer_x25519_bytes);
-        let signature = Ed25519Signature::from_bytes(signature_bytes);
+        let peer_x25519_pub = X25519PublicKey::from_bytes(parsed.x25519_public);
+        let signature = Ed25519Signature::from_bytes(parsed.signature);
 
         // ECDH + HKDF
         let derived_key =
@@ -280,12 +413,12 @@ impl LinkPending {
 
         tracing::debug!(link_id = ?self.link_id, "initiator ECDH + HKDF complete");
 
-        // Build signed_data: link_id + peer_x25519_pub + responder_ed25519_pub + [signalling]
-        let mut signed_data = Vec::with_capacity(16 + 32 + 32 + signalling_bytes.len());
-        signed_data.extend_from_slice(self.link_id.as_ref());
-        signed_data.extend_from_slice(&peer_x25519_bytes);
-        signed_data.extend_from_slice(&responder_ed25519_pub.to_bytes());
-        signed_data.extend_from_slice(signalling_bytes);
+        let signed_data = build_signed_data(
+            self.link_id.as_ref(),
+            &parsed.x25519_public,
+            &responder_ed25519_pub.to_bytes(),
+            &parsed.signalling,
+        );
 
         // Verify signature
         responder_ed25519_pub
@@ -439,19 +572,10 @@ impl LinkHandshake {
         hops: u32,
         eph_x25519: X25519PrivateKey,
     ) -> Result<(Self, Vec<u8>), LinkError> {
-        // Parse request_data: x25519_pub(32) + ed25519_pub(32) + [signalling(3)]
-        if request_data.len() < ECPUBSIZE {
-            return Err(LinkError::HandshakeFailed(
-                "request data too short".to_string(),
-            ));
-        }
+        let parsed = parse_request_data(request_data)?;
 
-        let peer_x25519_bytes: [u8; 32] = request_data[..32].try_into().unwrap();
-        let peer_ed25519_bytes: [u8; 32] = request_data[32..64].try_into().unwrap();
-        let has_signalling = request_data.len() > ECPUBSIZE;
-
-        let peer_x25519_pub = X25519PublicKey::from_bytes(peer_x25519_bytes);
-        let peer_ed25519_pub = Ed25519PublicKey::from_bytes(peer_ed25519_bytes)?;
+        let peer_x25519_pub = X25519PublicKey::from_bytes(parsed.x25519_public);
+        let peer_ed25519_pub = Ed25519PublicKey::from_bytes(parsed.ed25519_public)?;
 
         // Compute link_id from the packet-level hashable part
         let link_id = LinkPending::compute_link_id(hashable_part, data_len);
@@ -465,28 +589,27 @@ impl LinkHandshake {
         tracing::debug!(link_id = ?link_id, "responder ECDH + HKDF complete");
 
         // Build responder's signalling bytes (only if initiator sent them)
-        let resp_signalling: Vec<u8> = if has_signalling {
+        let resp_signalling: Vec<u8> = if !parsed.signalling.is_empty() {
             super::mtu::encode(mtu, mode)?.to_vec()
         } else {
             Vec::new()
         };
 
-        // Build signed_data: link_id + our_x25519_pub + identity_ed25519_pub + [signalling]
-        let mut signed_data = Vec::with_capacity(16 + 32 + 32 + resp_signalling.len());
-        signed_data.extend_from_slice(link_id.as_ref());
-        signed_data.extend_from_slice(&eph_x25519_pub.to_bytes());
-        signed_data.extend_from_slice(&identity_ed25519_pub.to_bytes());
-        signed_data.extend_from_slice(&resp_signalling);
+        let signed_data = build_signed_data(
+            link_id.as_ref(),
+            &eph_x25519_pub.to_bytes(),
+            &identity_ed25519_pub.to_bytes(),
+            &resp_signalling,
+        );
 
         // Sign with identity Ed25519 key
         let signature = identity_ed25519_prv.sign(&signed_data);
 
-        // Build proof_data: signature(64) + x25519_pub(32) + [signalling(3)]
-        let mut proof_data =
-            Vec::with_capacity(SIGNATURE_SIZE + LINK_KEYSIZE + resp_signalling.len());
-        proof_data.extend_from_slice(&signature.to_bytes());
-        proof_data.extend_from_slice(&eph_x25519_pub.to_bytes());
-        proof_data.extend_from_slice(&resp_signalling);
+        let proof_data = build_proof_data(
+            &signature.to_bytes(),
+            &eph_x25519_pub.to_bytes(),
+            &resp_signalling,
+        );
 
         let timeout = ESTABLISHMENT_TIMEOUT_PER_HOP * hops.max(1) as f64 + KEEPALIVE_DEFAULT;
 
@@ -557,7 +680,10 @@ impl LinkHandshake {
 
     /// Whether the establishment timeout has elapsed.
     pub fn is_timed_out(&self) -> bool {
-        self.request_time.elapsed().as_secs_f64() > self.establishment_timeout
+        is_establishment_timed_out_at(
+            self.request_time.elapsed().as_secs_f64(),
+            self.establishment_timeout,
+        )
     }
 }
 
@@ -636,12 +762,16 @@ impl LinkActive {
 
     /// Whether it's time to send a keepalive packet.
     pub fn should_send_keepalive(&self) -> bool {
-        self.last_outbound.elapsed().as_secs_f64() > self.keepalive
+        should_send_keepalive_at(self.last_outbound.elapsed().as_secs_f64(), self.keepalive)
     }
 
     /// Whether the link should transition to stale.
     pub fn should_go_stale(&self) -> bool {
-        !self.is_stale && self.last_inbound.elapsed().as_secs_f64() > self.stale_time
+        should_go_stale_at(
+            self.is_stale,
+            self.last_inbound.elapsed().as_secs_f64(),
+            self.stale_time,
+        )
     }
 
     /// Mark the link as stale.
@@ -656,12 +786,13 @@ impl LinkActive {
     /// `keepalive * KEEPALIVE_TIMEOUT_FACTOR`.
     /// For stale links: tears down after `STALE_GRACE` seconds of staleness.
     pub fn should_teardown(&self) -> bool {
-        if self.is_stale
-            && let Some(since) = self.stale_since
-        {
-            return since.elapsed().as_secs_f64() > STALE_GRACE;
-        }
-        self.last_inbound.elapsed().as_secs_f64() > self.keepalive * KEEPALIVE_TIMEOUT_FACTOR
+        let elapsed_stale = self.stale_since.map(|s| s.elapsed().as_secs_f64());
+        should_teardown_at(
+            self.is_stale,
+            elapsed_stale,
+            self.last_inbound.elapsed().as_secs_f64(),
+            self.keepalive,
+        )
     }
 
     /// Record an inbound packet, updating stats and un-staling the link.
@@ -802,5 +933,291 @@ impl std::fmt::Debug for LinkState {
             Self::Active(s) => s.fmt(f),
             Self::Closed(s) => s.fmt(f),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // -----------------------------------------------------------------------
+    // should_send_keepalive_at
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn keepalive_under_threshold() {
+        assert!(!should_send_keepalive_at(9.9, 10.0));
+    }
+
+    #[test]
+    fn keepalive_over_threshold() {
+        assert!(should_send_keepalive_at(10.1, 10.0));
+    }
+
+    #[test]
+    fn keepalive_exact_boundary() {
+        // Exact equality is NOT over threshold (uses strict >)
+        assert!(!should_send_keepalive_at(10.0, 10.0));
+    }
+
+    // -----------------------------------------------------------------------
+    // should_go_stale_at
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn stale_already_stale_guard() {
+        // Already stale → never transitions again
+        assert!(!should_go_stale_at(true, 999.0, 10.0));
+    }
+
+    #[test]
+    fn stale_under_threshold() {
+        assert!(!should_go_stale_at(false, 9.9, 10.0));
+    }
+
+    #[test]
+    fn stale_over_threshold() {
+        assert!(should_go_stale_at(false, 10.1, 10.0));
+    }
+
+    #[test]
+    fn stale_exact_boundary() {
+        assert!(!should_go_stale_at(false, 10.0, 10.0));
+    }
+
+    // -----------------------------------------------------------------------
+    // should_teardown_at
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn teardown_stale_under_grace() {
+        assert!(!should_teardown_at(true, Some(4.9), 999.0, 10.0));
+    }
+
+    #[test]
+    fn teardown_stale_over_grace() {
+        assert!(should_teardown_at(true, Some(5.1), 999.0, 10.0));
+    }
+
+    #[test]
+    fn teardown_stale_exact_grace() {
+        // Exact STALE_GRACE is NOT over threshold (strict >)
+        assert!(!should_teardown_at(true, Some(STALE_GRACE), 999.0, 10.0));
+    }
+
+    #[test]
+    fn teardown_stale_no_since_falls_through() {
+        // Stale but no stale_since → falls through to inbound check
+        // keepalive=10, factor=4 → threshold=40
+        assert!(!should_teardown_at(true, None, 39.9, 10.0));
+        assert!(should_teardown_at(true, None, 40.1, 10.0));
+    }
+
+    #[test]
+    fn teardown_not_stale_under_timeout() {
+        // keepalive=10, factor=4 → threshold=40
+        assert!(!should_teardown_at(false, None, 39.9, 10.0));
+    }
+
+    #[test]
+    fn teardown_not_stale_over_timeout() {
+        assert!(should_teardown_at(false, None, 40.1, 10.0));
+    }
+
+    #[test]
+    fn teardown_not_stale_exact_timeout() {
+        assert!(!should_teardown_at(false, None, 40.0, 10.0));
+    }
+
+    // -----------------------------------------------------------------------
+    // is_establishment_timed_out_at
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn establishment_under_timeout() {
+        assert!(!is_establishment_timed_out_at(5.0, 6.0));
+    }
+
+    #[test]
+    fn establishment_over_timeout() {
+        assert!(is_establishment_timed_out_at(7.0, 6.0));
+    }
+
+    #[test]
+    fn establishment_exact_boundary() {
+        assert!(!is_establishment_timed_out_at(6.0, 6.0));
+    }
+
+    #[test]
+    fn establishment_zero_elapsed() {
+        assert!(!is_establishment_timed_out_at(0.0, 6.0));
+    }
+
+    // -----------------------------------------------------------------------
+    // Relationship: compute_traffic_timeout matches keepalive * factor
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn traffic_timeout_matches_keepalive_times_factor() {
+        for ka in [5.0, 10.0, 100.0, 360.0] {
+            let timeout = LinkActive::compute_traffic_timeout(ka);
+            let expected = ka * TRAFFIC_TIMEOUT_FACTOR;
+            assert!(
+                (timeout - expected).abs() < 1e-10,
+                "traffic_timeout({ka}) = {timeout}, expected {expected}"
+            );
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // parse_proof_data
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn parse_proof_exact_min_size() {
+        // 64 + 32 = 96 bytes minimum
+        let mut data = vec![0xAA; 64]; // signature
+        data.extend_from_slice(&[0xBB; 32]); // x25519
+        let parsed = parse_proof_data(&data).unwrap();
+        assert_eq!(parsed.signature, [0xAA; 64]);
+        assert_eq!(parsed.x25519_public, [0xBB; 32]);
+        assert!(parsed.signalling.is_empty());
+    }
+
+    #[test]
+    fn parse_proof_with_signalling() {
+        let mut data = vec![0xAA; 64];
+        data.extend_from_slice(&[0xBB; 32]);
+        data.extend_from_slice(&[0x01, 0x02, 0x03]); // 3 signalling bytes
+        let parsed = parse_proof_data(&data).unwrap();
+        assert_eq!(parsed.signature, [0xAA; 64]);
+        assert_eq!(parsed.x25519_public, [0xBB; 32]);
+        assert_eq!(parsed.signalling, vec![0x01, 0x02, 0x03]);
+    }
+
+    #[test]
+    fn parse_proof_too_short() {
+        let data = vec![0x00; 95]; // one byte short
+        assert!(parse_proof_data(&data).is_err());
+    }
+
+    #[test]
+    fn parse_proof_empty() {
+        assert!(parse_proof_data(&[]).is_err());
+    }
+
+    // -----------------------------------------------------------------------
+    // parse_request_data
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn parse_request_exact_min_size() {
+        let mut data = vec![0xCC; 32]; // x25519
+        data.extend_from_slice(&[0xDD; 32]); // ed25519
+        let parsed = parse_request_data(&data).unwrap();
+        assert_eq!(parsed.x25519_public, [0xCC; 32]);
+        assert_eq!(parsed.ed25519_public, [0xDD; 32]);
+        assert!(parsed.signalling.is_empty());
+    }
+
+    #[test]
+    fn parse_request_with_signalling() {
+        let mut data = vec![0xCC; 32];
+        data.extend_from_slice(&[0xDD; 32]);
+        data.extend_from_slice(&[0x04, 0x05, 0x06]);
+        let parsed = parse_request_data(&data).unwrap();
+        assert_eq!(parsed.x25519_public, [0xCC; 32]);
+        assert_eq!(parsed.ed25519_public, [0xDD; 32]);
+        assert_eq!(parsed.signalling, vec![0x04, 0x05, 0x06]);
+    }
+
+    #[test]
+    fn parse_request_too_short() {
+        let data = vec![0x00; 63];
+        assert!(parse_request_data(&data).is_err());
+    }
+
+    #[test]
+    fn parse_request_empty() {
+        assert!(parse_request_data(&[]).is_err());
+    }
+
+    // -----------------------------------------------------------------------
+    // build_signed_data
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn build_signed_data_no_signalling() {
+        let link_id = [0x11; 16];
+        let x25519 = [0x22; 32];
+        let ed25519 = [0x33; 32];
+        let result = build_signed_data(&link_id, &x25519, &ed25519, &[]);
+        assert_eq!(result.len(), 80);
+        assert_eq!(&result[..16], &[0x11; 16]);
+        assert_eq!(&result[16..48], &[0x22; 32]);
+        assert_eq!(&result[48..80], &[0x33; 32]);
+    }
+
+    #[test]
+    fn build_signed_data_with_signalling() {
+        let link_id = [0x11; 16];
+        let x25519 = [0x22; 32];
+        let ed25519 = [0x33; 32];
+        let sig = [0x44, 0x55, 0x66];
+        let result = build_signed_data(&link_id, &x25519, &ed25519, &sig);
+        assert_eq!(result.len(), 83);
+        assert_eq!(&result[80..], &[0x44, 0x55, 0x66]);
+    }
+
+    #[test]
+    fn build_signed_data_field_offsets() {
+        let link_id = vec![1u8; 16];
+        let x25519 = vec![2u8; 32];
+        let ed25519 = vec![3u8; 32];
+        let result = build_signed_data(&link_id, &x25519, &ed25519, &[]);
+        // Verify field boundaries
+        assert!(result[0..16].iter().all(|&b| b == 1));
+        assert!(result[16..48].iter().all(|&b| b == 2));
+        assert!(result[48..80].iter().all(|&b| b == 3));
+    }
+
+    // -----------------------------------------------------------------------
+    // build_proof_data
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn build_proof_data_no_signalling() {
+        let sig = [0xAA; 64];
+        let x25519 = [0xBB; 32];
+        let result = build_proof_data(&sig, &x25519, &[]);
+        assert_eq!(result.len(), 96);
+        assert_eq!(&result[..64], &[0xAA; 64]);
+        assert_eq!(&result[64..96], &[0xBB; 32]);
+    }
+
+    #[test]
+    fn build_proof_data_with_signalling() {
+        let sig = [0xAA; 64];
+        let x25519 = [0xBB; 32];
+        let signalling = [0x01, 0x02, 0x03];
+        let result = build_proof_data(&sig, &x25519, &signalling);
+        assert_eq!(result.len(), 99);
+        assert_eq!(&result[96..], &[0x01, 0x02, 0x03]);
+    }
+
+    // -----------------------------------------------------------------------
+    // Roundtrip: build_proof_data -> parse_proof_data
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn proof_data_roundtrip() {
+        let sig = [0x42; 64];
+        let x25519 = [0x99; 32];
+        let signalling = [0xAB, 0xCD, 0xEF];
+        let built = build_proof_data(&sig, &x25519, &signalling);
+        let parsed = parse_proof_data(&built).unwrap();
+        assert_eq!(parsed.signature, sig);
+        assert_eq!(parsed.x25519_public, x25519);
+        assert_eq!(parsed.signalling, signalling);
     }
 }

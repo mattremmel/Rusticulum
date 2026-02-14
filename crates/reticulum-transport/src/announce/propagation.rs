@@ -68,6 +68,42 @@ pub struct AnnounceInsertParams {
     pub attached_interface: Option<InterfaceId>,
 }
 
+/// Decision from evaluating a single announce table entry for retransmission.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RetransmitDecision {
+    /// Entry has exhausted retries and should be removed.
+    Completed,
+    /// Timeout reached and entry should be retransmitted.
+    Retransmit,
+    /// Timeout reached but rebroadcasts are blocked for this entry.
+    BlockedRetransmit,
+    /// Timeout not yet reached; wait.
+    Wait,
+}
+
+/// Decide whether a single announce entry should be retransmitted.
+///
+/// This is the pure decision extracted from `process_retransmissions`.
+pub fn decide_retransmission(
+    retries: u32,
+    retransmit_timeout: f64,
+    block_rebroadcasts: bool,
+    now: f64,
+) -> RetransmitDecision {
+    if retries >= LOCAL_REBROADCASTS_MAX || retries > PATHFINDER_R {
+        return RetransmitDecision::Completed;
+    }
+    if now > retransmit_timeout {
+        if block_rebroadcasts {
+            RetransmitDecision::BlockedRetransmit
+        } else {
+            RetransmitDecision::Retransmit
+        }
+    } else {
+        RetransmitDecision::Wait
+    }
+}
+
 /// Announce retransmission table.
 pub struct AnnounceTable {
     entries: HashMap<DestinationHash, AnnounceTableEntry>,
@@ -120,28 +156,29 @@ impl AnnounceTable {
         let mut completed = Vec::new();
 
         for (dest, entry) in &mut self.entries {
-            if entry.retries >= LOCAL_REBROADCASTS_MAX {
-                completed.push(*dest);
-                continue;
-            }
-
-            if entry.retries > PATHFINDER_R {
-                completed.push(*dest);
-                continue;
-            }
-
-            if now > entry.retransmit_timeout {
-                // Time to retransmit
-                entry.retransmit_timeout = now + PATHFINDER_G + PATHFINDER_RW;
-                entry.retries += 1;
-
-                if !entry.block_rebroadcasts {
+            match decide_retransmission(
+                entry.retries,
+                entry.retransmit_timeout,
+                entry.block_rebroadcasts,
+                now,
+            ) {
+                RetransmitDecision::Completed => {
+                    completed.push(*dest);
+                }
+                RetransmitDecision::Retransmit => {
+                    entry.retransmit_timeout = now + PATHFINDER_G + PATHFINDER_RW;
+                    entry.retries += 1;
                     actions.push(AnnounceAction::Retransmit {
                         destination: *dest,
                         raw_packet: entry.raw_packet.clone(),
                         exclude_interface: Some(entry.received_from),
                     });
                 }
+                RetransmitDecision::BlockedRetransmit => {
+                    entry.retransmit_timeout = now + PATHFINDER_G + PATHFINDER_RW;
+                    entry.retries += 1;
+                }
+                RetransmitDecision::Wait => {}
             }
         }
 
@@ -372,5 +409,89 @@ mod tests {
 
         table.remove(&dest);
         assert!(!table.contains(&dest));
+    }
+
+    // -----------------------------------------------------------------------
+    // decide_retransmission pure function tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn decide_completed_at_local_rebroadcasts_max() {
+        assert_eq!(
+            decide_retransmission(LOCAL_REBROADCASTS_MAX, 100.0, false, 200.0),
+            RetransmitDecision::Completed
+        );
+    }
+
+    #[test]
+    fn decide_completed_above_pathfinder_r() {
+        assert_eq!(
+            decide_retransmission(PATHFINDER_R + 1, 100.0, false, 200.0),
+            RetransmitDecision::Completed
+        );
+    }
+
+    #[test]
+    fn decide_wait_before_timeout() {
+        assert_eq!(
+            decide_retransmission(0, 100.0, false, 99.9),
+            RetransmitDecision::Wait
+        );
+    }
+
+    #[test]
+    fn decide_wait_exact_boundary() {
+        // Exact equality is NOT past timeout (uses strict >)
+        assert_eq!(
+            decide_retransmission(0, 100.0, false, 100.0),
+            RetransmitDecision::Wait
+        );
+    }
+
+    #[test]
+    fn decide_retransmit_after_timeout() {
+        assert_eq!(
+            decide_retransmission(0, 100.0, false, 100.1),
+            RetransmitDecision::Retransmit
+        );
+    }
+
+    #[test]
+    fn decide_blocked_retransmit() {
+        assert_eq!(
+            decide_retransmission(0, 100.0, true, 100.1),
+            RetransmitDecision::BlockedRetransmit
+        );
+    }
+
+    #[test]
+    fn decide_at_pathfinder_r_fires_if_timeout_reached() {
+        // retries == PATHFINDER_R (1) is NOT > PATHFINDER_R, so it should still fire
+        assert_eq!(
+            decide_retransmission(PATHFINDER_R, 50.0, false, 51.0),
+            RetransmitDecision::Retransmit
+        );
+    }
+
+    #[test]
+    fn decide_zero_retries_not_completed() {
+        assert_ne!(
+            decide_retransmission(0, 100.0, false, 50.0),
+            RetransmitDecision::Completed
+        );
+    }
+
+    #[test]
+    fn decide_zero_timeout_edge() {
+        // timeout=0.0, now=0.0 → exact boundary → Wait
+        assert_eq!(
+            decide_retransmission(0, 0.0, false, 0.0),
+            RetransmitDecision::Wait
+        );
+        // now just past → Retransmit
+        assert_eq!(
+            decide_retransmission(0, 0.0, false, 0.001),
+            RetransmitDecision::Retransmit
+        );
     }
 }
