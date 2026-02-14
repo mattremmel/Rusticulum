@@ -22,6 +22,9 @@ use reticulum_interfaces::local::{
     LocalClientConfig, LocalClientInterface, LocalServerConfig, LocalServerInterface,
 };
 
+use crate::interface_planning::{InterfaceSpec, plan_all_interfaces};
+use crate::maintenance_ops;
+
 use reticulum_core::announce::make_random_hash;
 use reticulum_core::constants::PacketType;
 use reticulum_core::packet::context::ContextType;
@@ -37,7 +40,7 @@ use reticulum_core::identity::Identity;
 use crate::announce_processing::{self, AnnounceDecision};
 use crate::auto_data_plan::{self, AutoDataAction, AutoQueueSnapshot};
 use crate::channel_manager::ChannelManager;
-use crate::config::{NodeConfig, parse_mode, parse_socket_addr};
+use crate::config::NodeConfig;
 use crate::error::NodeError;
 use crate::interface_enum::AnyInterface;
 use crate::link_dispatch::{self, LinkPacketKind};
@@ -265,119 +268,95 @@ impl Node {
     }
 
     /// Create interface objects from configuration.
+    ///
+    /// Uses [`plan_all_interfaces`] for pure config validation, then
+    /// instantiates the actual interface objects from the specs.
     fn create_interfaces(&mut self) -> Result<(), NodeError> {
-        let mut id_counter = self.next_id;
-        let mut next_id = || {
-            let id = InterfaceId(id_counter);
-            id_counter += 1;
-            id
-        };
+        let (specs, next_id) = plan_all_interfaces(&self.config.interfaces, self.next_id)
+            .map_err(NodeError::Config)?;
 
-        // Collect all interfaces into a vec first to avoid borrow conflicts.
-        let mut built: Vec<(InterfaceId, AnyInterface)> = Vec::new();
+        self.next_id = next_id;
 
-        // TCP clients
-        for entry in &self.config.interfaces.tcp_client {
-            let id = next_id();
-            let mode = parse_mode(&entry.mode)?;
-            let mut cfg = TcpClientConfig::initiator(&entry.name, &entry.target);
-            cfg.mode = mode;
-            built.push((
-                id,
-                AnyInterface::TcpClient(TcpClientInterface::new(cfg, id)?),
-            ));
-        }
-
-        // TCP servers
-        for entry in &self.config.interfaces.tcp_server {
-            let id = next_id();
-            let addr = parse_socket_addr(&entry.bind)?;
-            let mode = parse_mode(&entry.mode)?;
-            let mut cfg = TcpServerConfig::new(&entry.name, addr);
-            cfg.mode = mode;
-            built.push((
-                id,
-                AnyInterface::TcpServer(TcpServerInterface::new(cfg, id)),
-            ));
-        }
-
-        // UDP
-        for entry in &self.config.interfaces.udp {
-            let id = next_id();
-            let bind_addr = parse_socket_addr(&entry.bind)?;
-            let mode = parse_mode(&entry.mode)?;
-            let cfg = if let Some(ref target) = entry.target {
-                let target_addr = parse_socket_addr(target)?;
-                if entry.broadcast {
-                    let mut c = UdpConfig::broadcast(&entry.name, bind_addr, target_addr);
-                    c.mode = mode;
-                    c
-                } else {
-                    let mut c = UdpConfig::unicast(&entry.name, bind_addr, target_addr);
-                    c.mode = mode;
-                    c
-                }
-            } else {
-                let mut c = UdpConfig::receive_only(&entry.name, bind_addr);
-                c.mode = mode;
-                c
-            };
-            built.push((id, AnyInterface::Udp(UdpInterface::new(cfg, id))));
-        }
-
-        // Local servers (unix only)
-        #[cfg(unix)]
-        for entry in &self.config.interfaces.local_server {
-            let id = next_id();
-            let mode = parse_mode(&entry.mode)?;
-            let path = crate::config::parse_path(&entry.path);
-            let mut cfg = LocalServerConfig::new(&entry.name, path);
-            cfg.mode = mode;
-            built.push((
-                id,
-                AnyInterface::LocalServer(LocalServerInterface::new(cfg, id)),
-            ));
-        }
-
-        // Local clients (unix only)
-        #[cfg(unix)]
-        for entry in &self.config.interfaces.local_client {
-            let id = next_id();
-            let mode = parse_mode(&entry.mode)?;
-            let path = crate::config::parse_path(&entry.path);
-            let mut cfg = LocalClientConfig::initiator(&entry.name, path);
-            cfg.mode = mode;
-            built.push((
-                id,
-                AnyInterface::LocalClient(LocalClientInterface::new(cfg, id)?),
-            ));
-        }
-
-        // Auto interfaces (unix only)
-        #[cfg(unix)]
-        for entry in &self.config.interfaces.auto {
-            let id = next_id();
-            let mode = parse_mode(&entry.mode)?;
-            let mut cfg = AutoConfig::new(&entry.name);
-            cfg.mode = mode;
-            if let Some(ref gid) = entry.group_id {
-                cfg.group_id = gid.as_bytes().to_vec();
-            }
-            if let Some(dp) = entry.discovery_port {
-                cfg.discovery_port = dp;
-            }
-            if let Some(dp) = entry.data_port {
-                cfg.data_port = dp;
-            }
-            built.push((id, AnyInterface::Auto(AutoInterface::new(cfg, id))));
-        }
-
-        self.next_id = id_counter;
-        for (id, iface) in built {
+        for spec in specs {
+            let (id, iface) = self.instantiate_interface(spec)?;
             self.interfaces.insert(id, Arc::new(iface));
         }
 
         Ok(())
+    }
+
+    /// Instantiate an actual interface from a validated spec.
+    fn instantiate_interface(
+        &self,
+        spec: InterfaceSpec,
+    ) -> Result<(InterfaceId, AnyInterface), NodeError> {
+        match spec {
+            InterfaceSpec::TcpClient { name, target, mode, id } => {
+                let mut cfg = TcpClientConfig::initiator(&name, &target);
+                cfg.mode = mode;
+                Ok((id, AnyInterface::TcpClient(TcpClientInterface::new(cfg, id)?)))
+            }
+            InterfaceSpec::TcpServer { name, bind, mode, id } => {
+                let mut cfg = TcpServerConfig::new(&name, bind);
+                cfg.mode = mode;
+                Ok((id, AnyInterface::TcpServer(TcpServerInterface::new(cfg, id))))
+            }
+            InterfaceSpec::Udp { name, bind, target, broadcast, mode, id } => {
+                let cfg = match target {
+                    Some(target_addr) if broadcast => {
+                        let mut c = UdpConfig::broadcast(&name, bind, target_addr);
+                        c.mode = mode;
+                        c
+                    }
+                    Some(target_addr) => {
+                        let mut c = UdpConfig::unicast(&name, bind, target_addr);
+                        c.mode = mode;
+                        c
+                    }
+                    None => {
+                        let mut c = UdpConfig::receive_only(&name, bind);
+                        c.mode = mode;
+                        c
+                    }
+                };
+                Ok((id, AnyInterface::Udp(UdpInterface::new(cfg, id))))
+            }
+            #[cfg(unix)]
+            InterfaceSpec::LocalServer { name, path, mode, id } => {
+                let mut cfg = LocalServerConfig::new(&name, path);
+                cfg.mode = mode;
+                Ok((id, AnyInterface::LocalServer(LocalServerInterface::new(cfg, id))))
+            }
+            #[cfg(unix)]
+            InterfaceSpec::LocalClient { name, path, mode, id } => {
+                let mut cfg = LocalClientConfig::initiator(&name, path);
+                cfg.mode = mode;
+                Ok((id, AnyInterface::LocalClient(LocalClientInterface::new(cfg, id)?)))
+            }
+            #[cfg(unix)]
+            InterfaceSpec::Auto { name, mode, group_id, discovery_port, data_port, id } => {
+                let mut cfg = AutoConfig::new(&name);
+                cfg.mode = mode;
+                if let Some(gid) = group_id {
+                    cfg.group_id = gid;
+                }
+                if let Some(dp) = discovery_port {
+                    cfg.discovery_port = dp;
+                }
+                if let Some(dp) = data_port {
+                    cfg.data_port = dp;
+                }
+                Ok((id, AnyInterface::Auto(AutoInterface::new(cfg, id))))
+            }
+            #[cfg(not(unix))]
+            InterfaceSpec::LocalServer { .. }
+            | InterfaceSpec::LocalClient { .. }
+            | InterfaceSpec::Auto { .. } => {
+                Err(NodeError::Config(
+                    "local/auto interfaces are only available on unix".to_string(),
+                ))
+            }
+        }
     }
 
     /// Start all interfaces.
@@ -488,13 +467,14 @@ impl Node {
                 _ = maintenance_interval.tick() => {
                     // Broadcast any pending initial announces (deferred from startup
                     // until interfaces are connected)
-                    if !self.pending_announces.is_empty() {
-                        let has_connected = self.interfaces.values().any(|i| i.is_connected());
-                        if has_connected {
-                            let announces = std::mem::take(&mut self.pending_announces);
-                            for raw in &announces {
-                                self.broadcast_to_interfaces(None, raw).await;
-                            }
+                    let has_connected = self.interfaces.values().any(|i| i.is_connected());
+                    if maintenance_ops::should_broadcast_pending_announces(
+                        !self.pending_announces.is_empty(),
+                        has_connected,
+                    ) {
+                        let announces = std::mem::take(&mut self.pending_announces);
+                        for raw in &announces {
+                            self.broadcast_to_interfaces(None, raw).await;
                         }
                     }
 
@@ -506,19 +486,15 @@ impl Node {
 
                     for action in actions {
                         if let RouterAction::Broadcast { exclude, raw } = action {
-                            match routing::prepare_announce_retransmission(
+                            let out = maintenance_ops::plan_announce_retransmission(
                                 &raw,
                                 self.config.node.enable_transport,
                                 our_hash.as_ref(),
-                            ) {
-                                Some(out) if out != raw => {
-                                    tracing::debug!("transport_relay_announce");
-                                    self.broadcast_to_interfaces(exclude, &out).await;
-                                }
-                                _ => {
-                                    self.broadcast_to_interfaces(exclude, &raw).await;
-                                }
+                            );
+                            if out != raw {
+                                tracing::debug!("transport_relay_announce");
                             }
+                            self.broadcast_to_interfaces(exclude, &out).await;
                         }
                     }
                 }
@@ -1447,12 +1423,12 @@ impl Node {
             .map(|d| d.as_secs())
             .unwrap_or(0);
 
-        let active: Vec<InterfaceId> = self
+        let iface_status: Vec<(InterfaceId, bool)> = self
             .interfaces
             .iter()
-            .filter(|(_, iface)| iface.is_connected())
-            .map(|(&id, _)| id)
+            .map(|(&id, iface)| (id, iface.is_connected()))
             .collect();
+        let active = maintenance_ops::collect_active_interface_ids(&iface_status);
 
         self.router.cull_tables(now, &active);
     }
