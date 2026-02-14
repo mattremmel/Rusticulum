@@ -67,7 +67,7 @@ impl LocalClientInterface {
     /// Create a responder client from an already-connected Unix stream.
     ///
     /// Immediately spawns the read loop — no need to call `start()`.
-    pub fn from_connected(
+    pub async fn from_connected(
         config: LocalClientConfig,
         id: InterfaceId,
         stream: UnixStream,
@@ -78,9 +78,7 @@ impl LocalClientInterface {
         let (reader, writer) = stream.into_split();
 
         {
-            let mut guard = iface.inner.writer.try_lock().map_err(|_| {
-                InterfaceError::Configuration("writer lock contended during init".into())
-            })?;
+            let mut guard = iface.inner.writer.lock().await;
             *guard = Some(writer);
         }
         iface.inner.connected.store(true, Ordering::SeqCst);
@@ -93,9 +91,7 @@ impl LocalClientInterface {
             Self::read_loop(inner, reader, stop_rx, &name).await;
         });
         {
-            let mut guard = iface.task_handle.try_lock().map_err(|_| {
-                InterfaceError::Configuration("task_handle lock contended during init".into())
-            })?;
+            let mut guard = iface.task_handle.lock().await;
             *guard = Some(handle);
         }
 

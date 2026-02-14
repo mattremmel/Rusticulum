@@ -66,7 +66,7 @@ impl TcpClientInterface {
     /// Create a responder client from an already-connected TCP stream.
     ///
     /// Immediately spawns the read loop — no need to call `start()`.
-    pub fn from_connected(
+    pub async fn from_connected(
         config: TcpClientConfig,
         id: InterfaceId,
         stream: TcpStream,
@@ -79,11 +79,7 @@ impl TcpClientInterface {
         let (reader, writer) = stream.into_split();
 
         {
-            // We can't await here but we need to set the writer synchronously.
-            // Since the Mutex is uncontested, try_lock will succeed.
-            let mut guard = iface.inner.writer.try_lock().map_err(|_| {
-                InterfaceError::Configuration("writer lock contended during init".into())
-            })?;
+            let mut guard = iface.inner.writer.lock().await;
             *guard = Some(writer);
         }
         iface.inner.connected.store(true, Ordering::SeqCst);
@@ -96,9 +92,7 @@ impl TcpClientInterface {
             Self::read_loop(inner, reader, stop_rx, &name).await;
         });
         {
-            let mut guard = iface.task_handle.try_lock().map_err(|_| {
-                InterfaceError::Configuration("task_handle lock contended during init".into())
-            })?;
+            let mut guard = iface.task_handle.lock().await;
             *guard = Some(handle);
         }
 
@@ -719,8 +713,9 @@ mod tests {
         let (_peer, _) = listener.accept().await.unwrap();
 
         let config = TcpClientConfig::responder("test-responder-no-reconnect");
-        let client =
-            TcpClientInterface::from_connected(config, InterfaceId(54), connector).unwrap();
+        let client = TcpClientInterface::from_connected(config, InterfaceId(54), connector)
+            .await
+            .unwrap();
         assert!(client.is_connected());
 
         // Drop the peer to trigger disconnect in the read loop

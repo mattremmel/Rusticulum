@@ -111,7 +111,9 @@ impl TcpServerInterface {
                 client_config,
                 InterfaceId(client_id),
                 stream,
-            ) {
+            )
+            .await
+            {
                 Ok(c) => c,
                 Err(e) => {
                     warn!("{}: failed to initialize client: {}", server_config.name, e);

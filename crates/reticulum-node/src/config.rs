@@ -58,6 +58,9 @@ pub struct LinkTargetEntry {
 
 impl NodeConfig {
     /// Load configuration from a TOML file.
+    ///
+    /// # Note
+    /// This performs blocking file I/O. Call at startup before the async runtime is under load.
     pub fn load(path: &Path) -> Result<Self, NodeError> {
         let content = std::fs::read_to_string(path)
             .map_err(|e| NodeError::Config(format!("failed to read config file: {e}")))?;

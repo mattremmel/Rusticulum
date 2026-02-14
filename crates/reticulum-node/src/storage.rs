@@ -49,12 +49,18 @@ pub struct Storage {
 
 impl Storage {
     /// Create a new storage instance, creating the directory if needed.
+    ///
+    /// # Note
+    /// This performs blocking I/O (`create_dir_all`). Call at startup before the async runtime is under load.
     pub fn new(base_dir: PathBuf) -> Result<Self, StorageError> {
         std::fs::create_dir_all(&base_dir)?;
         Ok(Self { base_dir })
     }
 
     /// Create storage at the default path (`~/.reticulum/storage`).
+    ///
+    /// # Note
+    /// This performs blocking I/O (`create_dir_all`). Call at startup before the async runtime is under load.
     pub fn default_path() -> Result<Self, StorageError> {
         let home = dirs::home_dir()
             .ok_or_else(|| StorageError::Directory("could not determine home directory".into()))?;
