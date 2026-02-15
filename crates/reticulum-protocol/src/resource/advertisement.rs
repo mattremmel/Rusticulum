@@ -36,9 +36,8 @@ pub struct ResourceFlags {
     pub has_metadata: bool,
 }
 
-impl ResourceFlags {
-    /// Decode a flags byte into individual fields.
-    pub fn from_byte(b: u8) -> Self {
+impl From<u8> for ResourceFlags {
+    fn from(b: u8) -> Self {
         Self {
             encrypted: (b & 0x01) != 0,
             compressed: (b >> 1 & 0x01) != 0,
@@ -48,7 +47,9 @@ impl ResourceFlags {
             has_metadata: (b >> 5 & 0x01) != 0,
         }
     }
+}
 
+impl ResourceFlags {
     /// Encode individual fields back into a flags byte.
     #[must_use]
     pub fn to_byte(&self) -> u8 {
@@ -232,7 +233,7 @@ impl ResourceAdvertisement {
 
     /// Decode the flags byte into a [`ResourceFlags`] struct.
     pub fn decoded_flags(&self) -> ResourceFlags {
-        ResourceFlags::from_byte(self.flags)
+        ResourceFlags::from(self.flags)
     }
 }
 
@@ -367,7 +368,7 @@ mod tests {
         let vectors = load_vectors();
 
         for v in &vectors {
-            let flags = ResourceFlags::from_byte(v.flags as u8);
+            let flags = ResourceFlags::from(v.flags as u8);
             let breakdown = &v.flags_breakdown;
 
             assert_eq!(
@@ -532,7 +533,7 @@ mod tests {
 
             #[test]
             fn flags_roundtrip(b in 0u8..64) {
-                let flags = ResourceFlags::from_byte(b);
+                let flags = ResourceFlags::from(b);
                 prop_assert_eq!(flags.to_byte(), b);
             }
         }

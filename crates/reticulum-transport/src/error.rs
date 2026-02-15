@@ -51,6 +51,9 @@ pub enum PathError {
     #[error("invalid interface mode: {0}")]
     InvalidInterfaceMode(&'static str),
 
+    #[error("invalid interface mode value: {0}")]
+    InvalidInterfaceModeValue(u8),
+
     #[error("packet error: {0}")]
     PacketError(#[from] PacketError),
 }

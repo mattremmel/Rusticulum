@@ -60,21 +60,23 @@ impl fmt::Display for InterfaceMode {
     }
 }
 
-impl InterfaceMode {
-    /// Convert from raw byte value.
-    #[must_use]
-    pub fn from_u8(v: u8) -> Option<Self> {
+impl TryFrom<u8> for InterfaceMode {
+    type Error = PathError;
+
+    fn try_from(v: u8) -> Result<Self, Self::Error> {
         match v {
-            0 => Some(InterfaceMode::Full),
-            1 => Some(InterfaceMode::PointToPoint),
-            2 => Some(InterfaceMode::AccessPoint),
-            3 => Some(InterfaceMode::Roaming),
-            4 => Some(InterfaceMode::Boundary),
-            5 => Some(InterfaceMode::Gateway),
-            _ => None,
+            0 => Ok(InterfaceMode::Full),
+            1 => Ok(InterfaceMode::PointToPoint),
+            2 => Ok(InterfaceMode::AccessPoint),
+            3 => Ok(InterfaceMode::Roaming),
+            4 => Ok(InterfaceMode::Boundary),
+            5 => Ok(InterfaceMode::Gateway),
+            _ => Err(PathError::InvalidInterfaceModeValue(v)),
         }
     }
+}
 
+impl InterfaceMode {
     /// Parse from test-vector string representation (e.g. "MODE_FULL", "default").
     #[must_use = "this returns the parsed mode without modifying the input"]
     pub fn from_vector_str(s: &str) -> Result<Self, PathError> {
