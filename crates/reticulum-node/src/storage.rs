@@ -9,9 +9,11 @@ use std::path::{Path, PathBuf};
 use tokio::fs;
 
 use reticulum_core::identity::Identity;
+use reticulum_core::types::DestinationHash;
 use reticulum_transport::dedup::PacketHashlist;
 use reticulum_transport::path::table::PathTable;
 
+use crate::link_manager::KnownDestinationEntry;
 use crate::storage_codec;
 
 /// File name for the 64-byte raw transport identity.
@@ -22,6 +24,9 @@ const PATH_TABLE_FILE: &str = "destination_table";
 
 /// File name for the serialized packet hashlist.
 const HASHLIST_FILE: &str = "packet_hashlist";
+
+/// File name for the serialized known destinations.
+const KNOWN_DESTINATIONS_FILE: &str = "known_destinations";
 
 /// Errors from storage operations.
 #[derive(Debug, thiserror::Error)]
@@ -145,6 +150,31 @@ impl Storage {
             Ok(bytes) => storage_codec::deserialize_hashlist(&bytes)
                 .map_err(|e| StorageError::Deserialize(e.to_string())),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(PacketHashlist::new()),
+            Err(e) => Err(StorageError::Io(e)),
+        }
+    }
+
+    /// Save known destinations.
+    pub async fn save_known_destinations(
+        &self,
+        map: &std::collections::HashMap<DestinationHash, KnownDestinationEntry>,
+    ) -> Result<(), StorageError> {
+        let bytes = storage_codec::serialize_known_destinations(map)
+            .map_err(|e| StorageError::Serialize(e.to_string()))?;
+
+        self.atomic_write(&self.base_dir.join(KNOWN_DESTINATIONS_FILE), &bytes)
+            .await
+    }
+
+    /// Load known destinations. Returns an empty vec if the file doesn't exist.
+    pub async fn load_known_destinations(
+        &self,
+    ) -> Result<Vec<(DestinationHash, KnownDestinationEntry)>, StorageError> {
+        let path = self.base_dir.join(KNOWN_DESTINATIONS_FILE);
+        match fs::read(&path).await {
+            Ok(bytes) => storage_codec::deserialize_known_destinations(&bytes)
+                .map_err(|e| StorageError::Deserialize(e.to_string())),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Vec::new()),
             Err(e) => Err(StorageError::Io(e)),
         }
     }
@@ -635,5 +665,57 @@ mod tests {
             .unwrap()
             .expect("should load real file");
         assert_eq!(identity.hash().as_ref(), loaded.hash().as_ref());
+    }
+
+    // --- Known destinations persistence tests ---
+
+    fn make_known_dest_entry(seed: u8, app_data: Option<Vec<u8>>) -> KnownDestinationEntry {
+        KnownDestinationEntry {
+            timestamp: 1000.0 + seed as f64,
+            packet_hash: make_packet_hash(seed),
+            public_key: [seed; 64],
+            app_data,
+        }
+    }
+
+    #[tokio::test]
+    async fn test_known_destinations_roundtrip() {
+        let dir = tempfile::tempdir().unwrap();
+        let storage = Storage::new(dir.path().to_path_buf()).unwrap();
+
+        let mut map = std::collections::HashMap::new();
+        map.insert(make_dest(1), make_known_dest_entry(1, Some(b"app1".to_vec())));
+        map.insert(make_dest(2), make_known_dest_entry(2, None));
+
+        storage.save_known_destinations(&map).await.unwrap();
+        let loaded = storage.load_known_destinations().await.unwrap();
+
+        assert_eq!(loaded.len(), 2);
+        for (dest, entry) in &loaded {
+            let original = map.get(dest).expect("dest should exist");
+            assert!((entry.timestamp - original.timestamp).abs() < f64::EPSILON);
+            assert_eq!(entry.public_key, original.public_key);
+            assert_eq!(entry.app_data, original.app_data);
+        }
+    }
+
+    #[tokio::test]
+    async fn test_known_destinations_load_missing() {
+        let dir = tempfile::tempdir().unwrap();
+        let storage = Storage::new(dir.path().to_path_buf()).unwrap();
+
+        let loaded = storage.load_known_destinations().await.unwrap();
+        assert!(loaded.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_known_destinations_load_corrupt() {
+        let dir = tempfile::tempdir().unwrap();
+        let storage = Storage::new(dir.path().to_path_buf()).unwrap();
+
+        std::fs::write(dir.path().join(KNOWN_DESTINATIONS_FILE), b"garbage").unwrap();
+
+        let result = storage.load_known_destinations().await;
+        assert!(matches!(result, Err(StorageError::Deserialize(_))));
     }
 }

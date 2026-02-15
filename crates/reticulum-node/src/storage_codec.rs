@@ -10,6 +10,8 @@ use reticulum_transport::dedup::PacketHashlist;
 use reticulum_transport::path::table::PathTable;
 use reticulum_transport::path::types::{InterfaceId, PathEntry};
 
+use crate::link_manager::KnownDestinationEntry;
+
 /// Maximum number of random blobs to persist per path entry.
 pub const MAX_PERSISTED_BLOBS: usize = 32;
 
@@ -121,6 +123,77 @@ pub fn deserialize_hashlist(bytes: &[u8]) -> Result<PacketHashlist, StorageCodec
     Ok(PacketHashlist::from_hashes(
         hashes.into_iter().map(PacketHash::new),
     ))
+}
+
+/// Intermediate representation of a [`KnownDestinationEntry`] for serialization.
+///
+/// Uses `Vec<u8>` for the 64-byte public key since serde doesn't derive
+/// for `[u8; 64]` out of the box.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct StorableKnownDestination {
+    pub dest_hash: [u8; 16],
+    pub timestamp: f64,
+    pub packet_hash: [u8; 32],
+    pub public_key: Vec<u8>,
+    pub app_data: Option<Vec<u8>>,
+}
+
+/// Convert a destination hash + known destination entry into storable form.
+#[must_use]
+pub fn known_dest_to_storable(
+    dest: &DestinationHash,
+    entry: &KnownDestinationEntry,
+) -> StorableKnownDestination {
+    let mut dest_hash = [0u8; 16];
+    dest_hash.copy_from_slice(dest.as_ref());
+    let mut packet_hash = [0u8; 32];
+    packet_hash.copy_from_slice(entry.packet_hash.as_ref());
+
+    StorableKnownDestination {
+        dest_hash,
+        timestamp: entry.timestamp,
+        packet_hash,
+        public_key: entry.public_key.to_vec(),
+        app_data: entry.app_data.clone(),
+    }
+}
+
+/// Convert a storable entry back into a (DestinationHash, KnownDestinationEntry) pair.
+pub fn storable_to_known_dest(
+    storable: StorableKnownDestination,
+) -> (DestinationHash, KnownDestinationEntry) {
+    let dest = DestinationHash::new(storable.dest_hash);
+    let mut public_key = [0u8; 64];
+    let len = storable.public_key.len().min(64);
+    public_key[..len].copy_from_slice(&storable.public_key[..len]);
+    let entry = KnownDestinationEntry {
+        timestamp: storable.timestamp,
+        packet_hash: PacketHash::new(storable.packet_hash),
+        public_key,
+        app_data: storable.app_data,
+    };
+    (dest, entry)
+}
+
+/// Serialize a known destinations map to bytes via postcard.
+pub fn serialize_known_destinations(
+    map: &std::collections::HashMap<DestinationHash, KnownDestinationEntry>,
+) -> Result<Vec<u8>, StorageCodecError> {
+    let entries: Vec<StorableKnownDestination> = map
+        .iter()
+        .map(|(dest, entry)| known_dest_to_storable(dest, entry))
+        .collect();
+
+    postcard::to_allocvec(&entries).map_err(|e| StorageCodecError::Serialize(e.to_string()))
+}
+
+/// Deserialize known destinations from postcard-encoded bytes.
+pub fn deserialize_known_destinations(
+    bytes: &[u8],
+) -> Result<Vec<(DestinationHash, KnownDestinationEntry)>, StorageCodecError> {
+    let entries: Vec<StorableKnownDestination> =
+        postcard::from_bytes(bytes).map_err(|e| StorageCodecError::Deserialize(e.to_string()))?;
+    Ok(entries.into_iter().map(storable_to_known_dest).collect())
 }
 
 #[cfg(test)]
@@ -416,5 +489,74 @@ mod tests {
         let result = deserialize_hashlist(&[]);
         // postcard needs at least a length prefix; empty slice is an error
         assert!(result.is_err());
+    }
+
+    // --- serialize/deserialize known destinations ---
+
+    fn make_known_dest(seed: u8, app_data: Option<Vec<u8>>) -> KnownDestinationEntry {
+        KnownDestinationEntry {
+            timestamp: 1000.0 + seed as f64,
+            packet_hash: make_packet_hash(seed),
+            public_key: [seed; 64],
+            app_data,
+        }
+    }
+
+    #[test]
+    fn known_dest_to_storable_roundtrip() {
+        let dest = make_dest(0x42);
+        let entry = make_known_dest(0x42, Some(b"hello".to_vec()));
+        let storable = known_dest_to_storable(&dest, &entry);
+        let (rt_dest, rt_entry) = storable_to_known_dest(storable);
+
+        assert_eq!(rt_dest.as_ref(), dest.as_ref());
+        assert!((rt_entry.timestamp - entry.timestamp).abs() < f64::EPSILON);
+        assert_eq!(rt_entry.packet_hash.as_ref(), entry.packet_hash.as_ref());
+        assert_eq!(rt_entry.public_key, entry.public_key);
+        assert_eq!(rt_entry.app_data, entry.app_data);
+    }
+
+    #[test]
+    fn known_dest_roundtrip_no_app_data() {
+        let dest = make_dest(0x11);
+        let entry = make_known_dest(0x11, None);
+        let storable = known_dest_to_storable(&dest, &entry);
+        let (rt_dest, rt_entry) = storable_to_known_dest(storable);
+
+        assert_eq!(rt_dest.as_ref(), dest.as_ref());
+        assert!(rt_entry.app_data.is_none());
+    }
+
+    #[test]
+    fn serialize_known_destinations_roundtrip() {
+        let mut map = std::collections::HashMap::new();
+        map.insert(make_dest(1), make_known_dest(1, Some(b"data1".to_vec())));
+        map.insert(make_dest(2), make_known_dest(2, None));
+        map.insert(make_dest(3), make_known_dest(3, Some(b"data3".to_vec())));
+
+        let bytes = serialize_known_destinations(&map).unwrap();
+        let loaded = deserialize_known_destinations(&bytes).unwrap();
+
+        assert_eq!(loaded.len(), 3);
+        for (dest, entry) in &loaded {
+            let original = map.get(dest).expect("dest should be in original map");
+            assert!((entry.timestamp - original.timestamp).abs() < f64::EPSILON);
+            assert_eq!(entry.public_key, original.public_key);
+            assert_eq!(entry.app_data, original.app_data);
+        }
+    }
+
+    #[test]
+    fn serialize_known_destinations_empty() {
+        let map = std::collections::HashMap::new();
+        let bytes = serialize_known_destinations(&map).unwrap();
+        let loaded = deserialize_known_destinations(&bytes).unwrap();
+        assert!(loaded.is_empty());
+    }
+
+    #[test]
+    fn deserialize_known_destinations_corrupt() {
+        let result = deserialize_known_destinations(b"not valid postcard bytes");
+        assert!(matches!(result, Err(StorageCodecError::Deserialize(_))));
     }
 }

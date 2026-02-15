@@ -11,7 +11,7 @@ use reticulum_core::constants::MTU;
 use reticulum_core::identity::Identity;
 use reticulum_core::packet::context::ContextType;
 use reticulum_core::packet::wire::RawPacket;
-use reticulum_core::types::{DestinationHash, LinkId};
+use reticulum_core::types::{DestinationHash, IdentityHash, LinkId, PacketHash};
 
 use reticulum_protocol::link::constants::{KEEPALIVE_ECHO_MARKER, KEEPALIVE_MARKER};
 use reticulum_protocol::link::state::{LinkActive, LinkHandshake, LinkPending};
@@ -50,6 +50,22 @@ impl LinkAutoActions {
     }
 }
 
+/// A known destination entry, learned from a validated announce.
+///
+/// Mirrors Python's `Identity.known_destinations` registry:
+/// `dest_hash → [timestamp, packet_hash, public_key, app_data]`.
+#[derive(Debug, Clone)]
+pub struct KnownDestinationEntry {
+    /// When this destination was last seen (Unix seconds).
+    pub timestamp: f64,
+    /// The announce packet hash.
+    pub packet_hash: PacketHash,
+    /// Raw public key bytes: x25519(32) || ed25519(32).
+    pub public_key: [u8; 64],
+    /// Optional application data from the announce.
+    pub app_data: Option<Vec<u8>>,
+}
+
 /// Information about a locally registered destination that accepts links.
 #[allow(dead_code)]
 struct LocalDestInfo {
@@ -62,8 +78,8 @@ struct LocalDestInfo {
 pub struct LinkManager {
     /// Local destinations that accept links: dest_hash → info
     local_destinations: HashMap<DestinationHash, LocalDestInfo>,
-    /// Known remote identities from announces: dest_hash → Identity (public-only)
-    known_identities: HashMap<DestinationHash, Identity>,
+    /// Known remote destinations from announces: dest_hash → entry with public key + metadata
+    known_destinations: HashMap<DestinationHash, KnownDestinationEntry>,
     /// Link targets for auto-linking on announce receipt
     link_targets: Vec<LinkTargetEntry>,
     /// Pending links as initiator: link_id → (LinkPending, target dest_hash)
@@ -98,7 +114,7 @@ impl LinkManager {
     pub fn new(link_targets: Vec<LinkTargetEntry>) -> Self {
         Self {
             local_destinations: HashMap::new(),
-            known_identities: HashMap::new(),
+            known_destinations: HashMap::new(),
             link_targets,
             pending_initiator: HashMap::new(),
             pending_responder: HashMap::new(),
@@ -141,6 +157,7 @@ impl LinkManager {
         &mut self,
         dest_hash: DestinationHash,
         announce: &Announce,
+        packet_hash: PacketHash,
     ) -> bool {
         let is_self = self.local_destinations.contains_key(&dest_hash);
         let identity = Identity::from_public_bytes(&announce.public_key).ok();
@@ -181,14 +198,26 @@ impl LinkManager {
                 false
             }
             link_lifecycle::IdentityRegistrationOutcome::Registered => {
-                if let Some(id) = identity {
-                    self.known_identities.insert(dest_hash, id);
+                if identity.is_some() {
+                    if !self.remember(dest_hash, packet_hash, announce.public_key, announce.app_data.clone()) {
+                        tracing::warn!(
+                            dest_hash = %hex::encode(dest_hash.as_ref()),
+                            "key collision detected for destination"
+                        );
+                        return false;
+                    }
                 }
                 false
             }
             link_lifecycle::IdentityRegistrationOutcome::RegisteredAndAutoLink { actions } => {
-                if let Some(id) = identity {
-                    self.known_identities.insert(dest_hash, id);
+                if identity.is_some() {
+                    if !self.remember(dest_hash, packet_hash, announce.public_key, announce.app_data.clone()) {
+                        tracing::warn!(
+                            dest_hash = %hex::encode(dest_hash.as_ref()),
+                            "key collision detected for destination"
+                        );
+                        return false;
+                    }
                 }
                 tracing::info!(
                     dest_hash = %hex::encode(dest_hash.as_ref()),
@@ -222,7 +251,7 @@ impl LinkManager {
         actions: LinkAutoActions,
     ) -> Option<Vec<u8>> {
         // Verify we know this destination's identity
-        if !self.known_identities.contains_key(&dest_hash) {
+        if !self.known_destinations.contains_key(&dest_hash) {
             return None;
         }
 
@@ -346,8 +375,8 @@ impl LinkManager {
 
         let ed25519_seed = pending.eph_ed25519_private.to_bytes();
 
-        let has_identity = self.known_identities.contains_key(&dest_hash);
-        let identity = match self.known_identities.get(&dest_hash) {
+        let has_identity = self.known_destinations.contains_key(&dest_hash);
+        let identity = match self.recall(&dest_hash) {
             Some(id) => id,
             None => {
                 // Put back the pending entry since we can't proceed
@@ -726,6 +755,82 @@ impl LinkManager {
             self.linked_destinations.remove(&dest_hash);
         }
     }
+
+    /// Remember a known destination from a validated announce.
+    ///
+    /// Returns `true` on success, `false` on key collision (same dest_hash but
+    /// different public_key — potential attack).
+    pub fn remember(
+        &mut self,
+        dest_hash: DestinationHash,
+        packet_hash: PacketHash,
+        public_key: [u8; 64],
+        app_data: Option<Vec<u8>>,
+    ) -> bool {
+        // Check for key collision
+        if let Some(existing) = self.known_destinations.get(&dest_hash) {
+            if existing.public_key != public_key {
+                return false;
+            }
+        }
+
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::SystemTime::UNIX_EPOCH)
+            .map(|d| d.as_secs_f64())
+            .unwrap_or(0.0);
+
+        self.known_destinations.insert(
+            dest_hash,
+            KnownDestinationEntry {
+                timestamp,
+                packet_hash,
+                public_key,
+                app_data,
+            },
+        );
+        true
+    }
+
+    /// Recall an Identity from a known destination's stored public key.
+    pub fn recall(&self, dest_hash: &DestinationHash) -> Option<Identity> {
+        self.known_destinations
+            .get(dest_hash)
+            .and_then(|entry| Identity::from_public_bytes(&entry.public_key).ok())
+    }
+
+    /// Recall application data from a known destination.
+    pub fn recall_app_data(&self, dest_hash: &DestinationHash) -> Option<&[u8]> {
+        self.known_destinations
+            .get(dest_hash)
+            .and_then(|entry| entry.app_data.as_deref())
+    }
+
+    /// Recall an Identity by its identity hash (O(n) scan).
+    pub fn recall_by_identity_hash(&self, identity_hash: &IdentityHash) -> Option<Identity> {
+        for entry in self.known_destinations.values() {
+            if let Ok(id) = Identity::from_public_bytes(&entry.public_key) {
+                if id.hash() == identity_hash {
+                    return Some(id);
+                }
+            }
+        }
+        None
+    }
+
+    /// Get a reference to the known destinations map (for serialization).
+    pub fn known_destinations(&self) -> &HashMap<DestinationHash, KnownDestinationEntry> {
+        &self.known_destinations
+    }
+
+    /// Load known destinations at startup, merging with any existing entries.
+    pub fn load_known_destinations(
+        &mut self,
+        entries: impl IntoIterator<Item = (DestinationHash, KnownDestinationEntry)>,
+    ) {
+        for (dest_hash, entry) in entries {
+            self.known_destinations.entry(dest_hash).or_insert(entry);
+        }
+    }
 }
 
 #[cfg(test)]
@@ -734,6 +839,16 @@ mod tests {
     use reticulum_core::constants::{DestinationType, HeaderType, PacketType, TransportType};
     use reticulum_core::destination;
     use reticulum_core::packet::flags::PacketFlags;
+
+    /// Insert a known destination entry for test setup (bypasses collision check).
+    fn insert_known_identity(mgr: &mut LinkManager, dest_hash: DestinationHash, identity: &Identity) {
+        mgr.known_destinations.insert(dest_hash, KnownDestinationEntry {
+            timestamp: 0.0,
+            packet_hash: PacketHash::new([0u8; 32]),
+            public_key: identity.public_key_bytes(),
+            app_data: None,
+        });
+    }
 
     #[test]
     fn test_register_local_destination() {
@@ -778,7 +893,7 @@ mod tests {
         // Store responder's identity
         let resp_pub_identity =
             Identity::from_public_bytes(&responder_identity.public_key_bytes()).unwrap();
-        init_mgr.known_identities.insert(resp_dh, resp_pub_identity);
+        insert_known_identity(&mut init_mgr, resp_dh, &resp_pub_identity);
 
         // Step 1: Initiator creates LINKREQUEST
         let lr_raw = init_mgr
@@ -887,7 +1002,7 @@ mod tests {
 
         let mut init_mgr = LinkManager::new(vec![]);
         let resp_pub = Identity::from_public_bytes(&responder_identity.public_key_bytes()).unwrap();
-        init_mgr.known_identities.insert(resp_dh, resp_pub);
+        insert_known_identity(&mut init_mgr, resp_dh, &resp_pub);
 
         let lr_raw = init_mgr
             .initiate_link(resp_dh, LinkAutoActions::default())
@@ -926,10 +1041,10 @@ mod tests {
 
         let announce = make_test_announce(&identity);
 
-        let result = mgr.register_identity_from_announce(dh, &announce);
+        let result = mgr.register_identity_from_announce(dh, &announce, PacketHash::new([0u8; 32]));
         assert!(!result);
         // Identity should NOT be stored for self-announces
-        assert!(!mgr.known_identities.contains_key(&dh));
+        assert!(!mgr.known_destinations.contains_key(&dh));
     }
 
     #[test]
@@ -951,13 +1066,13 @@ mod tests {
         let announce = make_test_announce(&identity);
 
         // First registration — might auto-link if name_hash matches
-        let _result = mgr.register_identity_from_announce(dh, &announce);
+        let _result = mgr.register_identity_from_announce(dh, &announce, PacketHash::new([0u8; 32]));
 
         // Mark destination as linked
         mgr.linked_destinations.insert(dh);
 
         // Second registration should not queue another auto-link
-        let result2 = mgr.register_identity_from_announce(dh, &announce);
+        let result2 = mgr.register_identity_from_announce(dh, &announce, PacketHash::new([0u8; 32]));
         assert!(!result2);
     }
 
@@ -969,9 +1084,9 @@ mod tests {
 
         let announce = make_test_announce(&identity);
 
-        let result = mgr.register_identity_from_announce(dh, &announce);
+        let result = mgr.register_identity_from_announce(dh, &announce, PacketHash::new([0u8; 32]));
         assert!(!result); // no auto-link targets
-        assert!(mgr.known_identities.contains_key(&dh));
+        assert!(mgr.known_destinations.contains_key(&dh));
     }
 
     #[test]
@@ -1032,7 +1147,7 @@ mod tests {
 
         let mut init_mgr = LinkManager::new(vec![]);
         let resp_pub = Identity::from_public_bytes(&responder_identity.public_key_bytes()).unwrap();
-        init_mgr.known_identities.insert(resp_dh, resp_pub);
+        insert_known_identity(&mut init_mgr, resp_dh, &resp_pub);
 
         let lr_raw = init_mgr
             .initiate_link(resp_dh, LinkAutoActions::default())
@@ -1080,7 +1195,7 @@ mod tests {
 
         let mut init_mgr = LinkManager::new(vec![]);
         let resp_pub = Identity::from_public_bytes(&responder_identity.public_key_bytes()).unwrap();
-        init_mgr.known_identities.insert(resp_dh, resp_pub);
+        insert_known_identity(&mut init_mgr, resp_dh, &resp_pub);
 
         let lr_raw = init_mgr
             .initiate_link(resp_dh, LinkAutoActions::default())
@@ -1114,7 +1229,7 @@ mod tests {
 
         let mut init_mgr = LinkManager::new(vec![]);
         let resp_pub = Identity::from_public_bytes(&responder_identity.public_key_bytes()).unwrap();
-        init_mgr.known_identities.insert(resp_dh, resp_pub);
+        insert_known_identity(&mut init_mgr, resp_dh, &resp_pub);
 
         // Two initiate_link calls for the same destination
         let lr1 = init_mgr
@@ -1148,7 +1263,7 @@ mod tests {
         let mut init1_mgr = LinkManager::new(vec![]);
         let resp_pub1 =
             Identity::from_public_bytes(&responder_identity.public_key_bytes()).unwrap();
-        init1_mgr.known_identities.insert(resp_dh, resp_pub1);
+        insert_known_identity(&mut init1_mgr, resp_dh, &resp_pub1);
         let lr1_raw = init1_mgr
             .initiate_link(resp_dh, LinkAutoActions::default())
             .unwrap();
@@ -1157,7 +1272,7 @@ mod tests {
         let mut init2_mgr = LinkManager::new(vec![]);
         let resp_pub2 =
             Identity::from_public_bytes(&responder_identity.public_key_bytes()).unwrap();
-        init2_mgr.known_identities.insert(resp_dh, resp_pub2);
+        insert_known_identity(&mut init2_mgr, resp_dh, &resp_pub2);
         let lr2_raw = init2_mgr
             .initiate_link(resp_dh, LinkAutoActions::default())
             .unwrap();
@@ -1266,7 +1381,7 @@ mod tests {
 
         let mut init_mgr = LinkManager::new(vec![]);
         let resp_pub = Identity::from_public_bytes(&responder_identity.public_key_bytes()).unwrap();
-        init_mgr.known_identities.insert(resp_dh, resp_pub);
+        insert_known_identity(&mut init_mgr, resp_dh, &resp_pub);
 
         let mut link_ids = Vec::new();
 
@@ -1309,7 +1424,7 @@ mod tests {
     }
 
     #[test]
-    fn test_known_identities_scaling() {
+    fn test_known_destinations_scaling() {
         let mut mgr = LinkManager::new(vec![]);
         for i in 0u32..10_000 {
             let identity = Identity::generate();
@@ -1318,9 +1433,9 @@ mod tests {
             dh_bytes[..4].copy_from_slice(&seed);
             let dh = DestinationHash::new(dh_bytes);
             let pub_id = Identity::from_public_bytes(&identity.public_key_bytes()).unwrap();
-            mgr.known_identities.insert(dh, pub_id);
+            insert_known_identity(&mut mgr, dh, &pub_id);
         }
-        assert_eq!(mgr.known_identities.len(), 10_000);
+        assert_eq!(mgr.known_destinations.len(), 10_000);
     }
 
     #[test]
@@ -1379,7 +1494,7 @@ mod tests {
 
         let mut init_mgr = LinkManager::new(vec![]);
         let resp_pub = Identity::from_public_bytes(&responder_identity.public_key_bytes()).unwrap();
-        init_mgr.known_identities.insert(resp_dh, resp_pub);
+        insert_known_identity(&mut init_mgr, resp_dh, &resp_pub);
 
         let _lr_raw = init_mgr
             .initiate_link(resp_dh, LinkAutoActions::default())
@@ -1410,7 +1525,7 @@ mod tests {
 
         let mut init_mgr = LinkManager::new(vec![]);
         let resp_pub = Identity::from_public_bytes(&responder_identity.public_key_bytes()).unwrap();
-        init_mgr.known_identities.insert(resp_dh, resp_pub);
+        insert_known_identity(&mut init_mgr, resp_dh, &resp_pub);
 
         let lr_raw = init_mgr
             .initiate_link(resp_dh, LinkAutoActions::default())
@@ -1434,7 +1549,7 @@ mod tests {
 
         let mut init_mgr = LinkManager::new(vec![]);
         let resp_pub = Identity::from_public_bytes(&responder_identity.public_key_bytes()).unwrap();
-        init_mgr.known_identities.insert(resp_dh, resp_pub);
+        insert_known_identity(&mut init_mgr, resp_dh, &resp_pub);
 
         let _lr_raw = init_mgr
             .initiate_link(resp_dh, LinkAutoActions::default())
@@ -1480,7 +1595,7 @@ mod tests {
 
         let mut init_mgr = LinkManager::new(vec![]);
         let resp_pub = Identity::from_public_bytes(&responder_identity.public_key_bytes()).unwrap();
-        init_mgr.known_identities.insert(resp_dh, resp_pub);
+        insert_known_identity(&mut init_mgr, resp_dh, &resp_pub);
 
         let lr_raw = init_mgr
             .initiate_link(resp_dh, LinkAutoActions::default())
@@ -1581,12 +1696,12 @@ mod tests {
         let mut init1 = LinkManager::new(vec![]);
         let resp_pub1 =
             Identity::from_public_bytes(&responder_identity.public_key_bytes()).unwrap();
-        init1.known_identities.insert(resp_dh, resp_pub1);
+        insert_known_identity(&mut init1, resp_dh, &resp_pub1);
 
         let mut init2 = LinkManager::new(vec![]);
         let resp_pub2 =
             Identity::from_public_bytes(&responder_identity.public_key_bytes()).unwrap();
-        init2.known_identities.insert(resp_dh, resp_pub2);
+        insert_known_identity(&mut init2, resp_dh, &resp_pub2);
 
         let lr1_raw = init1
             .initiate_link(resp_dh, LinkAutoActions::default())
@@ -1636,7 +1751,7 @@ mod tests {
 
         let mut init_mgr = LinkManager::new(vec![]);
         let resp_pub = Identity::from_public_bytes(&responder_identity.public_key_bytes()).unwrap();
-        init_mgr.known_identities.insert(resp_dh, resp_pub);
+        insert_known_identity(&mut init_mgr, resp_dh, &resp_pub);
 
         assert!(init_mgr.pending_initiator.is_empty());
         assert!(init_mgr.active_links.is_empty());

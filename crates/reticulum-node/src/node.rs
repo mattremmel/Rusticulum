@@ -270,6 +270,25 @@ impl Node {
                     tracing::warn!("failed to load hashlist: {error}");
                 }
             }
+
+            // Load known destinations
+            let kd_result = match storage.load_known_destinations().await {
+                Ok(entries) => {
+                    let count = entries.len();
+                    self.link_manager.load_known_destinations(entries);
+                    Ok(count)
+                }
+                Err(e) => Err(e.to_string()),
+            };
+            match identity_loading::classify_state_load(kd_result) {
+                identity_loading::StateLoadOutcome::Loaded { count } => {
+                    tracing::info!("loaded {count} known destinations");
+                }
+                identity_loading::StateLoadOutcome::UseDefault => {}
+                identity_loading::StateLoadOutcome::Failed { error } => {
+                    tracing::warn!("failed to load known destinations: {error}");
+                }
+            }
         }
 
         // Load announce cache from disk
@@ -873,8 +892,8 @@ impl Node {
             }
 
             // Cache the announce for path request responses
+            let pkt_hash = packet.packet_hash();
             if let Ok(ref result) = announce_result {
-                let pkt_hash = packet.packet_hash();
                 self.announce_cache.insert(pkt_hash, packet_bytes.to_vec());
                 tracing::debug!(
                     destination_hash = %hex::encode(result.destination_hash.as_ref()),
@@ -889,7 +908,7 @@ impl Node {
                     announce,
                 } => {
                     self.link_manager
-                        .register_identity_from_announce(destination_hash, &announce);
+                        .register_identity_from_announce(destination_hash, &announce, pkt_hash);
                 }
                 AnnounceDecision::ParseFailed => {
                     tracing::debug!("announce payload parse failed after validation");
@@ -1867,6 +1886,12 @@ impl Node {
             }
             if let Err(e) = storage.save_hashlist(self.router.hashlist()).await {
                 tracing::warn!("failed to persist hashlist: {e}");
+            }
+            if let Err(e) = storage
+                .save_known_destinations(self.link_manager.known_destinations())
+                .await
+            {
+                tracing::warn!("failed to persist known destinations: {e}");
             }
             if let Err(e) = self.announce_cache.persist().await {
                 tracing::warn!("failed to persist announce cache: {e}");
