@@ -4,6 +4,7 @@
 //! and the interfaces through which they were learned.
 
 pub mod constants;
+pub mod path_request;
 pub mod table;
 pub mod types;
 

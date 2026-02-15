@@ -57,6 +57,12 @@ impl Storage {
         Ok(Self { base_dir })
     }
 
+    /// Get the base directory for this storage instance.
+    #[must_use]
+    pub fn base_dir(&self) -> &std::path::Path {
+        &self.base_dir
+    }
+
     /// Create storage at the default path (`~/.reticulum/storage`).
     ///
     /// # Note

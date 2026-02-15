@@ -194,6 +194,21 @@ impl AnnounceTable {
         actions
     }
 
+    /// Save (remove) an existing entry, returning it for later restoration.
+    pub fn save_entry(&mut self, destination: &DestinationHash) -> Option<AnnounceTableEntry> {
+        self.entries.remove(destination)
+    }
+
+    /// Restore a previously saved entry.
+    pub fn restore_entry(&mut self, destination: DestinationHash, entry: AnnounceTableEntry) {
+        self.entries.insert(destination, entry);
+    }
+
+    /// Insert a raw entry directly (for path response serving).
+    pub fn insert_raw(&mut self, destination: DestinationHash, entry: AnnounceTableEntry) {
+        self.entries.insert(destination, entry);
+    }
+
     /// Number of entries.
     #[must_use]
     pub fn len(&self) -> usize {

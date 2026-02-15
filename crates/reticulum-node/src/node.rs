@@ -38,6 +38,7 @@ use reticulum_transport::router::types::RouterAction;
 
 use reticulum_core::identity::Identity;
 
+use crate::announce_cache::AnnounceCache;
 use crate::announce_processing::{self, AnnounceDecision};
 use crate::auto_data_plan::{self, AutoDataAction, AutoQueueSnapshot};
 use crate::channel_manager::ChannelManager;
@@ -53,6 +54,7 @@ use crate::packet_helpers::{
     apply_ifac, extract_link_id, extract_request_id, format_data_preview, verify_ifac,
 };
 use crate::packet_outcome;
+use crate::path_request_handler::{self, DiscoveryTagTable, KnownPathInfo, PathRequestContext, PathRequestDecision};
 use crate::post_transfer_drain;
 use crate::resource_assembly;
 use crate::resource_manager::ResourceManager;
@@ -104,6 +106,8 @@ pub struct Node {
     next_id: u64,
     bridge_handles: Vec<tokio::task::JoinHandle<()>>,
     pending_announces: Vec<Vec<u8>>,
+    announce_cache: AnnounceCache,
+    discovery_tags: DiscoveryTagTable,
 }
 
 impl Node {
@@ -151,6 +155,12 @@ impl Node {
         let (event_tx, event_rx) = mpsc::channel(1024);
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
 
+        // Initialize announce cache with disk persistence if storage is available
+        let cache_dir = storage
+            .as_ref()
+            .map(|s| s.base_dir().join("cache").join("announces"));
+        let announce_cache = AnnounceCache::new(cache_dir);
+
         Self {
             config,
             router,
@@ -168,6 +178,8 @@ impl Node {
             next_id: 1,
             bridge_handles: Vec::new(),
             pending_announces: Vec::new(),
+            announce_cache,
+            discovery_tags: DiscoveryTagTable::new(),
         }
     }
 
@@ -257,6 +269,17 @@ impl Node {
                 identity_loading::StateLoadOutcome::Failed { error } => {
                     tracing::warn!("failed to load hashlist: {error}");
                 }
+            }
+        }
+
+        // Load announce cache from disk
+        match self.announce_cache.load_from_disk().await {
+            Ok(0) => {}
+            Ok(count) => {
+                tracing::info!("loaded {count} cached announces");
+            }
+            Err(e) => {
+                tracing::warn!("failed to load announce cache: {e}");
             }
         }
 
@@ -849,6 +872,16 @@ impl Node {
                 tracing::debug!(error = %e, "announce_validation_failed");
             }
 
+            // Cache the announce for path request responses
+            if let Ok(ref result) = announce_result {
+                let pkt_hash = packet.packet_hash();
+                self.announce_cache.insert(pkt_hash, packet_bytes.to_vec());
+                tracing::debug!(
+                    destination_hash = %hex::encode(result.destination_hash.as_ref()),
+                    "cached announce for path responses"
+                );
+            }
+
             // Use pure function for identity registration decision
             match announce_processing::decide_announce_action(&packet, &announce_result) {
                 AnnounceDecision::RegisterIdentity {
@@ -863,6 +896,16 @@ impl Node {
                 }
                 AnnounceDecision::ValidationFailed | AnnounceDecision::NotAnAnnounce => {}
             }
+        }
+
+        // Path request detection: DATA packets to the well-known path request destination
+        if packet.flags.packet_type == PacketType::Data
+            && packet.destination.as_ref()
+                == reticulum_transport::path::path_request::PATH_REQUEST_DEST_HASH_BYTES
+        {
+            self.handle_path_request(&packet_bytes, &packet, from_iface)
+                .await;
+            return;
         }
 
         // Link packet handling — route before flood
@@ -1652,6 +1695,161 @@ impl Node {
     ///
     /// This is sync but collects actions; we need to dispatch them async.
     /// Returns the actions to be dispatched by the caller.
+    /// Handle an inbound path request packet.
+    async fn handle_path_request(
+        &mut self,
+        raw: &[u8],
+        packet: &RawPacket,
+        from_iface: InterfaceId,
+    ) {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default();
+        let now_secs = now.as_secs();
+        let now_f64 = now.as_secs_f64();
+
+        // Determine interface properties
+        let is_from_local_client = false; // TODO: check interface type when local client support is wired
+        let interface_mode = self
+            .interfaces
+            .get(&from_iface)
+            .map(|i| {
+                // Map reticulum_interfaces::InterfaceMode to reticulum_transport::path::types::InterfaceMode
+                match i.mode() {
+                    reticulum_interfaces::InterfaceMode::Full => {
+                        reticulum_transport::path::types::InterfaceMode::Full
+                    }
+                    reticulum_interfaces::InterfaceMode::AccessPoint => {
+                        reticulum_transport::path::types::InterfaceMode::AccessPoint
+                    }
+                    reticulum_interfaces::InterfaceMode::Roaming => {
+                        reticulum_transport::path::types::InterfaceMode::Roaming
+                    }
+                    _ => reticulum_transport::path::types::InterfaceMode::Full,
+                }
+            })
+            .unwrap_or(reticulum_transport::path::types::InterfaceMode::Full);
+
+        // Look up path info for the requested destination
+        let known_path = {
+            // Parse destination from data to look up path
+            let data = &packet.data;
+            if data.len() >= 16 {
+                let dest_bytes: [u8; 16] = data[..16].try_into().unwrap();
+                let target_dest = reticulum_core::types::DestinationHash::new(dest_bytes);
+
+                if self.router.path_table().has_path(&target_dest, now_secs) {
+                    let entry = self.router.path_table().get(&target_dest);
+                    entry.and_then(|e| {
+                        self.announce_cache.get(&e.packet_hash).map(|cached| {
+                            KnownPathInfo {
+                                packet_hash: e.packet_hash,
+                                cached_raw: cached.raw_packet.clone(),
+                                hops: e.hops,
+                                next_hop: e.next_hop,
+                            }
+                        })
+                    })
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        };
+
+        let next_hop_is_local_client = false; // TODO: check when local client support is wired
+
+        let ctx = PathRequestContext {
+            data: &packet.data,
+            raw_packet: raw,
+            from_interface: from_iface.0,
+            is_from_local_client,
+            now: now_f64,
+            now_secs,
+            next_hop_is_local_client,
+            interface_mode,
+        };
+
+        let decision = path_request_handler::decide_path_request(
+            &ctx,
+            &mut self.discovery_tags,
+            known_path,
+        );
+
+        match decision {
+            PathRequestDecision::AnswerWithCachedAnnounce {
+                destination,
+                cached_raw,
+                hops,
+                retransmit_timeout,
+                from_interface,
+                block_rebroadcasts,
+            } => {
+                tracing::info!(
+                    destination = %hex::encode(destination.as_ref()),
+                    hops,
+                    "serving path response from cache"
+                );
+
+                // Save any existing announce table entry
+                let saved = self.router.announce_table_mut().save_entry(&destination);
+
+                // Insert cached announce into announce table for retransmission
+                let entry = reticulum_transport::announce::propagation::AnnounceTableEntry {
+                    timestamp: now_f64,
+                    retransmit_timeout,
+                    retries: 1, // Will complete after one retransmission
+                    received_from: InterfaceId(from_interface),
+                    hops,
+                    raw_packet: cached_raw,
+                    local_rebroadcast_count: 0,
+                    block_rebroadcasts,
+                    attached_interface: None,
+                };
+
+                self.router
+                    .announce_table_mut()
+                    .insert_raw(destination, entry);
+
+                // If we had a saved entry, store it for restoration after retransmission
+                if let Some(_saved_entry) = saved {
+                    // The saved entry will be naturally replaced by the next announce
+                    // for this destination. No explicit restore needed since the announce
+                    // table entry completes after 1 retransmission.
+                    tracing::trace!(
+                        destination = %hex::encode(destination.as_ref()),
+                        "displaced existing announce table entry for path response"
+                    );
+                }
+            }
+            PathRequestDecision::ForwardPathRequest {
+                raw_packet,
+                exclude_interface,
+            } => {
+                tracing::debug!("forwarding path request to other interfaces");
+                self.broadcast_to_interfaces(
+                    Some(InterfaceId(exclude_interface)),
+                    &raw_packet,
+                )
+                .await;
+            }
+            PathRequestDecision::DuplicateTag => {
+                tracing::trace!("path request duplicate tag, ignoring");
+            }
+            PathRequestDecision::TooShort => {
+                tracing::debug!("path request data too short");
+            }
+            PathRequestDecision::Tagless => {
+                tracing::debug!("path request has no tag, ignoring");
+            }
+            PathRequestDecision::SkipLoop => {
+                tracing::debug!("path request loop detected, skipping");
+            }
+            PathRequestDecision::Ignore => {}
+        }
+    }
+
     fn collect_announce_actions(&mut self) -> Vec<RouterAction> {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::SystemTime::UNIX_EPOCH)
@@ -1661,7 +1859,7 @@ impl Node {
         self.router.process_announce_jobs(now)
     }
 
-    /// Persist path table and hashlist to storage.
+    /// Persist path table, hashlist, and announce cache to storage.
     async fn persist_state(&self) {
         if let Some(ref storage) = self.storage {
             if let Err(e) = storage.save_path_table(self.router.path_table()).await {
@@ -1670,11 +1868,14 @@ impl Node {
             if let Err(e) = storage.save_hashlist(self.router.hashlist()).await {
                 tracing::warn!("failed to persist hashlist: {e}");
             }
+            if let Err(e) = self.announce_cache.persist().await {
+                tracing::warn!("failed to persist announce cache: {e}");
+            }
             tracing::debug!("persisted state to storage");
         }
     }
 
-    /// Cull expired entries from routing tables.
+    /// Cull expired entries from routing tables and announce cache.
     fn run_table_cull(&mut self) {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::SystemTime::UNIX_EPOCH)
@@ -1689,6 +1890,18 @@ impl Node {
         let active = maintenance_ops::collect_active_interface_ids(&iface_status);
 
         self.router.cull_tables(now, &active);
+
+        // Clean announce cache: keep only entries referenced by active path table entries
+        let active_hashes: std::collections::HashSet<reticulum_core::types::PacketHash> = self
+            .router
+            .path_table()
+            .iter()
+            .map(|(_, entry)| entry.packet_hash)
+            .collect();
+        let removed = self.announce_cache.clean(&active_hashes);
+        if removed > 0 {
+            tracing::debug!(removed, "cleaned stale announce cache entries");
+        }
     }
 }
 

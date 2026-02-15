@@ -106,6 +106,22 @@ impl InterfaceMode {
     }
 }
 
+/// Path responsiveness state.
+///
+/// Tracks whether a path has been confirmed responsive (announce received
+/// after path request) or is considered unresponsive.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[repr(u8)]
+pub enum PathState {
+    /// No information about responsiveness.
+    #[default]
+    Unknown = 0x00,
+    /// Path request sent but no response received.
+    Unresponsive = 0x01,
+    /// Path confirmed responsive (announce received).
+    Responsive = 0x02,
+}
+
 /// A single entry in the path table.
 #[derive(Debug, Clone)]
 #[must_use]

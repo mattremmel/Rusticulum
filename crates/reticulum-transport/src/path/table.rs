@@ -5,18 +5,20 @@ use std::collections::HashMap;
 use reticulum_core::types::{DestinationHash, TruncatedHash};
 
 use super::constants::PATHFINDER_M;
-use super::types::{InterfaceId, PathEntry};
+use super::types::{InterfaceId, PathEntry, PathState};
 
 /// Path table mapping destination hashes to path entries.
 #[must_use]
 pub struct PathTable {
     entries: HashMap<DestinationHash, PathEntry>,
+    path_states: HashMap<DestinationHash, PathState>,
 }
 
 impl PathTable {
     pub fn new() -> Self {
         Self {
             entries: HashMap::new(),
+            path_states: HashMap::new(),
         }
     }
 
@@ -103,6 +105,33 @@ impl PathTable {
         self.entries.is_empty()
     }
 
+    /// Mark a destination's path as responsive.
+    pub fn mark_path_responsive(&mut self, dest: &DestinationHash) {
+        self.path_states.insert(*dest, PathState::Responsive);
+    }
+
+    /// Mark a destination's path as unresponsive.
+    pub fn mark_path_unresponsive(&mut self, dest: &DestinationHash) {
+        self.path_states.insert(*dest, PathState::Unresponsive);
+    }
+
+    /// Mark a destination's path state as unknown.
+    pub fn mark_path_unknown_state(&mut self, dest: &DestinationHash) {
+        self.path_states.insert(*dest, PathState::Unknown);
+    }
+
+    /// Check if a destination's path is marked unresponsive.
+    #[must_use]
+    pub fn path_is_unresponsive(&self, dest: &DestinationHash) -> bool {
+        self.path_states.get(dest) == Some(&PathState::Unresponsive)
+    }
+
+    /// Get the path state for a destination.
+    #[must_use]
+    pub fn path_state(&self, dest: &DestinationHash) -> PathState {
+        self.path_states.get(dest).copied().unwrap_or_default()
+    }
+
     /// Cull expired entries and entries for disappeared interfaces.
     ///
     /// Returns the number of entries removed.
@@ -111,6 +140,8 @@ impl PathTable {
         self.entries.retain(|_, entry| {
             !entry.is_expired(now) && active_interfaces.contains(&entry.receiving_interface)
         });
+        // Also clean path_states for removed entries
+        self.path_states.retain(|dest, _| self.entries.contains_key(dest));
         before - self.entries.len()
     }
 
@@ -129,6 +160,7 @@ impl PathTable {
     pub fn from_entries(iter: impl IntoIterator<Item = (DestinationHash, PathEntry)>) -> Self {
         Self {
             entries: iter.into_iter().collect(),
+            path_states: HashMap::new(),
         }
     }
 }
@@ -683,6 +715,58 @@ mod tests {
         let removed = table.cull(2001, &active);
         assert_eq!(removed, 1);
         assert!(!table.contains(&make_dest(1)));
+    }
+
+    // === Path state tracking tests ===
+
+    #[test]
+    fn path_state_default_is_unknown() {
+        let table = PathTable::new();
+        let dest = make_dest(1);
+        assert_eq!(table.path_state(&dest), PathState::Unknown);
+        assert!(!table.path_is_unresponsive(&dest));
+    }
+
+    #[test]
+    fn path_state_transitions() {
+        let mut table = PathTable::new();
+        let dest = make_dest(1);
+
+        // Unknown → Unresponsive
+        table.mark_path_unresponsive(&dest);
+        assert_eq!(table.path_state(&dest), PathState::Unresponsive);
+        assert!(table.path_is_unresponsive(&dest));
+
+        // Unresponsive → Responsive
+        table.mark_path_responsive(&dest);
+        assert_eq!(table.path_state(&dest), PathState::Responsive);
+        assert!(!table.path_is_unresponsive(&dest));
+
+        // Responsive → Unknown
+        table.mark_path_unknown_state(&dest);
+        assert_eq!(table.path_state(&dest), PathState::Unknown);
+        assert!(!table.path_is_unresponsive(&dest));
+    }
+
+    #[test]
+    fn cull_cleans_path_states() {
+        let mut table = PathTable::new();
+        let iface = InterfaceId(1);
+        let active = vec![iface];
+        let dest = make_dest(1);
+
+        // Insert entry with a path state
+        let mut entry = make_entry(1000, 2, InterfaceMode::Full, iface);
+        entry.expires = 2000;
+        table.insert(dest, entry);
+        table.mark_path_responsive(&dest);
+        assert_eq!(table.path_state(&dest), PathState::Responsive);
+
+        // Cull the expired entry
+        let removed = table.cull(2001, &active);
+        assert_eq!(removed, 1);
+        // Path state should also be cleaned
+        assert_eq!(table.path_state(&dest), PathState::Unknown);
     }
 }
 

@@ -3,6 +3,7 @@
 //! This crate ties together all protocol layers, providing configuration,
 //! storage, and runtime management for a Reticulum node.
 
+pub mod announce_cache;
 pub(crate) mod announce_builder;
 pub(crate) mod announce_processing;
 pub(crate) mod auto_data_plan;
@@ -26,6 +27,7 @@ pub(crate) mod maintenance_ops;
 pub mod node;
 pub(crate) mod node_init;
 pub(crate) mod packet_helpers;
+pub(crate) mod path_request_handler;
 pub(crate) mod packet_outcome;
 pub(crate) mod post_transfer_drain;
 pub(crate) mod resource_assembly;
