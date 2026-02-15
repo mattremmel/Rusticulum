@@ -40,7 +40,7 @@ pub fn hkdf_extract(salt: Option<&[u8]>, ikm: &[u8]) -> [u8; 32] {
 pub fn hkdf_expand(prk: &[u8; 32], info: &[u8], length: usize) -> Vec<u8> {
     let num_blocks = length.div_ceil(HASH_LEN);
     let mut derived = Vec::with_capacity(num_blocks * HASH_LEN);
-    let mut block = Vec::new();
+    let mut block = Vec::with_capacity(HASH_LEN);
 
     for i in 0..num_blocks {
         // T(i+1) = HMAC(PRK, T(i) || info || counter_byte)

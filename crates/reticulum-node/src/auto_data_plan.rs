@@ -64,7 +64,7 @@ pub struct AutoQueueSnapshot {
 /// 6. Send buffer stream
 /// 7. Send request
 pub fn plan_auto_data_actions(snapshot: &AutoQueueSnapshot) -> Vec<AutoDataAction> {
-    let mut actions = Vec::new();
+    let mut actions = Vec::with_capacity(8);
 
     // 1. Always register channel first
     actions.push(AutoDataAction::RegisterChannel {

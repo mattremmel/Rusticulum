@@ -657,7 +657,7 @@ impl LinkManager {
             .map(|(id, _)| *id)
             .collect();
 
-        let mut packets = Vec::new();
+        let mut packets = Vec::with_capacity(due_link_ids.len());
         for link_id in due_link_ids {
             if let Some(raw) = self.send_raw_with_context(&link_id, &[KEEPALIVE_MARKER], ContextType::Keepalive)
             {

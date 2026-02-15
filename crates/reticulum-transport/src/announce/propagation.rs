@@ -156,8 +156,8 @@ impl AnnounceTable {
     ///
     /// Call this periodically (e.g., every second).
     pub fn process_retransmissions(&mut self, now: f64) -> Vec<AnnounceAction> {
-        let mut actions = Vec::new();
-        let mut completed = Vec::new();
+        let mut actions = Vec::with_capacity(self.entries.len());
+        let mut completed = Vec::with_capacity(self.entries.len());
 
         for (dest, entry) in &mut self.entries {
             match decide_retransmission(

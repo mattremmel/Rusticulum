@@ -32,7 +32,7 @@ pub enum PostTransferAction {
 /// matching the drain order in the original `send_auto_data()`.
 #[must_use]
 pub fn plan_post_transfer_actions(snapshot: &PostTransferSnapshot) -> Vec<PostTransferAction> {
-    let mut actions = Vec::new();
+    let mut actions = Vec::with_capacity(3);
 
     if let Some(ref message) = snapshot.channel_message {
         actions.push(PostTransferAction::SendChannelMessage {

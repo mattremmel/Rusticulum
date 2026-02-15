@@ -64,8 +64,7 @@ pub struct Destination {
 impl Destination {
     /// Create a new SINGLE destination bound to an identity.
     pub fn single(identity_hash: IdentityHash, app_name: &str, aspects: &[&str]) -> Self {
-        let aspect_refs: Vec<&str> = aspects.to_vec();
-        let nh = name_hash(app_name, &aspect_refs);
+        let nh = name_hash(app_name, aspects);
         let dh = destination_hash(&nh, &identity_hash);
         Destination {
             identity_hash: Some(identity_hash),
@@ -79,8 +78,7 @@ impl Destination {
 
     /// Create a new PLAIN destination (no identity binding).
     pub fn plain(app_name: &str, aspects: &[&str]) -> Self {
-        let aspect_refs: Vec<&str> = aspects.to_vec();
-        let nh = name_hash(app_name, &aspect_refs);
+        let nh = name_hash(app_name, aspects);
         let dh = plain_destination_hash(&nh);
         Destination {
             identity_hash: None,

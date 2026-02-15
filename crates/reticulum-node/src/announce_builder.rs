@@ -71,8 +71,8 @@ pub fn build_all_announces(
     destinations: &[DestinationEntry],
     random_hashes: &[[u8; 10]],
 ) -> AnnouncesBuild {
-    let mut announces = Vec::new();
-    let mut registrations = Vec::new();
+    let mut announces = Vec::with_capacity(destinations.len());
+    let mut registrations = Vec::with_capacity(destinations.len());
     let mut errors = Vec::new();
 
     for (dest_cfg, random_hash) in destinations.iter().zip(random_hashes.iter()) {
