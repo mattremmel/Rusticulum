@@ -1,0 +1,32 @@
+services:
+  python-rns:
+    volumes:
+      - ./scripts:/scripts:ro
+      - fuzz-data:/fuzz-data
+    command: ["python3", "/scripts/python-fuzz-test.py"]
+    environment:
+      - FUZZ_SEED=42
+      - FUZZ_COUNT=50
+    healthcheck:
+      disable: true
+
+  rust-node:
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        echo "=== Fuzz-gen: generating inputs ===" &&
+        fuzz-gen generate /fuzz-data 50 &&
+        echo "=== Fuzz-gen: validating Python inputs ===" &&
+        fuzz-gen validate /fuzz-data /fuzz-data &&
+        echo "=== Fuzz-gen: done ==="
+    volumes:
+      - fuzz-data:/fuzz-data
+    environment:
+      - RUST_LOG=info
+      - FUZZ_SEED=42
+    depends_on:
+      python-rns:
+        condition: service_started
+
+volumes:
+  fuzz-data:

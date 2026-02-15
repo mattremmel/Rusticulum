@@ -198,3 +198,32 @@ mod tests {
         assert_eq!(unpacked, env);
     }
 }
+
+#[cfg(test)]
+mod proptests {
+    use super::*;
+    use proptest::prelude::*;
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(256))]
+
+        #[test]
+        fn arbitrary_bytes_never_panic(
+            raw in proptest::collection::vec(any::<u8>(), 0..128),
+        ) {
+            let _ = Envelope::unpack(&raw);
+        }
+
+        #[test]
+        fn pack_unpack_roundtrip(
+            msg_type in any::<u16>(),
+            sequence in any::<u16>(),
+            payload in proptest::collection::vec(any::<u8>(), 0..512),
+        ) {
+            let env = Envelope { msg_type, sequence, payload };
+            let packed = env.pack();
+            let unpacked = Envelope::unpack(&packed).unwrap();
+            prop_assert_eq!(unpacked, env);
+        }
+    }
+}

@@ -512,6 +512,20 @@ mod tests {
                 prop_assert_eq!(unpacked.header.stream_id, stream_id);
                 prop_assert_eq!(unpacked.data, data);
             }
+
+            #[test]
+            fn arbitrary_header_never_panic(
+                raw in proptest::collection::vec(any::<u8>(), 0..64),
+            ) {
+                let _ = StreamHeader::decode(&raw);
+            }
+
+            #[test]
+            fn arbitrary_unpack_never_panic(
+                raw in proptest::collection::vec(any::<u8>(), 0..128),
+            ) {
+                let _ = StreamDataMessage::unpack(&raw);
+            }
         }
     }
 }

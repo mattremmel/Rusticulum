@@ -637,5 +637,12 @@ mod proptests {
             let recovered = ifac_verify(&CONFIG, &applied).unwrap();
             prop_assert_eq!(&recovered, &raw);
         }
+
+        #[test]
+        fn arbitrary_bytes_never_panic(
+            raw in proptest::collection::vec(any::<u8>(), 0..256),
+        ) {
+            let _ = ifac_verify(&CONFIG, &raw);
+        }
     }
 }

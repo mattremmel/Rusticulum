@@ -163,5 +163,12 @@ mod proptests {
             let recovered = hdlc_unframe(&framed).unwrap();
             prop_assert_eq!(&recovered, &data);
         }
+
+        #[test]
+        fn arbitrary_bytes_never_panic(
+            raw in proptest::collection::vec(any::<u8>(), 0..256),
+        ) {
+            let _ = hdlc_unframe(&raw);
+        }
     }
 }

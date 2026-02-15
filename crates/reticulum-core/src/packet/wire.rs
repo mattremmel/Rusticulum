@@ -472,5 +472,26 @@ mod proptests {
             let serialized = packet.serialize();
             prop_assert_eq!(&serialized, &raw);
         }
+
+        #[test]
+        fn arbitrary_bytes_never_panic(raw in proptest::collection::vec(any::<u8>(), 0..600)) {
+            let _ = RawPacket::parse(&raw);
+        }
+
+        #[test]
+        fn hashable_part_deterministic(raw in valid_h1_packet()) {
+            let packet = RawPacket::parse(&raw).unwrap();
+            let a = packet.hashable_part();
+            let b = packet.hashable_part();
+            prop_assert_eq!(&a, &b);
+        }
+
+        #[test]
+        fn packet_hash_deterministic(raw in valid_h1_packet()) {
+            let packet = RawPacket::parse(&raw).unwrap();
+            let a = packet.packet_hash();
+            let b = packet.packet_hash();
+            prop_assert_eq!(a, b);
+        }
     }
 }

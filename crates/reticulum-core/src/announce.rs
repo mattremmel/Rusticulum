@@ -892,3 +892,34 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+mod proptests {
+    use super::*;
+    use proptest::prelude::*;
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(256))]
+
+        #[test]
+        fn arbitrary_payload_never_panic(
+            dh in any::<[u8; 16]>(),
+            cf in proptest::bool::ANY,
+            payload in proptest::collection::vec(any::<u8>(), 0..512),
+        ) {
+            let _ = Announce::from_payload(
+                DestinationHash::new(dh),
+                cf,
+                ContextType::None,
+                &payload,
+            );
+        }
+
+        #[test]
+        fn arbitrary_raw_packet_never_panic(
+            raw in proptest::collection::vec(any::<u8>(), 0..600),
+        ) {
+            let _ = Announce::from_raw_packet(&raw);
+        }
+    }
+}

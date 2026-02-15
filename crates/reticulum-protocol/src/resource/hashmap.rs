@@ -748,6 +748,14 @@ mod tests {
                 }
                 prop_assert_eq!(total, concatenated);
             }
+
+            #[test]
+            fn arbitrary_bytes_never_panic(
+                raw in proptest::collection::vec(any::<u8>(), 0..512),
+                random_hash in any::<[u8; RANDOM_HASH_SIZE]>(),
+            ) {
+                let _ = ResourceHashmap::from_bytes(&raw, random_hash);
+            }
         }
     }
 

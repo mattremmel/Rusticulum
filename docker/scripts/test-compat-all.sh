@@ -21,6 +21,7 @@ TESTS=(
     "test-ifac-reject.sh:IFAC Rejection"
     "test-large-resource.sh:Large Resource"
     "test-storage-persistence.sh:Storage Persistence"
+    "test-fuzz.sh:Fuzz Cross-Impl"
 )
 
 # Track results

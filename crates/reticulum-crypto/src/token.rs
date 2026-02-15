@@ -483,5 +483,14 @@ mod proptests {
             let decrypted = token.decrypt(&encrypted).unwrap();
             prop_assert_eq!(&decrypted, &plaintext);
         }
+
+        #[test]
+        fn arbitrary_decrypt_never_panic(
+            key in any::<[u8; 64]>(),
+            ciphertext in proptest::collection::vec(any::<u8>(), 0..256),
+        ) {
+            let token = Token::new(&key);
+            let _ = token.decrypt(&ciphertext);
+        }
     }
 }

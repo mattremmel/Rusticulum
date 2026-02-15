@@ -222,5 +222,10 @@ mod proptests {
             let flags = PacketFlags::try_from(byte).unwrap();
             prop_assert_eq!(flags.to_byte(), byte);
         }
+
+        #[test]
+        fn any_byte_never_panics(byte in any::<u8>()) {
+            let _ = PacketFlags::try_from(byte);
+        }
     }
 }

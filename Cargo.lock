@@ -1260,6 +1260,7 @@ dependencies = [
  "reticulum-transport",
  "rmpv",
  "serde",
+ "serde_json",
  "tempfile",
  "thiserror",
  "tokio",

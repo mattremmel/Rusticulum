@@ -534,6 +534,13 @@ mod tests {
                 let flags = ResourceFlags::from(b);
                 prop_assert_eq!(flags.to_byte(), b);
             }
+
+            #[test]
+            fn arbitrary_msgpack_never_panic(
+                raw in proptest::collection::vec(any::<u8>(), 0..256),
+            ) {
+                let _ = ResourceAdvertisement::from_msgpack(&raw);
+            }
         }
     }
 }
