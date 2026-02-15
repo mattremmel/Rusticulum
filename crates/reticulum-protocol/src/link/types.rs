@@ -136,13 +136,13 @@ impl DerivedKey {
 
     /// First 32 bytes: used for HMAC signing in Token encrypt/decrypt.
     #[must_use]
-    pub fn signing_key(&self) -> &[u8; 32] {
+    pub const fn signing_key(&self) -> &[u8; 32] {
         &self.signing
     }
 
     /// Last 32 bytes: used for AES-256-CBC encryption in Token encrypt/decrypt.
     #[must_use]
-    pub fn encryption_key(&self) -> &[u8; 32] {
+    pub const fn encryption_key(&self) -> &[u8; 32] {
         &self.encryption
     }
 }

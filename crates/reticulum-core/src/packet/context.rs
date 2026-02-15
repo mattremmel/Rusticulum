@@ -61,7 +61,7 @@ impl ContextType {
     }
 
     #[must_use = "returns the encoded byte without side effects"]
-    pub fn to_byte(&self) -> u8 {
+    pub const fn to_byte(&self) -> u8 {
         *self as u8
     }
 }

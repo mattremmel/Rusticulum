@@ -13,6 +13,9 @@ use cbc::cipher::{BlockDecryptMut, BlockEncryptMut, KeyIvInit};
 
 use crate::CryptoError;
 
+/// AES block size in bytes.
+const AES_BLOCK_SIZE: usize = 16;
+
 type Aes256CbcEnc = cbc::Encryptor<Aes256>;
 type Aes256CbcDec = cbc::Decryptor<Aes256>;
 
@@ -22,8 +25,8 @@ type Aes256CbcDec = cbc::Decryptor<Aes256>;
 /// does **not** include the IV — callers must transmit or store the IV
 /// separately.
 #[must_use]
-pub fn aes256_cbc_encrypt(key: &[u8; 32], iv: &[u8; 16], plaintext: &[u8]) -> Vec<u8> {
-    let padded = crate::pkcs7::pkcs7_pad(plaintext, 16);
+pub fn aes256_cbc_encrypt(key: &[u8; 32], iv: &[u8; AES_BLOCK_SIZE], plaintext: &[u8]) -> Vec<u8> {
+    let padded = crate::pkcs7::pkcs7_pad(plaintext, AES_BLOCK_SIZE);
     let encryptor = Aes256CbcEnc::new(key.into(), iv.into());
 
     // Allocate output buffer of the same size as the padded plaintext.
@@ -46,10 +49,10 @@ pub fn aes256_cbc_encrypt(key: &[u8; 32], iv: &[u8; 16], plaintext: &[u8]) -> Ve
 /// PKCS7 padding is malformed.
 pub fn aes256_cbc_decrypt(
     key: &[u8; 32],
-    iv: &[u8; 16],
+    iv: &[u8; AES_BLOCK_SIZE],
     ciphertext: &[u8],
 ) -> Result<Vec<u8>, CryptoError> {
-    if ciphertext.is_empty() || !ciphertext.len().is_multiple_of(16) {
+    if ciphertext.is_empty() || !ciphertext.len().is_multiple_of(AES_BLOCK_SIZE) {
         return Err(CryptoError::DecryptionFailed);
     }
 

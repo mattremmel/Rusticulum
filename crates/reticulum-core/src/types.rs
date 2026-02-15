@@ -22,7 +22,7 @@ fn fmt_hex(bytes: &[u8], f: &mut fmt::Formatter<'_>) -> fmt::Result {
 pub struct TruncatedHash(pub(crate) [u8; 16]);
 
 impl TruncatedHash {
-    pub fn new(bytes: [u8; 16]) -> Self {
+    pub const fn new(bytes: [u8; 16]) -> Self {
         Self(bytes)
     }
 }
@@ -65,7 +65,7 @@ impl fmt::Debug for TruncatedHash {
 pub struct FullHash(pub(crate) [u8; 32]);
 
 impl FullHash {
-    pub fn new(bytes: [u8; 32]) -> Self {
+    pub const fn new(bytes: [u8; 32]) -> Self {
         Self(bytes)
     }
 }
@@ -108,7 +108,7 @@ impl fmt::Debug for FullHash {
 pub struct NameHash(pub(crate) [u8; 10]);
 
 impl NameHash {
-    pub fn new(bytes: [u8; 10]) -> Self {
+    pub const fn new(bytes: [u8; 10]) -> Self {
         Self(bytes)
     }
 }
@@ -151,7 +151,7 @@ impl fmt::Debug for NameHash {
 pub struct DestinationHash(pub(crate) TruncatedHash);
 
 impl DestinationHash {
-    pub fn new(bytes: [u8; 16]) -> Self {
+    pub const fn new(bytes: [u8; 16]) -> Self {
         Self(TruncatedHash(bytes))
     }
 }
@@ -197,7 +197,7 @@ impl fmt::Debug for DestinationHash {
 pub struct IdentityHash(pub(crate) TruncatedHash);
 
 impl IdentityHash {
-    pub fn new(bytes: [u8; 16]) -> Self {
+    pub const fn new(bytes: [u8; 16]) -> Self {
         Self(TruncatedHash(bytes))
     }
 }
@@ -243,7 +243,7 @@ impl fmt::Debug for IdentityHash {
 pub struct LinkId(pub(crate) TruncatedHash);
 
 impl LinkId {
-    pub fn new(bytes: [u8; 16]) -> Self {
+    pub const fn new(bytes: [u8; 16]) -> Self {
         Self(TruncatedHash(bytes))
     }
 }
@@ -289,7 +289,7 @@ impl fmt::Debug for LinkId {
 pub struct PacketHash(pub(crate) FullHash);
 
 impl PacketHash {
-    pub fn new(bytes: [u8; 32]) -> Self {
+    pub const fn new(bytes: [u8; 32]) -> Self {
         Self(FullHash(bytes))
     }
 

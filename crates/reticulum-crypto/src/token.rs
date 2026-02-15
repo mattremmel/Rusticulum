@@ -20,6 +20,17 @@ use alloc::vec::Vec;
 
 use crate::CryptoError;
 
+/// Size of the IV (initialization vector) in bytes.
+const IV_SIZE: usize = 16;
+/// Size of the HMAC-SHA256 tag in bytes.
+const HMAC_SIZE: usize = 32;
+/// Minimum token size: IV + HMAC (no ciphertext).
+const MIN_TOKEN_SIZE: usize = IV_SIZE + HMAC_SIZE;
+/// Size of the signing key half.
+const SIGNING_KEY_SIZE: usize = 32;
+/// Size of the encryption key half.
+const ENCRYPTION_KEY_SIZE: usize = 32;
+
 /// Modified Fernet token for authenticated symmetric encryption.
 ///
 /// Holds a 64-byte key split into a signing key (HMAC-SHA256) and an
@@ -37,10 +48,10 @@ impl Token {
     /// - `key[0..32]` = signing key (HMAC-SHA256)
     /// - `key[32..64]` = encryption key (AES-256-CBC)
     pub fn new(key: &[u8; 64]) -> Self {
-        let mut signing_key = [0u8; 32];
-        let mut encryption_key = [0u8; 32];
-        signing_key.copy_from_slice(&key[..32]);
-        encryption_key.copy_from_slice(&key[32..]);
+        let mut signing_key = [0u8; SIGNING_KEY_SIZE];
+        let mut encryption_key = [0u8; ENCRYPTION_KEY_SIZE];
+        signing_key.copy_from_slice(&key[..SIGNING_KEY_SIZE]);
+        encryption_key.copy_from_slice(&key[SIGNING_KEY_SIZE..]);
         Self {
             signing_key,
             encryption_key,
@@ -53,7 +64,7 @@ impl Token {
     #[must_use]
     pub fn encrypt(&self, plaintext: &[u8]) -> Vec<u8> {
         use rand::Rng;
-        let mut iv = [0u8; 16];
+        let mut iv = [0u8; IV_SIZE];
         rand::rngs::OsRng.fill(&mut iv);
         self.encrypt_with_iv(plaintext, &iv)
     }
@@ -62,11 +73,11 @@ impl Token {
     ///
     /// Returns the complete token: `IV || ciphertext || HMAC`.
     #[must_use]
-    pub fn encrypt_with_iv(&self, plaintext: &[u8], iv: &[u8; 16]) -> Vec<u8> {
+    pub fn encrypt_with_iv(&self, plaintext: &[u8], iv: &[u8; IV_SIZE]) -> Vec<u8> {
         let ciphertext = crate::aes_cbc::aes256_cbc_encrypt(&self.encryption_key, iv, plaintext);
 
         // signed_parts = IV || ciphertext
-        let mut signed_parts = Vec::with_capacity(16 + ciphertext.len());
+        let mut signed_parts = Vec::with_capacity(IV_SIZE + ciphertext.len());
         signed_parts.extend_from_slice(iv);
         signed_parts.extend_from_slice(&ciphertext);
 
@@ -86,17 +97,15 @@ impl Token {
     /// [`CryptoError::InvalidHmac`] if the HMAC does not match, or a
     /// decryption/padding error from the underlying AES-CBC layer.
     pub fn decrypt(&self, token_data: &[u8]) -> Result<Vec<u8>, CryptoError> {
-        // Minimum: 16 (IV) + 16 (at least 1 AES block) + 32 (HMAC) = 64
-        // But we first check we can at least split into signed_parts + HMAC (48 bytes).
-        if token_data.len() < 48 {
+        if token_data.len() < MIN_TOKEN_SIZE {
             return Err(CryptoError::InvalidLength {
                 reason: "token too short: need at least 48 bytes (16 IV + 0 ciphertext + 32 HMAC)",
             });
         }
 
         let len = token_data.len();
-        let signed_parts = &token_data[..len - 32];
-        let received_hmac = &token_data[len - 32..];
+        let signed_parts = &token_data[..len - HMAC_SIZE];
+        let received_hmac = &token_data[len - HMAC_SIZE..];
 
         // Verify HMAC
         let computed_hmac = crate::hmac::hmac_sha256(&self.signing_key, signed_parts);
@@ -105,10 +114,10 @@ impl Token {
         }
 
         // Split signed_parts into IV and ciphertext
-        let iv: [u8; 16] = signed_parts[..16]
+        let iv: [u8; IV_SIZE] = signed_parts[..IV_SIZE]
             .try_into()
-            .expect("signed_parts is at least 16 bytes");
-        let ciphertext = &signed_parts[16..];
+            .expect("signed_parts is at least IV_SIZE bytes");
+        let ciphertext = &signed_parts[IV_SIZE..];
 
         // Decrypt (aes256_cbc_decrypt handles the empty/non-aligned ciphertext check)
         crate::aes_cbc::aes256_cbc_decrypt(&self.encryption_key, &iv, ciphertext)

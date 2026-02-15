@@ -51,7 +51,7 @@ impl PacketFlags {
     }
 
     #[must_use = "returns the encoded byte without side effects"]
-    pub fn to_byte(&self) -> u8 {
+    pub const fn to_byte(&self) -> u8 {
         ((self.header_type as u8) << HEADER_TYPE_SHIFT)
             | ((self.context_flag as u8) << CONTEXT_FLAG_SHIFT)
             | ((self.transport_type as u8) << TRANSPORT_TYPE_SHIFT)
