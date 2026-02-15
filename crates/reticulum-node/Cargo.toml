@@ -20,6 +20,10 @@ path = "src/bin/fuzz-gen.rs"
 name = "vector-check"
 path = "src/bin/vector-check.rs"
 
+[features]
+default = []
+tower = ["dep:tower", "reticulum-interfaces/tower"]
+
 [dependencies]
 reticulum-crypto = { workspace = true, features = ["std"] }
 reticulum-core = { workspace = true, features = ["std"] }
@@ -39,6 +43,7 @@ hex = { workspace = true }
 rmpv = { workspace = true }
 rand = { workspace = true }
 serde_json = { workspace = true }
+tower = { workspace = true, optional = true }
 reticulum-test-vectors = { path = "../reticulum-test-vectors" }
 
 [dev-dependencies]

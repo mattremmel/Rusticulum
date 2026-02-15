@@ -38,6 +38,8 @@ pub(crate) mod resource_ops;
 pub(crate) mod routing;
 pub mod storage;
 pub(crate) mod storage_codec;
+#[cfg(feature = "tower")]
+pub mod tower_service;
 pub(crate) mod transmit_filter;
 pub(crate) mod transport_guard;
 

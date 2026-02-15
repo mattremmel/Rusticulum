@@ -13,6 +13,8 @@ pub mod shutdown;
 pub mod tcp;
 pub mod traits;
 pub mod testing;
+#[cfg(feature = "tower")]
+pub mod tower_service;
 pub mod udp;
 
 pub use error::InterfaceError;
