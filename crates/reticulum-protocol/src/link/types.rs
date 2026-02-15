@@ -2,6 +2,8 @@
 //!
 //! Enums, configuration types, and statistics structs used across the link module.
 
+use std::fmt;
+
 use crate::error::LinkError;
 
 /// Role of a peer in a link handshake.
@@ -18,6 +20,16 @@ pub enum TeardownReason {
     Timeout = 0x01,
     InitiatorClosed = 0x02,
     DestinationClosed = 0x03,
+}
+
+impl fmt::Display for TeardownReason {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            TeardownReason::Timeout => f.write_str("timeout"),
+            TeardownReason::InitiatorClosed => f.write_str("initiator closed"),
+            TeardownReason::DestinationClosed => f.write_str("destination closed"),
+        }
+    }
 }
 
 impl TeardownReason {
@@ -45,6 +57,21 @@ pub enum LinkMode {
     PqReserved2 = 5,
     PqReserved3 = 6,
     PqReserved4 = 7,
+}
+
+impl fmt::Display for LinkMode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            LinkMode::Aes128Cbc => f.write_str("AES-128-CBC"),
+            LinkMode::Aes256Cbc => f.write_str("AES-256-CBC"),
+            LinkMode::Aes256Gcm => f.write_str("AES-256-GCM"),
+            LinkMode::OtpReserved => f.write_str("OTP (reserved)"),
+            LinkMode::PqReserved1 => f.write_str("PQ-1 (reserved)"),
+            LinkMode::PqReserved2 => f.write_str("PQ-2 (reserved)"),
+            LinkMode::PqReserved3 => f.write_str("PQ-3 (reserved)"),
+            LinkMode::PqReserved4 => f.write_str("PQ-4 (reserved)"),
+        }
+    }
 }
 
 impl LinkMode {
@@ -78,6 +105,16 @@ pub enum ResourceStrategy {
     AcceptNone = 0,
     AcceptApp = 1,
     AcceptAll = 2,
+}
+
+impl fmt::Display for ResourceStrategy {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ResourceStrategy::AcceptNone => f.write_str("accept none"),
+            ResourceStrategy::AcceptApp => f.write_str("accept app"),
+            ResourceStrategy::AcceptAll => f.write_str("accept all"),
+        }
+    }
 }
 
 impl ResourceStrategy {

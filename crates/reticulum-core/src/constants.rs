@@ -1,5 +1,7 @@
 //! Protocol constants and enumerations for the Reticulum protocol.
 
+use core::fmt;
+
 use crate::error::PacketError;
 
 // Wire format sizes (from test vectors)
@@ -36,6 +38,15 @@ pub enum HeaderType {
     Header2 = 1,
 }
 
+impl fmt::Display for HeaderType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            HeaderType::Header1 => f.write_str("HEADER_1"),
+            HeaderType::Header2 => f.write_str("HEADER_2"),
+        }
+    }
+}
+
 impl HeaderType {
     pub fn from_u8(v: u8) -> Result<Self, PacketError> {
         match v {
@@ -51,6 +62,15 @@ impl HeaderType {
 pub enum TransportType {
     Broadcast = 0,
     Transport = 1,
+}
+
+impl fmt::Display for TransportType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            TransportType::Broadcast => f.write_str("BROADCAST"),
+            TransportType::Transport => f.write_str("TRANSPORT"),
+        }
+    }
 }
 
 impl TransportType {
@@ -72,6 +92,17 @@ pub enum DestinationType {
     Link = 3,
 }
 
+impl fmt::Display for DestinationType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            DestinationType::Single => f.write_str("SINGLE"),
+            DestinationType::Group => f.write_str("GROUP"),
+            DestinationType::Plain => f.write_str("PLAIN"),
+            DestinationType::Link => f.write_str("LINK"),
+        }
+    }
+}
+
 impl DestinationType {
     pub fn from_u8(v: u8) -> Result<Self, PacketError> {
         match v {
@@ -91,6 +122,17 @@ pub enum PacketType {
     Announce = 1,
     LinkRequest = 2,
     Proof = 3,
+}
+
+impl fmt::Display for PacketType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            PacketType::Data => f.write_str("DATA"),
+            PacketType::Announce => f.write_str("ANNOUNCE"),
+            PacketType::LinkRequest => f.write_str("LINKREQUEST"),
+            PacketType::Proof => f.write_str("PROOF"),
+        }
+    }
 }
 
 impl PacketType {
