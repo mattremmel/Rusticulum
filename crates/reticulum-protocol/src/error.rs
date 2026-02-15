@@ -72,13 +72,13 @@ pub enum ResourceError {
     TooLarge(usize),
 
     #[error("invalid advertisement: {0}")]
-    InvalidAdvertisement(String),
+    InvalidAdvertisement(&'static str),
 
     #[error("invalid part hash at index {0}")]
     InvalidPartHash(usize),
 
     #[error("transfer failed: {0}")]
-    TransferFailed(String),
+    TransferFailed(&'static str),
 
     #[error("proof verification failed")]
     ProofFailed,
@@ -87,19 +87,19 @@ pub enum ResourceError {
     Timeout,
 
     #[error("decryption failed: {0}")]
-    DecryptionFailed(String),
+    DecryptionFailed(&'static str),
 
     #[error("decompression failed: {0}")]
-    DecompressionFailed(String),
+    DecompressionFailed(&'static str),
 
     #[error("invalid metadata: {0}")]
-    InvalidMetadata(String),
+    InvalidMetadata(&'static str),
 
     #[error("hash mismatch: expected {expected}, got {actual}")]
     HashMismatch { expected: String, actual: String },
 
     #[error("invalid payload: {0}")]
-    InvalidPayload(String),
+    InvalidPayload(&'static str),
 
     #[error("missing resource part at index {index}")]
     MissingPart { index: usize },
@@ -117,10 +117,10 @@ pub enum BufferError {
     Closed,
 
     #[error("compression failed: {0}")]
-    CompressionFailed(String),
+    CompressionFailed(&'static str),
 
     #[error("decompression failed: {0}")]
-    DecompressionFailed(String),
+    DecompressionFailed(&'static str),
 
     #[error("invalid stream header")]
     InvalidStreamHeader,
@@ -135,7 +135,7 @@ pub enum RequestError {
     Timeout,
 
     #[error("request failed: {0}")]
-    Failed(String),
+    Failed(&'static str),
 
     #[error("request payload too large")]
     TooLarge,

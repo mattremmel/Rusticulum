@@ -92,25 +92,23 @@ impl Request {
     /// Deserialize from msgpack bytes.
     pub fn from_msgpack(data: &[u8]) -> Result<Self, RequestError> {
         let value = rmpv::decode::read_value(&mut &data[..])
-            .map_err(|e| RequestError::Failed(format!("msgpack decode error: {e}")))?;
+            .map_err(|_| RequestError::Failed("msgpack decode failed"))?;
 
         let mut arr = match value {
             Value::Array(a) if a.len() == 3 => a,
-            _ => return Err(RequestError::Failed("expected 3-element array".into())),
+            _ => return Err(RequestError::Failed("expected 3-element array")),
         };
 
         let timestamp = match &arr[0] {
             Value::F64(f) => *f,
             Value::F32(f) => *f as f64,
-            _ => return Err(RequestError::Failed("expected float timestamp".into())),
+            _ => return Err(RequestError::Failed("expected float timestamp")),
         };
 
         let path_hash_bytes = match &arr[1] {
             Value::Binary(b) if b.len() == 16 => b.as_slice(),
             _ => {
-                return Err(RequestError::Failed(
-                    "expected 16-byte binary path_hash".into(),
-                ));
+                return Err(RequestError::Failed("expected 16-byte binary path_hash"));
             }
         };
 
@@ -123,7 +121,7 @@ impl Request {
             path_hash,
             data: arr
                 .pop()
-                .ok_or_else(|| RequestError::Failed("missing element 2".into()))?,
+                .ok_or(RequestError::Failed("missing element 2"))?,
         })
     }
 
@@ -156,19 +154,17 @@ impl Response {
     /// Deserialize from msgpack bytes.
     pub fn from_msgpack(data: &[u8]) -> Result<Self, RequestError> {
         let value = rmpv::decode::read_value(&mut &data[..])
-            .map_err(|e| RequestError::Failed(format!("msgpack decode error: {e}")))?;
+            .map_err(|_| RequestError::Failed("msgpack decode failed"))?;
 
         let mut arr = match value {
             Value::Array(a) if a.len() == 2 => a,
-            _ => return Err(RequestError::Failed("expected 2-element array".into())),
+            _ => return Err(RequestError::Failed("expected 2-element array")),
         };
 
         let request_id_bytes = match &arr[0] {
             Value::Binary(b) if b.len() == 16 => b.as_slice(),
             _ => {
-                return Err(RequestError::Failed(
-                    "expected 16-byte binary request_id".into(),
-                ));
+                return Err(RequestError::Failed("expected 16-byte binary request_id"));
             }
         };
 
@@ -180,7 +176,7 @@ impl Response {
             request_id,
             data: arr
                 .pop()
-                .ok_or_else(|| RequestError::Failed("missing element 1".into()))?,
+                .ok_or(RequestError::Failed("missing element 1"))?,
         })
     }
 

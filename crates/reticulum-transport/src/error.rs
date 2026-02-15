@@ -22,7 +22,7 @@ pub enum RouterError {
     MaxHopsExceeded(u8),
 
     #[error("no path to destination: {0}")]
-    NoPath(String),
+    NoPath(&'static str),
 
     #[error("packet too short for HEADER_1")]
     PacketTooShortForHeader1,
@@ -43,13 +43,13 @@ pub enum RouterError {
 #[derive(Debug, thiserror::Error)]
 pub enum PathError {
     #[error("path not found: {0}")]
-    NotFound(String),
+    NotFound(&'static str),
 
     #[error("path expired")]
     Expired,
 
     #[error("invalid interface mode: {0}")]
-    InvalidInterfaceMode(String),
+    InvalidInterfaceMode(&'static str),
 
     #[error("packet error: {0}")]
     PacketError(#[from] PacketError),
@@ -94,8 +94,8 @@ mod tests {
         let err = PathError::Expired;
         assert_eq!(err.to_string(), "path expired");
 
-        let err = PathError::NotFound("abcd1234".to_string());
-        assert_eq!(err.to_string(), "path not found: abcd1234");
+        let err = PathError::NotFound("destination not in table");
+        assert_eq!(err.to_string(), "path not found: destination not in table");
     }
 
     #[test]
@@ -146,8 +146,8 @@ mod tests {
 
     #[test]
     fn test_router_error_display_remaining() {
-        let err = RouterError::NoPath("deadbeef".into());
-        assert_eq!(err.to_string(), "no path to destination: deadbeef");
+        let err = RouterError::NoPath("destination unknown");
+        assert_eq!(err.to_string(), "no path to destination: destination unknown");
 
         let err = RouterError::PacketTooShortForHeader1;
         assert_eq!(err.to_string(), "packet too short for HEADER_1");
@@ -161,8 +161,11 @@ mod tests {
 
     #[test]
     fn test_path_error_display_remaining() {
-        let err = PathError::InvalidInterfaceMode("badmode".into());
-        assert_eq!(err.to_string(), "invalid interface mode: badmode");
+        let err = PathError::InvalidInterfaceMode("unrecognized mode string");
+        assert_eq!(
+            err.to_string(),
+            "invalid interface mode: unrecognized mode string"
+        );
 
         // Test From<PacketError> → PathError
         let pe = PacketError::InvalidPacketType(0x05);

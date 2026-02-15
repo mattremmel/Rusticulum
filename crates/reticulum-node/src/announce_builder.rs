@@ -46,7 +46,7 @@ pub fn build_single_announce(
     let (nh, dh) = compute_destination_hashes(identity, app_name, aspects);
 
     let announce = Announce::create(identity, nh, dh, random_hash, None, app_data)
-        .map_err(|e| NodeError::Identity(format!("{e}")))?;
+        .map_err(|_| NodeError::Identity("announce creation failed"))?;
 
     let raw = announce.to_raw_packet(0).serialize();
     Ok((dh, raw))

@@ -103,7 +103,7 @@ impl StreamDataMessage {
             let mut decompressed = Vec::new();
             decoder
                 .read_to_end(&mut decompressed)
-                .map_err(|e| BufferError::DecompressionFailed(e.to_string()))?;
+                .map_err(|_| BufferError::DecompressionFailed("bz2 decompression failed"))?;
             data = decompressed;
         }
 

@@ -12,11 +12,11 @@ pub enum NodeError {
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
     #[error("router error: {0}")]
-    Router(String),
+    Router(&'static str),
     #[error("identity error: {0}")]
-    Identity(String),
+    Identity(&'static str),
     #[error("IFAC error: {0}")]
-    Ifac(String),
+    Ifac(&'static str),
     #[error("storage error: {0}")]
     Storage(#[from] crate::storage::StorageError),
     #[error("node not started")]

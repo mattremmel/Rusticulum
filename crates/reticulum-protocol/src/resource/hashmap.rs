@@ -89,10 +89,9 @@ impl ResourceHashmap {
         random_hash: [u8; RANDOM_HASH_SIZE],
     ) -> Result<Self, ResourceError> {
         if !data.len().is_multiple_of(MAPHASH_LEN) {
-            return Err(ResourceError::InvalidAdvertisement(format!(
-                "hashmap length {} is not a multiple of {MAPHASH_LEN}",
-                data.len()
-            )));
+            return Err(ResourceError::InvalidAdvertisement(
+                "hashmap length not a multiple of map hash size",
+            ));
         }
 
         let parts: Vec<MapHash> = data

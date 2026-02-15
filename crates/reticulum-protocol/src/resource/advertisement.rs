@@ -150,6 +150,7 @@ impl ResourceAdvertisement {
         ]);
 
         let mut buf = Vec::new();
+        // SAFETY: encoding to a Vec<u8> never fails (infallible Write impl).
         rmpv::encode::write_value(&mut buf, &map).expect("msgpack encoding to Vec never fails");
 
         tracing::trace!(
@@ -165,15 +166,12 @@ impl ResourceAdvertisement {
     /// Decode a resource advertisement from msgpack bytes.
     pub fn from_msgpack(data: &[u8]) -> Result<Self, ResourceError> {
         let value = rmpv::decode::read_value(&mut &data[..])
-            .map_err(|e| ResourceError::InvalidAdvertisement(format!("msgpack decode: {e}")))?;
+            .map_err(|_| ResourceError::InvalidAdvertisement("msgpack decode failed"))?;
 
         let entries = match value {
             Value::Map(entries) => entries,
-            other => {
-                return Err(ResourceError::InvalidAdvertisement(format!(
-                    "expected map, got {}",
-                    value_type_name(&other)
-                )));
+            _ => {
+                return Err(ResourceError::InvalidAdvertisement("expected map"));
             }
         };
 
@@ -201,11 +199,10 @@ impl ResourceAdvertisement {
         let request_id = match lookup.get("q") {
             Some(Value::Nil) | None => None,
             Some(Value::Binary(b)) => Some(b.clone()),
-            Some(other) => {
-                return Err(ResourceError::InvalidAdvertisement(format!(
-                    "key 'q': expected binary or nil, got {}",
-                    value_type_name(other)
-                )));
+            Some(_) => {
+                return Err(ResourceError::InvalidAdvertisement(
+                    "key 'q': expected binary or nil",
+                ));
             }
         };
 
@@ -243,46 +240,21 @@ impl ResourceAdvertisement {
 // Helpers
 // ------------------------------------------------------------------ //
 
-fn value_type_name(v: &Value) -> &'static str {
-    match v {
-        Value::Nil => "nil",
-        Value::Boolean(_) => "boolean",
-        Value::Integer(_) => "integer",
-        Value::F32(_) => "f32",
-        Value::F64(_) => "f64",
-        Value::String(_) => "string",
-        Value::Binary(_) => "binary",
-        Value::Array(_) => "array",
-        Value::Map(_) => "map",
-        Value::Ext(_, _) => "ext",
-    }
-}
-
 fn get_u64(lookup: &HashMap<String, &Value>, key: &str) -> Result<u64, ResourceError> {
     match lookup.get(key) {
-        Some(Value::Integer(i)) => i.as_u64().ok_or_else(|| {
-            ResourceError::InvalidAdvertisement(format!("key '{key}': not a valid u64"))
-        }),
-        Some(other) => Err(ResourceError::InvalidAdvertisement(format!(
-            "key '{key}': expected integer, got {}",
-            value_type_name(other)
-        ))),
-        None => Err(ResourceError::InvalidAdvertisement(format!(
-            "missing required key '{key}'"
-        ))),
+        Some(Value::Integer(i)) => i
+            .as_u64()
+            .ok_or(ResourceError::InvalidAdvertisement("invalid integer value")),
+        Some(_) => Err(ResourceError::InvalidAdvertisement("expected integer")),
+        None => Err(ResourceError::InvalidAdvertisement("missing required key")),
     }
 }
 
 fn get_bytes(lookup: &HashMap<String, &Value>, key: &str) -> Result<Vec<u8>, ResourceError> {
     match lookup.get(key) {
         Some(Value::Binary(b)) => Ok(b.clone()),
-        Some(other) => Err(ResourceError::InvalidAdvertisement(format!(
-            "key '{key}': expected binary, got {}",
-            value_type_name(other)
-        ))),
-        None => Err(ResourceError::InvalidAdvertisement(format!(
-            "missing required key '{key}'"
-        ))),
+        Some(_) => Err(ResourceError::InvalidAdvertisement("expected binary")),
+        None => Err(ResourceError::InvalidAdvertisement("missing required key")),
     }
 }
 
@@ -291,9 +263,9 @@ fn get_bytes_fixed<const N: usize>(
     key: &str,
 ) -> Result<[u8; N], ResourceError> {
     let bytes = get_bytes(lookup, key)?;
-    bytes.try_into().map_err(|_| {
-        ResourceError::InvalidAdvertisement(format!("key '{key}': expected {N} bytes"))
-    })
+    bytes
+        .try_into()
+        .map_err(|_| ResourceError::InvalidAdvertisement("unexpected byte length"))
 }
 
 // ------------------------------------------------------------------ //

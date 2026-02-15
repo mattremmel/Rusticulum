@@ -186,19 +186,19 @@ fn channel_error_display_remaining() {
 fn resource_error_display_all() {
     let variants: Vec<ResourceError> = vec![
         ResourceError::TooLarge(999),
-        ResourceError::InvalidAdvertisement("bad adv".into()),
+        ResourceError::InvalidAdvertisement("bad adv"),
         ResourceError::InvalidPartHash(3),
-        ResourceError::TransferFailed("timeout".into()),
+        ResourceError::TransferFailed("timeout"),
         ResourceError::ProofFailed,
         ResourceError::Timeout,
-        ResourceError::DecryptionFailed("bad key".into()),
-        ResourceError::DecompressionFailed("corrupt".into()),
-        ResourceError::InvalidMetadata("bad format".into()),
+        ResourceError::DecryptionFailed("bad key"),
+        ResourceError::DecompressionFailed("corrupt"),
+        ResourceError::InvalidMetadata("bad format"),
         ResourceError::HashMismatch {
             expected: "aabb".into(),
             actual: "ccdd".into(),
         },
-        ResourceError::InvalidPayload("too short".into()),
+        ResourceError::InvalidPayload("too short"),
     ];
     for v in &variants {
         let msg = v.to_string();
@@ -211,16 +211,16 @@ fn buffer_error_display_remaining() {
     let err = BufferError::InvalidStreamHeader;
     assert_eq!(err.to_string(), "invalid stream header");
 
-    let err = BufferError::CompressionFailed("out of memory".into());
+    let err = BufferError::CompressionFailed("out of memory");
     assert_eq!(err.to_string(), "compression failed: out of memory");
 
-    let err = BufferError::DecompressionFailed("corrupt data".into());
+    let err = BufferError::DecompressionFailed("corrupt data");
     assert_eq!(err.to_string(), "decompression failed: corrupt data");
 }
 
 #[test]
 fn request_error_display_remaining() {
-    let err = RequestError::Failed("server error".into());
+    let err = RequestError::Failed("server error");
     assert_eq!(err.to_string(), "request failed: server error");
 
     let err = RequestError::TooLarge;

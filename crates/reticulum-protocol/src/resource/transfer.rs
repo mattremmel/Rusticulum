@@ -87,13 +87,11 @@ pub struct PartRequest {
 pub fn encode_metadata(metadata: &Value) -> Result<Vec<u8>, ResourceError> {
     let mut packed = Vec::new();
     rmpv::encode::write_value(&mut packed, metadata)
-        .map_err(|e| ResourceError::InvalidMetadata(format!("msgpack encode: {e}")))?;
+        .map_err(|_| ResourceError::InvalidMetadata("msgpack encode failed"))?;
 
     let size = packed.len();
     if size > 0xFF_FFFF {
-        return Err(ResourceError::InvalidMetadata(format!(
-            "metadata too large: {size} bytes (max 16777215)"
-        )));
+        return Err(ResourceError::InvalidMetadata("metadata too large"));
     }
 
     // 3-byte big-endian size prefix (equivalent to struct.pack(">I", size)[1:])
@@ -110,23 +108,21 @@ pub fn encode_metadata(metadata: &Value) -> Result<Vec<u8>, ResourceError> {
 pub fn decode_metadata(data: &[u8]) -> Result<(Value, &[u8]), ResourceError> {
     if data.len() < 3 {
         return Err(ResourceError::InvalidMetadata(
-            "data too short for size prefix".into(),
+            "data too short for size prefix",
         ));
     }
 
     let size = ((data[0] as usize) << 16) | ((data[1] as usize) << 8) | (data[2] as usize);
 
     if data.len() < 3 + size {
-        return Err(ResourceError::InvalidMetadata(format!(
-            "data too short: need {} bytes for metadata, have {}",
-            3 + size,
-            data.len()
-        )));
+        return Err(ResourceError::InvalidMetadata(
+            "data too short for metadata",
+        ));
     }
 
     let packed = &data[3..3 + size];
     let value = rmpv::decode::read_value(&mut &packed[..])
-        .map_err(|e| ResourceError::InvalidMetadata(format!("msgpack decode: {e}")))?;
+        .map_err(|_| ResourceError::InvalidMetadata("msgpack decode failed"))?;
 
     Ok((value, &data[3 + size..]))
 }
@@ -173,7 +169,7 @@ pub fn decompress_resource_data(data: &[u8]) -> Result<Vec<u8>, ResourceError> {
     let mut decompressed = Vec::new();
     decoder
         .read_to_end(&mut decompressed)
-        .map_err(|e| ResourceError::DecompressionFailed(e.to_string()))?;
+        .map_err(|_| ResourceError::DecompressionFailed("bz2 decompression failed"))?;
     Ok(decompressed)
 }
 
@@ -244,14 +240,14 @@ pub fn encode_part_request(
 /// Decode a part request payload.
 pub fn decode_part_request(data: &[u8]) -> Result<PartRequest, ResourceError> {
     if data.is_empty() {
-        return Err(ResourceError::InvalidPayload("empty part request".into()));
+        return Err(ResourceError::InvalidPayload("empty part request"));
     }
 
     let exhausted = data[0] == PART_REQUEST_EXHAUSTED;
     let (offset, last_map_hash) = if exhausted {
         if data.len() < 1 + 4 + 32 {
             return Err(ResourceError::InvalidPayload(
-                "exhausted request too short".into(),
+                "exhausted request too short",
             ));
         }
         let mut lmh = [0u8; 4];
@@ -260,7 +256,7 @@ pub fn decode_part_request(data: &[u8]) -> Result<PartRequest, ResourceError> {
     } else {
         if data.len() < 1 + 32 {
             return Err(ResourceError::InvalidPayload(
-                "request too short for resource hash".into(),
+                "request too short for resource hash",
             ));
         }
         (1, None)
@@ -271,10 +267,9 @@ pub fn decode_part_request(data: &[u8]) -> Result<PartRequest, ResourceError> {
 
     let remaining = &data[offset + 32..];
     if !remaining.len().is_multiple_of(4) {
-        return Err(ResourceError::InvalidPayload(format!(
-            "map hashes region length {} is not a multiple of 4",
-            remaining.len()
-        )));
+        return Err(ResourceError::InvalidPayload(
+            "map hashes length not a multiple of 4",
+        ));
     }
 
     let map_hashes: Vec<[u8; 4]> = remaining
@@ -306,10 +301,9 @@ pub fn encode_proof_payload(resource_hash: &[u8; 32], proof: &[u8; 32]) -> Vec<u
 /// Decode a proof payload: returns `(resource_hash, proof)`.
 pub fn decode_proof_payload(data: &[u8]) -> Result<([u8; 32], [u8; 32]), ResourceError> {
     if data.len() != 64 {
-        return Err(ResourceError::InvalidPayload(format!(
-            "proof payload must be 64 bytes, got {}",
-            data.len()
-        )));
+        return Err(ResourceError::InvalidPayload(
+            "proof payload must be 64 bytes",
+        ));
     }
     let mut resource_hash = [0u8; 32];
     let mut proof = [0u8; 32];
@@ -327,10 +321,9 @@ pub fn encode_cancellation(resource_hash: &[u8; 32]) -> Vec<u8> {
 /// Decode a cancellation payload: returns the resource hash.
 pub fn decode_cancellation(data: &[u8]) -> Result<[u8; 32], ResourceError> {
     if data.len() != 32 {
-        return Err(ResourceError::InvalidPayload(format!(
-            "cancellation payload must be 32 bytes, got {}",
-            data.len()
-        )));
+        return Err(ResourceError::InvalidPayload(
+            "cancellation payload must be 32 bytes",
+        ));
     }
     let mut hash = [0u8; 32];
     hash.copy_from_slice(data);
@@ -449,12 +442,12 @@ pub fn assemble_resource(
     let token = Token::new(derived_key);
     let decrypted = token
         .decrypt(&joined)
-        .map_err(|e| ResourceError::DecryptionFailed(e.to_string()))?;
+        .map_err(|_| ResourceError::DecryptionFailed("token decryption failed"))?;
 
     // 3. Strip random_hash prefix
     if decrypted.len() < RANDOM_HASH_SIZE {
         return Err(ResourceError::DecryptionFailed(
-            "decrypted data too short for random hash prefix".into(),
+            "decrypted data too short for random hash prefix",
         ));
     }
     let stripped = &decrypted[RANDOM_HASH_SIZE..];

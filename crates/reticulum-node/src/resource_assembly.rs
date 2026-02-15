@@ -200,7 +200,7 @@ mod tests {
         let input = ResourcePartInput {
             assembly_result: Some(Err(ResourceManagerError::Assembly(
                 reticulum_protocol::error::ResourceError::DecryptionFailed(
-                    "decrypt failed".to_string(),
+                    "decrypt failed",
                 ),
             ))),
             ..base_input()
