@@ -37,7 +37,7 @@ impl RawPacket {
             });
         }
 
-        let flags = PacketFlags::from_byte(raw[0])?;
+        let flags = PacketFlags::try_from(raw[0])?;
         let hops = raw[1];
 
         match flags.header_type {
@@ -46,7 +46,7 @@ impl RawPacket {
                 let dest_bytes: [u8; 16] =
                     raw[2..18].try_into().expect("slice is exactly 16 bytes");
                 let destination = DestinationHash::new(dest_bytes);
-                let context = ContextType::from_u8(raw[18])?;
+                let context = ContextType::try_from(raw[18])?;
                 let data = raw[19..].to_vec();
 
                 Ok(RawPacket {
@@ -74,7 +74,7 @@ impl RawPacket {
                 let dest_bytes: [u8; 16] =
                     raw[18..34].try_into().expect("slice is exactly 16 bytes");
                 let destination = DestinationHash::new(dest_bytes);
-                let context = ContextType::from_u8(raw[34])?;
+                let context = ContextType::try_from(raw[34])?;
                 let data = raw[35..].to_vec();
 
                 Ok(RawPacket {

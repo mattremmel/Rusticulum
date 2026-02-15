@@ -47,8 +47,10 @@ impl fmt::Display for HeaderType {
     }
 }
 
-impl HeaderType {
-    pub fn from_u8(v: u8) -> Result<Self, PacketError> {
+impl TryFrom<u8> for HeaderType {
+    type Error = PacketError;
+
+    fn try_from(v: u8) -> Result<Self, Self::Error> {
         match v {
             0 => Ok(HeaderType::Header1),
             1 => Ok(HeaderType::Header2),
@@ -73,8 +75,10 @@ impl fmt::Display for TransportType {
     }
 }
 
-impl TransportType {
-    pub fn from_u8(v: u8) -> Result<Self, PacketError> {
+impl TryFrom<u8> for TransportType {
+    type Error = PacketError;
+
+    fn try_from(v: u8) -> Result<Self, Self::Error> {
         match v {
             0 => Ok(TransportType::Broadcast),
             1 => Ok(TransportType::Transport),
@@ -103,8 +107,10 @@ impl fmt::Display for DestinationType {
     }
 }
 
-impl DestinationType {
-    pub fn from_u8(v: u8) -> Result<Self, PacketError> {
+impl TryFrom<u8> for DestinationType {
+    type Error = PacketError;
+
+    fn try_from(v: u8) -> Result<Self, Self::Error> {
         match v {
             0 => Ok(DestinationType::Single),
             1 => Ok(DestinationType::Group),
@@ -135,8 +141,10 @@ impl fmt::Display for PacketType {
     }
 }
 
-impl PacketType {
-    pub fn from_u8(v: u8) -> Result<Self, PacketError> {
+impl TryFrom<u8> for PacketType {
+    type Error = PacketError;
+
+    fn try_from(v: u8) -> Result<Self, Self::Error> {
         match v {
             0 => Ok(PacketType::Data),
             1 => Ok(PacketType::Announce),

@@ -34,7 +34,7 @@ pub fn inject_transport_header(
         return Err(RouterError::PacketTooShortForHeader1);
     }
 
-    let flags = PacketFlags::from_byte(raw[0])?;
+    let flags = PacketFlags::try_from(raw[0])?;
     if flags.header_type != HeaderType::Header1 {
         return Err(RouterError::ExpectedHeader1);
     }
@@ -61,7 +61,7 @@ pub fn strip_transport_header(raw: &[u8], hops: u8) -> Result<Vec<u8>, RouterErr
         return Err(RouterError::PacketTooShortForHeader2);
     }
 
-    let flags = PacketFlags::from_byte(raw[0])?;
+    let flags = PacketFlags::try_from(raw[0])?;
     if flags.header_type != HeaderType::Header2 {
         return Err(RouterError::ExpectedHeader2);
     }
@@ -479,7 +479,7 @@ mod tests {
             let next_hop_bytes = hex::decode(&tv.next_hop).unwrap();
             let next_hop = TruncatedHash::try_from(next_hop_bytes.as_slice()).unwrap();
 
-            let flags = PacketFlags::from_byte(original[0]).unwrap();
+            let flags = PacketFlags::try_from(original[0]).unwrap();
             if flags.header_type == HeaderType::Header1 {
                 let result = inject_transport_header(&original, &next_hop).unwrap();
                 assert_eq!(
@@ -622,7 +622,7 @@ mod tests {
                 None => {
                     // No remaining_hops specified (e.g. MTU signalling test):
                     // infer from header types
-                    let expected_flags = PacketFlags::from_byte(expected_relayed[0]).unwrap();
+                    let expected_flags = PacketFlags::try_from(expected_relayed[0]).unwrap();
                     if expected_flags.header_type == HeaderType::Header1 {
                         strip_transport_header(&arriving, hops).unwrap()
                     } else {

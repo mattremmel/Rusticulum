@@ -32,14 +32,17 @@ pub struct PacketFlags {
     pub packet_type: PacketType,
 }
 
-impl PacketFlags {
-    #[must_use = "parsing a flags byte may fail; check the Result"]
-    pub fn from_byte(byte: u8) -> Result<Self, PacketError> {
-        let header_type = HeaderType::from_u8((byte >> HEADER_TYPE_SHIFT) & ONE_BIT_MASK)?;
+impl TryFrom<u8> for PacketFlags {
+    type Error = PacketError;
+
+    fn try_from(byte: u8) -> Result<Self, Self::Error> {
+        let header_type = HeaderType::try_from((byte >> HEADER_TYPE_SHIFT) & ONE_BIT_MASK)?;
         let context_flag = (byte >> CONTEXT_FLAG_SHIFT) & ONE_BIT_MASK != 0;
-        let transport_type = TransportType::from_u8((byte >> TRANSPORT_TYPE_SHIFT) & ONE_BIT_MASK)?;
-        let destination_type = DestinationType::from_u8((byte >> DEST_TYPE_SHIFT) & TWO_BIT_MASK)?;
-        let packet_type = PacketType::from_u8(byte & TWO_BIT_MASK)?;
+        let transport_type =
+            TransportType::try_from((byte >> TRANSPORT_TYPE_SHIFT) & ONE_BIT_MASK)?;
+        let destination_type =
+            DestinationType::try_from((byte >> DEST_TYPE_SHIFT) & TWO_BIT_MASK)?;
+        let packet_type = PacketType::try_from(byte & TWO_BIT_MASK)?;
 
         Ok(PacketFlags {
             header_type,
@@ -49,6 +52,9 @@ impl PacketFlags {
             packet_type,
         })
     }
+}
+
+impl PacketFlags {
 
     #[must_use = "returns the encoded byte without side effects"]
     pub const fn to_byte(&self) -> u8 {
@@ -70,11 +76,11 @@ mod tests {
 
         for fv in &v.flag_packing_vectors {
             let flags = PacketFlags {
-                header_type: HeaderType::from_u8(fv.header_type as u8).unwrap(),
+                header_type: HeaderType::try_from(fv.header_type as u8).unwrap(),
                 context_flag: fv.context_flag != 0,
-                transport_type: TransportType::from_u8(fv.transport_type as u8).unwrap(),
-                destination_type: DestinationType::from_u8(fv.destination_type as u8).unwrap(),
-                packet_type: PacketType::from_u8(fv.packet_type as u8).unwrap(),
+                transport_type: TransportType::try_from(fv.transport_type as u8).unwrap(),
+                destination_type: DestinationType::try_from(fv.destination_type as u8).unwrap(),
+                packet_type: PacketType::try_from(fv.packet_type as u8).unwrap(),
             };
 
             let expected_byte =
@@ -94,7 +100,7 @@ mod tests {
 
         for fv in &v.flag_unpacking_vectors {
             let byte = u8::from_str_radix(&fv.flags_byte, 16).expect("invalid hex flags_byte");
-            let flags = PacketFlags::from_byte(byte).expect("should parse valid flags byte");
+            let flags = PacketFlags::try_from(byte).expect("should parse valid flags byte");
 
             assert_eq!(
                 flags.header_type as u64, fv.header_type,
@@ -134,11 +140,11 @@ mod tests {
 
             // Test packing
             let flags = PacketFlags {
-                header_type: HeaderType::from_u8(fv.header_type as u8).unwrap(),
+                header_type: HeaderType::try_from(fv.header_type as u8).unwrap(),
                 context_flag: fv.context_flag != 0,
-                transport_type: TransportType::from_u8(fv.transport_type as u8).unwrap(),
-                destination_type: DestinationType::from_u8(fv.destination_type as u8).unwrap(),
-                packet_type: PacketType::from_u8(fv.packet_type as u8).unwrap(),
+                transport_type: TransportType::try_from(fv.transport_type as u8).unwrap(),
+                destination_type: DestinationType::try_from(fv.destination_type as u8).unwrap(),
+                packet_type: PacketType::try_from(fv.packet_type as u8).unwrap(),
             };
             assert_eq!(
                 flags.to_byte(),
@@ -148,7 +154,7 @@ mod tests {
             );
 
             // Test unpacking
-            let unpacked = PacketFlags::from_byte(expected_byte).expect("should parse");
+            let unpacked = PacketFlags::try_from(expected_byte).expect("should parse");
             assert_eq!(
                 unpacked, flags,
                 "exhaustive unpacking mismatch for: {}",
@@ -166,7 +172,7 @@ mod tests {
                     for dt in 0..=3u8 {
                         for pt in 0..=3u8 {
                             let byte = (ht << 6) | (cf << 5) | (tt << 4) | (dt << 2) | pt;
-                            let flags = PacketFlags::from_byte(byte).unwrap();
+                            let flags = PacketFlags::try_from(byte).unwrap();
                             assert_eq!(flags.to_byte(), byte);
                         }
                     }
@@ -181,8 +187,8 @@ mod tests {
         // so bit 7 is effectively shifted out. Verify that bytes 0x80..0xFF
         // parse identically to their lower 7-bit equivalents.
         for byte in 0x80..=0xFFu8 {
-            let with_bit7 = PacketFlags::from_byte(byte);
-            let without_bit7 = PacketFlags::from_byte(byte & 0x7F);
+            let with_bit7 = PacketFlags::try_from(byte);
+            let without_bit7 = PacketFlags::try_from(byte & 0x7F);
             assert_eq!(
                 with_bit7.is_ok(),
                 without_bit7.is_ok(),
@@ -213,7 +219,7 @@ mod proptests {
 
         #[test]
         fn flags_roundtrip(byte in valid_flags_byte()) {
-            let flags = PacketFlags::from_byte(byte).unwrap();
+            let flags = PacketFlags::try_from(byte).unwrap();
             prop_assert_eq!(flags.to_byte(), byte);
         }
     }
