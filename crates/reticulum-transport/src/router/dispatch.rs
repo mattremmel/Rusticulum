@@ -30,16 +30,12 @@ pub fn inject_transport_header(
     next_hop: &TruncatedHash,
 ) -> Result<Vec<u8>, RouterError> {
     if raw.len() < HEADER_1_SIZE {
-        return Err(RouterError::InvalidTransformation(
-            "packet too short for HEADER_1".to_string(),
-        ));
+        return Err(RouterError::PacketTooShortForHeader1);
     }
 
     let flags = PacketFlags::from_byte(raw[0])?;
     if flags.header_type != HeaderType::Header1 {
-        return Err(RouterError::InvalidTransformation(
-            "expected HEADER_1 packet".to_string(),
-        ));
+        return Err(RouterError::ExpectedHeader1);
     }
 
     // New flags: HEADER_2, TRANSPORT, keep lower 4 bits
@@ -60,16 +56,12 @@ pub fn inject_transport_header(
 /// and transport type to BROADCAST.
 pub fn strip_transport_header(raw: &[u8], hops: u8) -> Result<Vec<u8>, RouterError> {
     if raw.len() < HEADER_2_SIZE {
-        return Err(RouterError::InvalidTransformation(
-            "packet too short for HEADER_2".to_string(),
-        ));
+        return Err(RouterError::PacketTooShortForHeader2);
     }
 
     let flags = PacketFlags::from_byte(raw[0])?;
     if flags.header_type != HeaderType::Header2 {
-        return Err(RouterError::InvalidTransformation(
-            "expected HEADER_2 packet".to_string(),
-        ));
+        return Err(RouterError::ExpectedHeader2);
     }
 
     // New flags: HEADER_1, BROADCAST, keep lower 4 bits
@@ -224,9 +216,7 @@ impl PacketRouter {
         transport_id: Option<DestinationHash>,
     ) -> Result<AnnounceResult, RouterError> {
         if packet.flags.packet_type != PacketType::Announce {
-            return Err(RouterError::InvalidTransformation(
-                "packet is not an announce".to_string(),
-            ));
+            return Err(RouterError::NotAnAnnounce);
         }
 
         // Parse and validate

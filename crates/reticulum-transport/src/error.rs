@@ -24,8 +24,20 @@ pub enum RouterError {
     #[error("no path to destination: {0}")]
     NoPath(String),
 
-    #[error("invalid header transformation: {0}")]
-    InvalidTransformation(String),
+    #[error("packet too short for HEADER_1")]
+    PacketTooShortForHeader1,
+
+    #[error("expected HEADER_1 packet")]
+    ExpectedHeader1,
+
+    #[error("packet too short for HEADER_2")]
+    PacketTooShortForHeader2,
+
+    #[error("expected HEADER_2 packet")]
+    ExpectedHeader2,
+
+    #[error("packet is not an announce")]
+    NotAnAnnounce,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -137,8 +149,14 @@ mod tests {
         let err = RouterError::NoPath("deadbeef".into());
         assert_eq!(err.to_string(), "no path to destination: deadbeef");
 
-        let err = RouterError::InvalidTransformation("bad header".into());
-        assert_eq!(err.to_string(), "invalid header transformation: bad header");
+        let err = RouterError::PacketTooShortForHeader1;
+        assert_eq!(err.to_string(), "packet too short for HEADER_1");
+
+        let err = RouterError::ExpectedHeader1;
+        assert_eq!(err.to_string(), "expected HEADER_1 packet");
+
+        let err = RouterError::NotAnAnnounce;
+        assert_eq!(err.to_string(), "packet is not an announce");
     }
 
     #[test]

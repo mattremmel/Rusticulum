@@ -7,9 +7,21 @@ use reticulum_protocol::error::{
 };
 
 #[test]
-fn link_error_display_handshake_failed() {
-    let err = LinkError::HandshakeFailed("timeout".into());
-    assert_eq!(err.to_string(), "handshake failed: timeout");
+fn link_error_display_request_data_too_short() {
+    let err = LinkError::RequestDataTooShort;
+    assert_eq!(err.to_string(), "request data too short");
+}
+
+#[test]
+fn link_error_display_request_data_conversion() {
+    let err = LinkError::RequestDataConversion;
+    assert_eq!(err.to_string(), "request data conversion failed");
+}
+
+#[test]
+fn link_error_display_invalid_rtt_format() {
+    let err = LinkError::InvalidRttFormat;
+    assert_eq!(err.to_string(), "invalid RTT format");
 }
 
 #[test]
@@ -148,8 +160,20 @@ fn link_error_display_remaining() {
 
 #[test]
 fn channel_error_display_remaining() {
-    let err = ChannelError::InvalidEnvelope("bad format".into());
-    assert_eq!(err.to_string(), "invalid envelope: bad format");
+    let err = ChannelError::EnvelopeTooShort {
+        actual: 3,
+        min: 6,
+    };
+    assert_eq!(err.to_string(), "envelope too short: 3 bytes (minimum 6)");
+
+    let err = ChannelError::EnvelopeLengthMismatch {
+        header_says: 100,
+        actual: 1,
+    };
+    assert_eq!(
+        err.to_string(),
+        "envelope length mismatch: header says 100 payload bytes but got 1"
+    );
 
     let err = ChannelError::SequenceError {
         expected: 10,

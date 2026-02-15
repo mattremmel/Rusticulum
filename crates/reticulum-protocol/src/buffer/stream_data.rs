@@ -27,10 +27,10 @@ impl StreamHeader {
     pub fn encode(&self) -> [u8; 2] {
         let mut val = self.stream_id & STREAM_ID_MAX;
         if self.is_eof {
-            val |= 0x8000;
+            val |= STREAM_EOF_FLAG;
         }
         if self.is_compressed {
-            val |= 0x4000;
+            val |= STREAM_COMPRESSED_FLAG;
         }
 
         tracing::trace!(
@@ -50,8 +50,8 @@ impl StreamHeader {
         }
 
         let val = u16::from_be_bytes([bytes[0], bytes[1]]);
-        let is_eof = (val & 0x8000) != 0;
-        let is_compressed = (val & 0x4000) != 0;
+        let is_eof = (val & STREAM_EOF_FLAG) != 0;
+        let is_compressed = (val & STREAM_COMPRESSED_FLAG) != 0;
         let stream_id = val & STREAM_ID_MAX;
 
         tracing::trace!(stream_id, is_eof, is_compressed, "decoded stream header");
@@ -161,10 +161,19 @@ pub fn compress_chunk(data: &[u8], max_data_len: usize) -> Option<(Vec<u8>, usiz
     None
 }
 
+/// Result of [`write_chunk`]: the packed message and number of input bytes consumed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WriteChunkResult {
+    /// The stream data message to send.
+    pub message: StreamDataMessage,
+    /// Number of input bytes consumed from the data slice.
+    pub bytes_consumed: usize,
+}
+
 /// Write a chunk of data as a stream data message.
 ///
-/// Returns the packed message and the number of input bytes consumed.
-pub fn write_chunk(stream_id: u16, data: &[u8], eof: bool) -> (StreamDataMessage, usize) {
+/// Returns a [`WriteChunkResult`] containing the packed message and the number of input bytes consumed.
+pub fn write_chunk(stream_id: u16, data: &[u8], eof: bool) -> WriteChunkResult {
     let data = if data.len() > MAX_CHUNK_LEN {
         &data[..MAX_CHUNK_LEN]
     } else {
@@ -172,7 +181,7 @@ pub fn write_chunk(stream_id: u16, data: &[u8], eof: bool) -> (StreamDataMessage
     };
 
     if let Some((compressed, segment_length)) = compress_chunk(data, MAX_DATA_LEN) {
-        let msg = StreamDataMessage {
+        let message = StreamDataMessage {
             header: StreamHeader {
                 stream_id,
                 is_eof: eof,
@@ -180,10 +189,13 @@ pub fn write_chunk(stream_id: u16, data: &[u8], eof: bool) -> (StreamDataMessage
             },
             data: compressed,
         };
-        (msg, segment_length)
+        WriteChunkResult {
+            message,
+            bytes_consumed: segment_length,
+        }
     } else {
         let take = data.len().min(MAX_DATA_LEN);
-        let msg = StreamDataMessage {
+        let message = StreamDataMessage {
             header: StreamHeader {
                 stream_id,
                 is_eof: eof,
@@ -191,7 +203,10 @@ pub fn write_chunk(stream_id: u16, data: &[u8], eof: bool) -> (StreamDataMessage
             },
             data: data[..take].to_vec(),
         };
-        (msg, take)
+        WriteChunkResult {
+            message,
+            bytes_consumed: take,
+        }
     }
 }
 
@@ -341,28 +356,28 @@ mod tests {
             let expected_stream_packed_hex = &write_result.stream_packed_hex;
 
             // Run write_chunk
-            let (msg, processed_length) = write_chunk(tv.stream_id as u16, &input_data, false);
+            let result = write_chunk(tv.stream_id as u16, &input_data, false);
 
             assert_eq!(
-                msg.header.is_compressed, expected_compressed,
+                result.message.header.is_compressed, expected_compressed,
                 "compression flag mismatch for vector index={}",
                 tv.index
             );
             assert_eq!(
-                processed_length, write_result.processed_length as usize,
+                result.bytes_consumed, write_result.processed_length as usize,
                 "processed_length mismatch for vector index={}",
                 tv.index
             );
 
             let expected_chunk = hex::decode(expected_chunk_hex).unwrap();
             assert_eq!(
-                msg.data, expected_chunk,
+                result.message.data, expected_chunk,
                 "chunk data mismatch for vector index={}",
                 tv.index
             );
 
             let expected_stream_packed = hex::decode(expected_stream_packed_hex).unwrap();
-            let packed = msg.pack();
+            let packed = result.message.pack();
             assert_eq!(
                 packed, expected_stream_packed,
                 "stream packing mismatch for vector index={}",

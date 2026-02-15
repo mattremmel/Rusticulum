@@ -7,4 +7,6 @@ pub mod constants;
 pub mod stream_data;
 
 pub use constants::*;
-pub use stream_data::{StreamDataMessage, StreamHeader, compress_chunk, write_chunk};
+pub use stream_data::{
+    StreamDataMessage, StreamHeader, WriteChunkResult, compress_chunk, write_chunk,
+};

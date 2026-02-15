@@ -53,9 +53,6 @@ pub const SIGNATURE_SIZE: usize = 64;
 /// Minimum packet header size in bytes.
 pub const HEADER_MINSIZE: usize = 19;
 
-/// Token overhead (IV + HMAC) in bytes.
-pub const TOKEN_OVERHEAD: usize = 48;
-
 /// Default keepalive interval (same as KEEPALIVE_MAX).
 pub const KEEPALIVE_DEFAULT: f64 = 360.0;
 

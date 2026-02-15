@@ -45,11 +45,10 @@ impl Envelope {
     /// Unpack an envelope from its wire format.
     pub fn unpack(data: &[u8]) -> Result<Self, ChannelError> {
         if data.len() < Self::OVERHEAD {
-            return Err(ChannelError::InvalidEnvelope(format!(
-                "data too short: {} bytes (minimum {})",
-                data.len(),
-                Self::OVERHEAD
-            )));
+            return Err(ChannelError::EnvelopeTooShort {
+                actual: data.len(),
+                min: Self::OVERHEAD,
+            });
         }
 
         let msg_type = u16::from_be_bytes([data[0], data[1]]);
@@ -57,11 +56,10 @@ impl Envelope {
         let length = u16::from_be_bytes([data[4], data[5]]) as usize;
 
         if data.len() != Self::OVERHEAD + length {
-            return Err(ChannelError::InvalidEnvelope(format!(
-                "length mismatch: header says {} payload bytes but got {}",
-                length,
-                data.len() - Self::OVERHEAD
-            )));
+            return Err(ChannelError::EnvelopeLengthMismatch {
+                header_says: length,
+                actual: data.len() - Self::OVERHEAD,
+            });
         }
 
         let payload = data[Self::OVERHEAD..].to_vec();

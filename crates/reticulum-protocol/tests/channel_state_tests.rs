@@ -1,6 +1,6 @@
 //! Tests for channel sequencing and window control.
 
-use reticulum_protocol::channel::{ChannelState, MAX_TRIES, TimeoutOutcome};
+use reticulum_protocol::channel::{ChannelState, MAX_TRIES, TimeoutOutcome, TimeoutResult};
 use reticulum_test_vectors::channels::{self, ChannelWindowState};
 
 /// Build a ChannelState from a ChannelWindowState snapshot.
@@ -266,8 +266,8 @@ fn window_adaptation_sequence_all_vectors() {
                     state.on_delivery(rtt);
                 }
                 "timeout" => {
-                    let (new_tries, _) = state.on_timeout(tries);
-                    tries = new_tries;
+                    let result = state.on_timeout(tries);
+                    tries = result.new_tries;
                 }
                 other => panic!("vector {}: unexpected event: {other}", v.index),
             }
@@ -390,8 +390,8 @@ fn retry_sequence_all_vectors() {
                         continue;
                     }
 
-                    let (new_tries, outcome) = state.on_timeout(tries);
-                    tries = new_tries;
+                    let result = state.on_timeout(tries);
+                    tries = result.new_tries;
 
                     let expected_tries_after = step.tries_after.unwrap() as u32;
                     assert_eq!(
@@ -402,7 +402,7 @@ fn retry_sequence_all_vectors() {
 
                     match expected_outcome {
                         "retry" => {
-                            assert_eq!(outcome, TimeoutOutcome::Retry);
+                            assert_eq!(result.outcome, TimeoutOutcome::Retry);
 
                             // Validate timeout value
                             if let Some(expected_timeout) = step.timeout {
@@ -596,11 +596,11 @@ fn packet_loss_scenario_all_vectors() {
                         continue;
                     }
 
-                    let (new_tries, outcome) = state.on_timeout(tries);
-                    envelope_tries.insert(seq, new_tries);
+                    let result = state.on_timeout(tries);
+                    envelope_tries.insert(seq, result.new_tries);
 
                     match expected_outcome {
-                        "retry" => assert_eq!(outcome, TimeoutOutcome::Retry),
+                        "retry" => assert_eq!(result.outcome, TimeoutOutcome::Retry),
                         "fail" => {} // handled above
                         other => panic!("unexpected outcome: {other}"),
                     }
@@ -615,7 +615,8 @@ fn packet_loss_scenario_all_vectors() {
 
                     // Validate timeout value
                     if let Some(expected_timeout) = event.timeout {
-                        let computed = ChannelState::packet_timeout(new_tries, rtt, tx_ring.len());
+                        let computed =
+                            ChannelState::packet_timeout(result.new_tries, rtt, tx_ring.len());
                         let diff = (computed - expected_timeout).abs();
                         assert!(
                             diff < 1e-10,

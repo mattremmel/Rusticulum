@@ -9,4 +9,4 @@ pub mod state;
 
 pub use constants::*;
 pub use envelope::Envelope;
-pub use state::{ChannelState, MAX_TRIES, TimeoutOutcome};
+pub use state::{ChannelState, MAX_TRIES, TimeoutOutcome, TimeoutResult};

@@ -19,6 +19,15 @@ pub enum TimeoutOutcome {
     Fail,
 }
 
+/// Result of calling [`ChannelState::on_timeout`]: the updated try count and outcome.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TimeoutResult {
+    /// The try count after this timeout.
+    pub new_tries: u32,
+    /// Whether to retry or fail the envelope.
+    pub outcome: TimeoutOutcome,
+}
+
 // ======================================================================== //
 // Pure functions — channel window adaptation
 // ======================================================================== //
@@ -394,7 +403,7 @@ impl ChannelState {
     /// `tries` is the current try count for the timed-out envelope **before**
     /// this timeout. The method increments it internally and returns the new
     /// value together with the outcome.
-    pub fn on_timeout(&mut self, tries: u32) -> (u32, TimeoutOutcome) {
+    pub fn on_timeout(&mut self, tries: u32) -> TimeoutResult {
         let input = TimeoutInput {
             tries,
             window: self.window,
@@ -420,7 +429,10 @@ impl ChannelState {
         self.window = adaptation.new_window;
         self.window_max = adaptation.new_window_max;
 
-        (adaptation.new_tries, adaptation.outcome)
+        TimeoutResult {
+            new_tries: adaptation.new_tries,
+            outcome: adaptation.outcome,
+        }
     }
 
     /// Check whether the given try count means the envelope has failed.

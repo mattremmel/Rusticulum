@@ -31,11 +31,12 @@ use reticulum_crypto::sha::sha256;
 use reticulum_crypto::token::Token;
 use reticulum_crypto::x25519::{X25519PrivateKey, X25519PublicKey};
 
+use reticulum_core::constants::TOKEN_OVERHEAD;
+
 use super::constants::{
     AES_BLOCKSIZE, ECPUBSIZE, ESTABLISHMENT_TIMEOUT_PER_HOP, HEADER_MINSIZE, IFAC_MIN_SIZE,
     KEEPALIVE_DEFAULT, KEEPALIVE_MAX, KEEPALIVE_MAX_RTT, KEEPALIVE_MIN, KEEPALIVE_TIMEOUT_FACTOR,
-    LINK_KEYSIZE, SIGNATURE_SIZE, STALE_FACTOR, STALE_GRACE, TOKEN_OVERHEAD,
-    TRAFFIC_TIMEOUT_FACTOR,
+    LINK_KEYSIZE, SIGNATURE_SIZE, STALE_FACTOR, STALE_GRACE, TRAFFIC_TIMEOUT_FACTOR,
 };
 use super::types::{DerivedKey, LinkMode, LinkRole, LinkStats, TeardownReason};
 use crate::error::LinkError;
@@ -136,17 +137,15 @@ pub fn parse_proof_data(data: &[u8]) -> Result<ParsedProofData, LinkError> {
 /// Layout: `x25519_pub(32) || ed25519_pub(32) || [signalling(3)]`
 pub fn parse_request_data(data: &[u8]) -> Result<ParsedRequestData, LinkError> {
     if data.len() < ECPUBSIZE {
-        return Err(LinkError::HandshakeFailed(
-            "request data too short".to_string(),
-        ));
+        return Err(LinkError::RequestDataTooShort);
     }
 
     let x25519_public: [u8; 32] = data[..32]
         .try_into()
-        .map_err(|_| LinkError::HandshakeFailed("request data conversion".into()))?;
+        .map_err(|_| LinkError::RequestDataConversion)?;
     let ed25519_public: [u8; 32] = data[32..64]
         .try_into()
-        .map_err(|_| LinkError::HandshakeFailed("request data conversion".into()))?;
+        .map_err(|_| LinkError::RequestDataConversion)?;
     let signalling = if data.len() > ECPUBSIZE {
         data[ECPUBSIZE..].to_vec()
     } else {
@@ -204,14 +203,12 @@ fn encode_rtt_msgpack(rtt: f64) -> Vec<u8> {
 /// Decode an RTT value from MessagePack.
 fn decode_rtt_msgpack(data: &[u8]) -> Result<f64, LinkError> {
     let mut cursor = Cursor::new(data);
-    let value = rmpv::decode::read_value(&mut cursor)
-        .map_err(|e| LinkError::HandshakeFailed(format!("invalid RTT msgpack: {e}")))?;
+    let value =
+        rmpv::decode::read_value(&mut cursor).map_err(|_| LinkError::InvalidRttFormat)?;
     match value {
         rmpv::Value::F64(v) => Ok(v),
         rmpv::Value::F32(v) => Ok(v as f64),
-        _ => Err(LinkError::HandshakeFailed(
-            "RTT must be a float".to_string(),
-        )),
+        _ => Err(LinkError::InvalidRttFormat),
     }
 }
 
@@ -1247,11 +1244,8 @@ mod tests {
         let result = decode_rtt_msgpack(&buf);
         assert!(result.is_err(), "integer should not decode as RTT float");
         assert!(
-            result
-                .unwrap_err()
-                .to_string()
-                .contains("RTT must be a float"),
-            "error should mention float requirement"
+            matches!(result.unwrap_err(), LinkError::InvalidRttFormat),
+            "error should be InvalidRttFormat"
         );
     }
 }

@@ -20,3 +20,9 @@ pub const COMPRESSION_SKIP_THRESHOLD: usize = 32;
 
 /// Maximum stream ID value (14-bit).
 pub const STREAM_ID_MAX: u16 = 0x3FFF;
+
+/// Bit flag for EOF in stream header (bit 15).
+pub const STREAM_EOF_FLAG: u16 = 0x8000;
+
+/// Bit flag for compression in stream header (bit 14).
+pub const STREAM_COMPRESSED_FLAG: u16 = 0x4000;

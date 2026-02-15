@@ -8,8 +8,14 @@ use reticulum_crypto::CryptoError;
 
 #[derive(Debug, thiserror::Error)]
 pub enum LinkError {
-    #[error("handshake failed: {0}")]
-    HandshakeFailed(String),
+    #[error("request data too short")]
+    RequestDataTooShort,
+
+    #[error("request data conversion failed")]
+    RequestDataConversion,
+
+    #[error("invalid RTT format")]
+    InvalidRttFormat,
 
     #[error("invalid link proof")]
     InvalidProof,
@@ -47,8 +53,11 @@ pub enum ChannelError {
     #[error("message too large: {size} bytes (max {max})")]
     MessageTooLarge { size: usize, max: usize },
 
-    #[error("invalid envelope: {0}")]
-    InvalidEnvelope(String),
+    #[error("envelope too short: {actual} bytes (minimum {min})")]
+    EnvelopeTooShort { actual: usize, min: usize },
+
+    #[error("envelope length mismatch: header says {header_says} payload bytes but got {actual}")]
+    EnvelopeLengthMismatch { header_says: usize, actual: usize },
 
     #[error("sequence error: expected {expected}, got {actual}")]
     SequenceError { expected: u16, actual: u16 },
