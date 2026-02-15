@@ -5,24 +5,32 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DOCKER_DIR="$(dirname "$SCRIPT_DIR")"
 LOG_FILE="${DOCKER_DIR}/multihop-test.log"
 
+source "$SCRIPT_DIR/test-helpers.sh"
+
+PROJECT=rusticulum-multihop
+COMPOSE_FILES="-f docker-compose.multihop-test.yml"
+COMPOSE_CMD="docker compose -p $PROJECT $COMPOSE_FILES"
+
 cd "$DOCKER_DIR"
 
 echo "=== Building and starting containers for multihop test (Python relay) ==="
-docker compose -f docker-compose.multihop-test.yml up -d --build 2>&1 | tee "$LOG_FILE"
+compose_up 2>&1 | tee "$LOG_FILE"
 
-echo "=== Waiting for Rust nodes to process announces (90s) ==="
-sleep 90
+echo "=== Waiting for link establishment through relay (polling, 120s timeout) ==="
+if ! poll_logs "link_established" 120 5; then
+    echo "WARNING: link_established not found in logs within 120s, continuing..."
+fi
 
 # Wait for all containers to finish (they may still be running)
 for SVC in rust-a rust-b python-relay; do
-    CTR=$(docker compose -f docker-compose.multihop-test.yml ps -q "$SVC" 2>/dev/null)
+    CTR=$($COMPOSE_CMD ps -q "$SVC" 2>/dev/null)
     if [ -n "$CTR" ]; then
         timeout 30 docker wait "$CTR" 2>/dev/null || true
     fi
 done
 
 echo "=== Collecting logs ==="
-docker compose -f docker-compose.multihop-test.yml logs >> "$LOG_FILE" 2>&1
+$COMPOSE_CMD logs >> "$LOG_FILE" 2>&1
 
 # Check Rust-B received announce from Rust-A (through Python relay)
 RUST_B_ANNOUNCE=false
@@ -76,7 +84,7 @@ else
 fi
 
 echo "=== Tearing down ==="
-docker compose -f docker-compose.multihop-test.yml down -v
+compose_down
 
 echo ""
 echo "=== Results ==="

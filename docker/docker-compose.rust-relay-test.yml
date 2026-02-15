@@ -13,10 +13,10 @@ services:
     command: ["python3", "/scripts/python-multihop-test.py"]
     healthcheck:
       test: ["CMD-SHELL", "python3 -c 'import socket; s=socket.socket(); s.settimeout(2); s.connect((\"127.0.0.1\", 4242)); s.close()'"]
-      interval: 5s
+      interval: 2s
       timeout: 3s
       retries: 10
-      start_period: 10s
+      start_period: 3s
 
   python-b:
     build:
@@ -32,10 +32,10 @@ services:
     command: ["python3", "/scripts/python-multihop-test.py"]
     healthcheck:
       test: ["CMD-SHELL", "python3 -c 'import socket; s=socket.socket(); s.settimeout(2); s.connect((\"127.0.0.1\", 4243)); s.close()'"]
-      interval: 5s
+      interval: 2s
       timeout: 3s
       retries: 10
-      start_period: 10s
+      start_period: 3s
 
   rust-relay:
     build:

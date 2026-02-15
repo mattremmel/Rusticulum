@@ -5,16 +5,22 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DOCKER_DIR="$(dirname "$SCRIPT_DIR")"
 LOG_FILE="${DOCKER_DIR}/ifac-test.log"
 
+source "$SCRIPT_DIR/test-helpers.sh"
+
+PROJECT=rusticulum-ifac
+COMPOSE_FILES="-f docker-compose.ifac-test.yml"
+COMPOSE_CMD="docker compose -p $PROJECT $COMPOSE_FILES"
+
 cd "$DOCKER_DIR"
 
 echo "=== Building and starting containers for IFAC test ==="
-docker compose -f docker-compose.ifac-test.yml up -d --build 2>&1 | tee "$LOG_FILE"
+compose_up 2>&1 | tee "$LOG_FILE"
 
 echo "=== Waiting for IFAC-protected communication (120s timeout) ==="
 TIMEOUT=120
 
 # Wait for Python test script to finish
-PYTHON_CONTAINER=$(docker compose -f docker-compose.ifac-test.yml ps -q python-rns 2>/dev/null)
+PYTHON_CONTAINER=$($COMPOSE_CMD ps -q python-rns 2>/dev/null)
 
 if [ -n "$PYTHON_CONTAINER" ]; then
     PYTHON_EXIT=$(timeout "$TIMEOUT" docker wait "$PYTHON_CONTAINER" 2>/dev/null || echo "")
@@ -27,13 +33,13 @@ else
 fi
 
 # Wait for Rust node to finish
-RUST_CONTAINER=$(docker compose -f docker-compose.ifac-test.yml ps -q rust-node 2>/dev/null)
+RUST_CONTAINER=$($COMPOSE_CMD ps -q rust-node 2>/dev/null)
 if [ -n "$RUST_CONTAINER" ]; then
     timeout 30 docker wait "$RUST_CONTAINER" 2>/dev/null || true
 fi
 
 echo "=== Collecting logs ==="
-docker compose -f docker-compose.ifac-test.yml logs >> "$LOG_FILE" 2>&1
+$COMPOSE_CMD logs >> "$LOG_FILE" 2>&1
 
 # Check Python test result
 PYTHON_PASS=false
@@ -72,7 +78,7 @@ else
 fi
 
 echo "=== Tearing down ==="
-docker compose -f docker-compose.ifac-test.yml down -v
+compose_down
 
 echo ""
 echo "=== Results ==="

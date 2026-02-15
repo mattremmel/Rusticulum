@@ -5,15 +5,19 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DOCKER_DIR="$(dirname "$SCRIPT_DIR")"
 LOG_FILE="${DOCKER_DIR}/vector-check-test.log"
 
+source "$SCRIPT_DIR/test-helpers.sh"
+
+PROJECT=rusticulum-vector-check
+COMPOSE_FILES="-f docker-compose.yml -f docker-compose.vector-check-test.yml"
+COMPOSE_CMD="docker compose -p $PROJECT $COMPOSE_FILES"
+
 cd "$DOCKER_DIR"
 
-COMPOSE="docker compose -f docker-compose.yml -f docker-compose.vector-check-test.yml"
-
 echo "=== Building and starting containers for vector-check test ==="
-$COMPOSE up -d --build 2>&1 | tee "$LOG_FILE"
+compose_up 2>&1 | tee "$LOG_FILE"
 
 echo "=== Waiting for Python vector-check to complete (180s timeout) ==="
-PYTHON_CONTAINER=$($COMPOSE ps -a -q python-rns 2>/dev/null)
+PYTHON_CONTAINER=$($COMPOSE_CMD ps -a -q python-rns 2>/dev/null)
 PYTHON_EXIT=""
 if [ -n "$PYTHON_CONTAINER" ]; then
     PYTHON_EXIT=$(timeout 180 docker wait "$PYTHON_CONTAINER" 2>/dev/null || echo "timeout")
@@ -23,7 +27,7 @@ else
 fi
 
 echo "=== Waiting for Rust vector-check to complete (180s timeout) ==="
-RUST_CONTAINER=$($COMPOSE ps -a -q rust-node 2>/dev/null)
+RUST_CONTAINER=$($COMPOSE_CMD ps -a -q rust-node 2>/dev/null)
 RUST_EXIT=""
 if [ -n "$RUST_CONTAINER" ]; then
     RUST_EXIT=$(timeout 180 docker wait "$RUST_CONTAINER" 2>/dev/null || echo "timeout")
@@ -31,7 +35,7 @@ if [ -n "$RUST_CONTAINER" ]; then
 fi
 
 echo "=== Collecting logs ==="
-$COMPOSE logs >> "$LOG_FILE" 2>&1
+$COMPOSE_CMD logs >> "$LOG_FILE" 2>&1
 
 # Check exit codes
 PYTHON_PASS=false
@@ -54,7 +58,7 @@ fi
 echo "=== Comparing results ==="
 VOLUME_NAME=$(docker volume ls -q | grep vector-data | head -1 || true)
 if [ -z "$VOLUME_NAME" ]; then
-    VOLUME_NAME="docker_vector-data"
+    VOLUME_NAME="${PROJECT}_vector-data"
 fi
 
 DIFF_EXIT=0
@@ -86,7 +90,7 @@ else
 fi
 
 echo "=== Tearing down ==="
-$COMPOSE down -v
+compose_down
 
 echo ""
 echo "=== Results ==="

@@ -5,14 +5,20 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DOCKER_DIR="$(dirname "$SCRIPT_DIR")"
 LOG_FILE="${DOCKER_DIR}/fuzz-test.log"
 
+source "$SCRIPT_DIR/test-helpers.sh"
+
+PROJECT=rusticulum-fuzz
+COMPOSE_FILES="-f docker-compose.yml -f docker-compose.fuzz-test.yml"
+COMPOSE_CMD="docker compose -p $PROJECT $COMPOSE_FILES"
+
 cd "$DOCKER_DIR"
 
 echo "=== Building and starting containers for cross-implementation fuzz test ==="
-docker compose -f docker-compose.yml -f docker-compose.fuzz-test.yml up -d --build 2>&1 | tee "$LOG_FILE"
+compose_up 2>&1 | tee "$LOG_FILE"
 
 echo "=== Waiting for Python fuzz test to complete (120s timeout) ==="
 
-PYTHON_CONTAINER=$(docker compose -f docker-compose.yml -f docker-compose.fuzz-test.yml ps -q python-rns 2>/dev/null)
+PYTHON_CONTAINER=$($COMPOSE_CMD ps -q python-rns 2>/dev/null)
 
 PYTHON_EXIT=""
 if [ -n "$PYTHON_CONTAINER" ]; then
@@ -23,7 +29,7 @@ else
 fi
 
 echo "=== Waiting for Rust fuzz-gen to complete (120s timeout) ==="
-RUST_CONTAINER=$(docker compose -f docker-compose.yml -f docker-compose.fuzz-test.yml ps -q rust-node 2>/dev/null)
+RUST_CONTAINER=$($COMPOSE_CMD ps -q rust-node 2>/dev/null)
 RUST_EXIT=""
 if [ -n "$RUST_CONTAINER" ]; then
     RUST_EXIT=$(timeout 120 docker wait "$RUST_CONTAINER" 2>/dev/null || echo "timeout")
@@ -31,7 +37,7 @@ if [ -n "$RUST_CONTAINER" ]; then
 fi
 
 echo "=== Collecting logs ==="
-docker compose -f docker-compose.yml -f docker-compose.fuzz-test.yml logs >> "$LOG_FILE" 2>&1
+$COMPOSE_CMD logs >> "$LOG_FILE" 2>&1
 
 # Check Python result
 PYTHON_PASS=false
@@ -78,7 +84,7 @@ else
 fi
 
 echo "=== Tearing down ==="
-docker compose -f docker-compose.yml -f docker-compose.fuzz-test.yml down -v
+compose_down
 
 echo ""
 echo "=== Results ==="

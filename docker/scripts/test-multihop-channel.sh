@@ -5,17 +5,23 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DOCKER_DIR="$(dirname "$SCRIPT_DIR")"
 LOG_FILE="${DOCKER_DIR}/multihop-channel-test.log"
 
+source "$SCRIPT_DIR/test-helpers.sh"
+
+PROJECT=rusticulum-multihop-channel
+COMPOSE_FILES="-f docker-compose.multihop-channel-test.yml"
+COMPOSE_CMD="docker compose -p $PROJECT $COMPOSE_FILES"
+
 cd "$DOCKER_DIR"
 
 echo "=== Building and starting containers for multihop channel test (Rust relay) ==="
-docker compose -f docker-compose.multihop-channel-test.yml up -d --build 2>&1 | tee "$LOG_FILE"
+compose_up 2>&1 | tee "$LOG_FILE"
 
 echo "=== Waiting for channel exchanges through Rust relay (180s timeout) ==="
 TIMEOUT=180
 
 # Capture container IDs while containers are still running
-PYTHON_A_CONTAINER=$(docker compose -f docker-compose.multihop-channel-test.yml ps -q python-a 2>/dev/null)
-PYTHON_B_CONTAINER=$(docker compose -f docker-compose.multihop-channel-test.yml ps -q python-b 2>/dev/null)
+PYTHON_A_CONTAINER=$($COMPOSE_CMD ps -q python-a 2>/dev/null)
+PYTHON_B_CONTAINER=$($COMPOSE_CMD ps -q python-b 2>/dev/null)
 
 PYTHON_A_EXIT=""
 PYTHON_B_EXIT=""
@@ -39,13 +45,13 @@ if [ -n "$PYTHON_B_CONTAINER" ]; then
 fi
 
 # Wait for rust-relay to finish
-RUST_CONTAINER=$(docker compose -f docker-compose.multihop-channel-test.yml ps -q "rust-relay" 2>/dev/null)
+RUST_CONTAINER=$($COMPOSE_CMD ps -q "rust-relay" 2>/dev/null)
 if [ -n "$RUST_CONTAINER" ]; then
     timeout 30 docker wait "$RUST_CONTAINER" 2>/dev/null || true
 fi
 
 echo "=== Collecting logs ==="
-docker compose -f docker-compose.multihop-channel-test.yml logs >> "$LOG_FILE" 2>&1
+$COMPOSE_CMD logs >> "$LOG_FILE" 2>&1
 
 # Check Python-A results
 PYTHON_A_PASS=false
@@ -75,7 +81,7 @@ else
 fi
 
 echo "=== Tearing down ==="
-docker compose -f docker-compose.multihop-channel-test.yml down -v
+compose_down
 
 echo ""
 echo "=== Results ==="

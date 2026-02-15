@@ -4,19 +4,26 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DOCKER_DIR="$(dirname "$SCRIPT_DIR")"
 LOG_FILE="${DOCKER_DIR}/storage-test.log"
-COMPOSE_FILE="docker-compose.storage-test.yml"
+
+source "$SCRIPT_DIR/test-helpers.sh"
+
+PROJECT=rusticulum-storage
+COMPOSE_FILES="-f docker-compose.storage-test.yml"
+COMPOSE_CMD="docker compose -p $PROJECT $COMPOSE_FILES"
 
 cd "$DOCKER_DIR"
 
 echo "=== Building and starting containers for storage persistence test ==="
-docker compose -f "$COMPOSE_FILE" up -d --build 2>&1 | tee "$LOG_FILE"
+compose_up 2>&1 | tee "$LOG_FILE"
 
-echo "=== Phase 1: Waiting for initial link establishment (40s) ==="
-sleep 40
+echo "=== Phase 1: Waiting for initial link establishment (polling, 60s timeout) ==="
+if ! poll_logs "link_established" 60 5; then
+    echo "WARNING: link_established not found in logs within 60s, continuing..."
+fi
 
 # Capture Rust node identity hash from logs (first occurrence of queued_announce)
 echo "=== Capturing Rust identity from phase 1 ==="
-docker compose -f "$COMPOSE_FILE" logs rust-node >> "$LOG_FILE" 2>&1
+$COMPOSE_CMD logs rust-node >> "$LOG_FILE" 2>&1
 
 IDENTITY_HASH_1=""
 if grep -q "queued_announce" "$LOG_FILE"; then
@@ -34,19 +41,26 @@ else
 fi
 
 echo "=== Stopping Rust node (SIGTERM for graceful shutdown) ==="
-docker compose -f "$COMPOSE_FILE" stop rust-node
+$COMPOSE_CMD stop rust-node
 
 echo "=== Waiting for state to persist (5s) ==="
 sleep 5
 
 echo "=== Restarting Rust node ==="
-docker compose -f "$COMPOSE_FILE" start rust-node
+$COMPOSE_CMD start rust-node
 
-echo "=== Phase 2: Waiting for second link establishment (50s) ==="
-sleep 50
+echo "=== Phase 2: Waiting for second link establishment (polling, 60s timeout) ==="
+if ! poll_logs "loaded transport identity" 60 5; then
+    echo "WARNING: loaded transport identity not found in logs within 60s, continuing..."
+fi
+# Give extra time for link establishment after identity load
+if ! poll_logs "link_established.*link_established" 30 5 2>/dev/null; then
+    # Fallback: just wait a bit for phase 2 link
+    sleep 10
+fi
 
 echo "=== Collecting all logs ==="
-docker compose -f "$COMPOSE_FILE" logs >> "$LOG_FILE" 2>&1
+$COMPOSE_CMD logs >> "$LOG_FILE" 2>&1
 
 # Capture identity hash from phase 2 (after restart)
 IDENTITY_HASH_2=""
@@ -83,17 +97,17 @@ elif [ "$LINK_COUNT" -ge 1 ]; then
 fi
 
 # Wait for Python to finish
-PYTHON_CONTAINER=$(docker compose -f "$COMPOSE_FILE" ps -q python-rns 2>/dev/null)
+PYTHON_CONTAINER=$($COMPOSE_CMD ps -q python-rns 2>/dev/null)
 if [ -n "$PYTHON_CONTAINER" ]; then
     PYTHON_EXIT=$(timeout 30 docker wait "$PYTHON_CONTAINER" 2>/dev/null || echo "")
     echo "Python test exited with code: ${PYTHON_EXIT:-timeout}"
 fi
 
 # Final log collection
-docker compose -f "$COMPOSE_FILE" logs >> "$LOG_FILE" 2>&1
+$COMPOSE_CMD logs >> "$LOG_FILE" 2>&1
 
 echo "=== Tearing down ==="
-docker compose -f "$COMPOSE_FILE" down -v
+compose_down
 
 echo ""
 echo "=== Results ==="
