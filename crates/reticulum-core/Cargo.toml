@@ -24,7 +24,7 @@ rand = { workspace = true, optional = true }
 [dev-dependencies]
 serde_json = { workspace = true }
 hex = { workspace = true }
-reticulum-test-vectors = { workspace = true }
+reticulum-test-vectors = { workspace = true, features = ["helpers"] }
 proptest = { workspace = true }
 criterion = { workspace = true }
 

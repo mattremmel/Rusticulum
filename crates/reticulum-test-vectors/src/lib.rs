@@ -17,6 +17,9 @@
 //! }
 //! ```
 
+#[cfg(feature = "helpers")]
+pub mod helpers;
+
 pub mod announces;
 pub mod buffer_transfers;
 pub mod channels;

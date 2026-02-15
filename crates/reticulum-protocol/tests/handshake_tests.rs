@@ -8,15 +8,7 @@ use reticulum_crypto::x25519::X25519PrivateKey;
 use reticulum_protocol::link::{LinkHandshake, LinkMode, LinkPending};
 use reticulum_test_vectors::{keypairs, links};
 
-fn hex_to_32(hex_str: &str) -> [u8; 32] {
-    let bytes = hex::decode(hex_str).expect("invalid hex");
-    bytes.try_into().expect("must be 32 bytes")
-}
-
-fn hex_to_16(hex_str: &str) -> [u8; 16] {
-    let bytes = hex::decode(hex_str).expect("invalid hex");
-    bytes.try_into().expect("must be 16 bytes")
-}
+use reticulum_test_vectors::helpers::{hex_to_16, hex_to_32};
 
 /// Load identity and ephemeral keys for a handshake vector.
 struct HandshakeKeys {

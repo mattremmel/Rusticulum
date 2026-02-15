@@ -15,19 +15,7 @@ use reticulum_test_vectors::{keypairs, links};
 // Helpers
 // ---------------------------------------------------------------------------
 
-fn hex_to_bytes(hex_str: &str) -> Vec<u8> {
-    hex::decode(hex_str).expect("invalid hex")
-}
-
-fn hex_to_16(hex_str: &str) -> [u8; 16] {
-    let bytes = hex::decode(hex_str).expect("invalid hex");
-    bytes.try_into().expect("must be 16 bytes")
-}
-
-fn hex_to_32(hex_str: &str) -> [u8; 32] {
-    let bytes = hex::decode(hex_str).expect("invalid hex");
-    bytes.try_into().expect("must be 32 bytes")
-}
+use reticulum_test_vectors::helpers::{hex_to_16, hex_to_32, hex_to_bytes};
 
 /// Build a `LinkActive` from a derived key for testing.
 fn link_active_from_derived_key(derived_key: DerivedKey, link_id: [u8; 16]) -> LinkActive {

@@ -602,4 +602,17 @@ mod tests {
 
         assert!(!client.is_connected());
     }
+
+    #[tokio::test]
+    async fn local_client_conformance() {
+        let path = test_socket_path("conformance");
+        let mut config = LocalClientConfig::initiator("test-conformance", path);
+        config.max_reconnect_tries = Some(0);
+        let client = LocalClientInterface::new(config, InterfaceId(230)).unwrap();
+
+        crate::testing::assert_pre_start_conformance(&client).await;
+        crate::testing::assert_capabilities_consistent(&client);
+        crate::testing::assert_transmit_error_is_expected(&client).await;
+        crate::testing::assert_stop_conformance(&client).await;
+    }
 }

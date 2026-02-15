@@ -709,6 +709,18 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn tcp_client_conformance() {
+        let mut config = TcpClientConfig::initiator("test-conformance", "127.0.0.1:9999");
+        config.max_reconnect_tries = Some(0);
+        let client = TcpClientInterface::new(config, InterfaceId(200)).unwrap();
+
+        crate::testing::assert_pre_start_conformance(&client).await;
+        crate::testing::assert_capabilities_consistent(&client);
+        crate::testing::assert_transmit_error_is_expected(&client).await;
+        crate::testing::assert_stop_conformance(&client).await;
+    }
+
+    #[tokio::test]
     async fn test_responder_does_not_reconnect() {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();

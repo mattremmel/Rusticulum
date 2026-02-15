@@ -511,4 +511,21 @@ mod tests {
 
         server.stop().await.unwrap();
     }
+
+    #[tokio::test]
+    async fn local_server_conformance() {
+        let path = test_socket_path("srv_conformance");
+        let _cleanup = SocketCleanup(path.clone());
+        let _ = std::fs::remove_file(&path); // intentional: test cleanup
+
+        let config = LocalServerConfig::new("test-conformance", path);
+        let server = LocalServerInterface::new(config, InterfaceId(240));
+
+        crate::testing::assert_has_name(&server);
+        crate::testing::assert_not_connected_before_start(&server);
+        crate::testing::assert_capabilities_consistent(&server);
+        // Server transmit always returns Configuration error (by design).
+        crate::testing::assert_transmit_before_start_fails(&server).await;
+        crate::testing::assert_stop_conformance(&server).await;
+    }
 }

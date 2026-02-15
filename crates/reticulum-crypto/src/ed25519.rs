@@ -122,19 +122,7 @@ impl AsRef<[u8]> for Ed25519PublicKey {
 mod tests {
     use super::*;
 
-    fn hex_to_32(hex_str: &str) -> [u8; 32] {
-        let bytes = hex::decode(hex_str).expect("invalid hex");
-        let mut arr = [0u8; 32];
-        arr.copy_from_slice(&bytes);
-        arr
-    }
-
-    fn hex_to_64(hex_str: &str) -> [u8; 64] {
-        let bytes = hex::decode(hex_str).expect("invalid hex");
-        let mut arr = [0u8; 64];
-        arr.copy_from_slice(&bytes);
-        arr
-    }
+    use reticulum_test_vectors::helpers::{hex_to_32, hex_to_64};
 
     #[test]
     fn test_ed25519_public_key_derivation() {

@@ -12,6 +12,7 @@ pub mod local;
 pub mod shutdown;
 pub mod tcp;
 pub mod traits;
+pub mod testing;
 pub mod udp;
 
 pub use error::InterfaceError;

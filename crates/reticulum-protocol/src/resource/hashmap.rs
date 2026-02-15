@@ -237,9 +237,7 @@ mod tests {
     use super::super::constants::SDU;
     use super::*;
 
-    fn hex_to_bytes(hex: &str) -> Vec<u8> {
-        hex::decode(hex).expect("invalid hex")
-    }
+    use reticulum_test_vectors::helpers::hex_to_bytes;
 
     // ============================================================== //
     // Unit tests

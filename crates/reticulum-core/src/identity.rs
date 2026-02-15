@@ -250,19 +250,7 @@ fn compute_hash(x25519_pub: &X25519PublicKey, ed25519_pub: &Ed25519PublicKey) ->
 mod tests {
     use super::*;
 
-    fn hex_to_32(hex_str: &str) -> [u8; 32] {
-        hex::decode(hex_str)
-            .expect("invalid hex")
-            .try_into()
-            .expect("must be 32 bytes")
-    }
-
-    fn hex_to_64(hex_str: &str) -> [u8; 64] {
-        hex::decode(hex_str)
-            .expect("invalid hex")
-            .try_into()
-            .expect("must be 64 bytes")
-    }
+    use reticulum_test_vectors::helpers::{hex_to_32, hex_to_64};
 
     #[test]
     fn test_private_key_bytes_roundtrip() {

@@ -463,4 +463,17 @@ mod tests {
         client.stop().await.unwrap();
         server.stop().await.unwrap();
     }
+
+    #[tokio::test]
+    async fn tcp_server_conformance() {
+        let config = TcpServerConfig::new("test-conformance", "127.0.0.1:0".parse().unwrap());
+        let server = TcpServerInterface::new(config, InterfaceId(210));
+
+        crate::testing::assert_has_name(&server);
+        crate::testing::assert_not_connected_before_start(&server);
+        crate::testing::assert_capabilities_consistent(&server);
+        // Server transmit always returns Configuration error (by design).
+        crate::testing::assert_transmit_before_start_fails(&server).await;
+        crate::testing::assert_stop_conformance(&server).await;
+    }
 }

@@ -509,4 +509,19 @@ mod tests {
         iface.stop().await.unwrap();
         assert!(!iface.is_connected());
     }
+
+    #[tokio::test]
+    async fn udp_conformance() {
+        let config = UdpConfig::unicast(
+            "udp-conformance",
+            "127.0.0.1:0".parse().unwrap(),
+            "127.0.0.1:9999".parse().unwrap(),
+        );
+        let iface = UdpInterface::new(config, InterfaceId(220));
+
+        crate::testing::assert_pre_start_conformance(&iface).await;
+        crate::testing::assert_capabilities_consistent(&iface);
+        crate::testing::assert_transmit_error_is_expected(&iface).await;
+        crate::testing::assert_stop_conformance(&iface).await;
+    }
 }

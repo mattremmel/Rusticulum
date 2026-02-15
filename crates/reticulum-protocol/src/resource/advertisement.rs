@@ -286,9 +286,7 @@ mod tests {
         vecs.resource_advertisement_vectors
     }
 
-    fn hex_to_bytes(hex: &str) -> Vec<u8> {
-        hex::decode(hex).expect("invalid hex")
-    }
+    use reticulum_test_vectors::helpers::hex_to_bytes;
 
     fn build_adv_from_dict(
         v: &reticulum_test_vectors::resources::ResourceAdvertisementVector,
