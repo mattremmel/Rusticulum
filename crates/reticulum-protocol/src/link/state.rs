@@ -196,6 +196,7 @@ pub fn build_proof_data(signature: &[u8], x25519_pub: &[u8], signalling: &[u8]) 
 #[must_use]
 fn encode_rtt_msgpack(rtt: f64) -> Vec<u8> {
     let mut buf = Vec::with_capacity(9);
+    // SAFETY: encoding to a Vec<u8> never fails (infallible Write impl).
     rmpv::encode::write_value(&mut buf, &rmpv::Value::F64(rtt))
         .expect("msgpack encoding to Vec never fails");
     buf
