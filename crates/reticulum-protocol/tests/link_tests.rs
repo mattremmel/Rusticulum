@@ -284,17 +284,17 @@ fn teardown_reason_repr_values() {
 
 #[test]
 fn teardown_reason_from_u8() {
-    assert_eq!(TeardownReason::from_u8(1), Some(TeardownReason::Timeout));
+    assert_eq!(TeardownReason::try_from(1).unwrap(), TeardownReason::Timeout);
     assert_eq!(
-        TeardownReason::from_u8(2),
-        Some(TeardownReason::InitiatorClosed)
+        TeardownReason::try_from(2).unwrap(),
+        TeardownReason::InitiatorClosed
     );
     assert_eq!(
-        TeardownReason::from_u8(3),
-        Some(TeardownReason::DestinationClosed)
+        TeardownReason::try_from(3).unwrap(),
+        TeardownReason::DestinationClosed
     );
-    assert_eq!(TeardownReason::from_u8(0), None);
-    assert_eq!(TeardownReason::from_u8(4), None);
+    assert!(TeardownReason::try_from(0).is_err());
+    assert!(TeardownReason::try_from(4).is_err());
 }
 
 #[test]
@@ -362,18 +362,18 @@ fn resource_strategy_repr_values() {
 #[test]
 fn resource_strategy_from_u8() {
     assert_eq!(
-        ResourceStrategy::from_u8(0),
-        Some(ResourceStrategy::AcceptNone)
+        ResourceStrategy::try_from(0).unwrap(),
+        ResourceStrategy::AcceptNone
     );
     assert_eq!(
-        ResourceStrategy::from_u8(1),
-        Some(ResourceStrategy::AcceptApp)
+        ResourceStrategy::try_from(1).unwrap(),
+        ResourceStrategy::AcceptApp
     );
     assert_eq!(
-        ResourceStrategy::from_u8(2),
-        Some(ResourceStrategy::AcceptAll)
+        ResourceStrategy::try_from(2).unwrap(),
+        ResourceStrategy::AcceptAll
     );
-    assert_eq!(ResourceStrategy::from_u8(3), None);
+    assert!(ResourceStrategy::try_from(3).is_err());
 }
 
 #[test]

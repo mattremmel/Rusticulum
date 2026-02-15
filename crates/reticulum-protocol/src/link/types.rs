@@ -32,14 +32,15 @@ impl fmt::Display for TeardownReason {
     }
 }
 
-impl TeardownReason {
-    #[must_use]
-    pub fn from_u8(value: u8) -> Option<Self> {
+impl TryFrom<u8> for TeardownReason {
+    type Error = LinkError;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
         match value {
-            0x01 => Some(Self::Timeout),
-            0x02 => Some(Self::InitiatorClosed),
-            0x03 => Some(Self::DestinationClosed),
-            _ => None,
+            0x01 => Ok(Self::Timeout),
+            0x02 => Ok(Self::InitiatorClosed),
+            0x03 => Ok(Self::DestinationClosed),
+            _ => Err(LinkError::InvalidTeardownReason(value)),
         }
     }
 }
@@ -120,14 +121,15 @@ impl fmt::Display for ResourceStrategy {
     }
 }
 
-impl ResourceStrategy {
-    #[must_use]
-    pub fn from_u8(value: u8) -> Option<Self> {
+impl TryFrom<u8> for ResourceStrategy {
+    type Error = LinkError;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
         match value {
-            0 => Some(Self::AcceptNone),
-            1 => Some(Self::AcceptApp),
-            2 => Some(Self::AcceptAll),
-            _ => None,
+            0 => Ok(Self::AcceptNone),
+            1 => Ok(Self::AcceptApp),
+            2 => Ok(Self::AcceptAll),
+            _ => Err(LinkError::InvalidResourceStrategy(value)),
         }
     }
 }

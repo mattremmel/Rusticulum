@@ -28,8 +28,8 @@ mod tests {
     fn test_policy_vectors() {
         let vectors = reticulum_test_vectors::requests::load();
         for tv in &vectors.policy_vectors {
-            let policy = AccessPolicy::from_u8(tv.policy as u8)
-                .unwrap_or_else(|| panic!("invalid policy {} at index={}", tv.policy, tv.index));
+            let policy = AccessPolicy::try_from(tv.policy as u8)
+                .unwrap_or_else(|_| panic!("invalid policy {} at index={}", tv.policy, tv.index));
 
             let remote = tv.remote_identity_hash.as_ref().map(|hex| {
                 let bytes = hex::decode(hex).unwrap();

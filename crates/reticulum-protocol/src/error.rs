@@ -43,6 +43,12 @@ pub enum LinkError {
 
     #[error("no private key available")]
     NoPrivateKey,
+
+    #[error("invalid teardown reason: {0}")]
+    InvalidTeardownReason(u8),
+
+    #[error("invalid resource strategy: {0}")]
+    InvalidResourceStrategy(u8),
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -139,6 +145,12 @@ pub enum RequestError {
 
     #[error("request payload too large")]
     TooLarge,
+
+    #[error("invalid access policy: {0}")]
+    InvalidAccessPolicy(u8),
+
+    #[error("invalid receipt status: {0}")]
+    InvalidReceiptStatus(u8),
 
     #[error("link error: {0}")]
     LinkError(#[from] LinkError),

@@ -1,5 +1,7 @@
 //! Request/response protocol constants.
 
+use crate::error::RequestError;
+
 /// Multiplier applied to RTT for the traffic timeout component.
 pub const TRAFFIC_TIMEOUT_FACTOR: f64 = 6.0;
 
@@ -18,13 +20,15 @@ pub enum AccessPolicy {
     AllowList = 2,
 }
 
-impl AccessPolicy {
-    pub fn from_u8(value: u8) -> Option<Self> {
+impl TryFrom<u8> for AccessPolicy {
+    type Error = RequestError;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
         match value {
-            0 => Some(Self::AllowNone),
-            1 => Some(Self::AllowAll),
-            2 => Some(Self::AllowList),
-            _ => None,
+            0 => Ok(Self::AllowNone),
+            1 => Ok(Self::AllowAll),
+            2 => Ok(Self::AllowList),
+            _ => Err(RequestError::InvalidAccessPolicy(value)),
         }
     }
 }
@@ -40,15 +44,17 @@ pub enum ReceiptStatus {
     Ready = 4,
 }
 
-impl ReceiptStatus {
-    pub fn from_u8(value: u8) -> Option<Self> {
+impl TryFrom<u8> for ReceiptStatus {
+    type Error = RequestError;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
         match value {
-            0 => Some(Self::Failed),
-            1 => Some(Self::Sent),
-            2 => Some(Self::Delivered),
-            3 => Some(Self::Receiving),
-            4 => Some(Self::Ready),
-            _ => None,
+            0 => Ok(Self::Failed),
+            1 => Ok(Self::Sent),
+            2 => Ok(Self::Delivered),
+            3 => Ok(Self::Receiving),
+            4 => Ok(Self::Ready),
+            _ => Err(RequestError::InvalidReceiptStatus(value)),
         }
     }
 }
