@@ -33,7 +33,7 @@ pub enum ContextType {
 
 impl ContextType {
     #[must_use = "parsing a context byte may fail; check the Result"]
-    pub fn from_byte(byte: u8) -> Result<Self, PacketError> {
+    pub fn from_u8(byte: u8) -> Result<Self, PacketError> {
         match byte {
             0 => Ok(ContextType::None),
             1 => Ok(ContextType::Resource),
@@ -106,7 +106,7 @@ mod tests {
                 "context type value mismatch for {name}"
             );
             // Verify our enum roundtrips
-            let ct = ContextType::from_byte(value).unwrap();
+            let ct = ContextType::from_u8(value).unwrap();
             assert_eq!(ct.to_byte(), value, "roundtrip failed for {name}");
         }
     }
@@ -115,7 +115,7 @@ mod tests {
     fn test_context_type_invalid() {
         // Values between 15 and 249 are invalid
         for v in [15, 16, 100, 200, 249] {
-            assert!(ContextType::from_byte(v).is_err());
+            assert!(ContextType::from_u8(v).is_err());
         }
     }
 
@@ -125,7 +125,7 @@ mod tests {
         let mut success_count = 0u32;
         let mut fail_count = 0u32;
         for byte in 0..=255u8 {
-            match ContextType::from_byte(byte) {
+            match ContextType::from_u8(byte) {
                 Ok(ct) => {
                     assert_eq!(ct.to_byte(), byte, "roundtrip failed for byte {byte}");
                     success_count += 1;
