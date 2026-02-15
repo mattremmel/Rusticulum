@@ -15,7 +15,7 @@ use crate::packet::flags::PacketFlags;
 use crate::types::{DestinationHash, PacketHash};
 
 /// A parsed packet with references to the original data.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[must_use]
 pub struct RawPacket {
     pub flags: PacketFlags,

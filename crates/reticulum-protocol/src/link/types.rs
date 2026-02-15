@@ -130,7 +130,7 @@ impl ResourceStrategy {
 }
 
 /// Physical layer statistics reported by the interface.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct PhyStats {
     pub rssi: Option<f64>,
     pub snr: Option<f64>,
@@ -138,7 +138,7 @@ pub struct PhyStats {
 }
 
 /// Traffic counters for a link.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct LinkStats {
     pub tx_packets: u64,
     pub rx_packets: u64,
