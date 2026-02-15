@@ -18,4 +18,9 @@ pub mod sha;
 pub mod token;
 pub mod x25519;
 
+pub use ed25519::{Ed25519PrivateKey, Ed25519PublicKey, Ed25519Signature};
 pub use error::CryptoError;
+pub use hmac::{hmac_sha256, hmac_sha256_verify};
+pub use sha::{sha256, sha512, truncated_hash};
+pub use token::Token;
+pub use x25519::{X25519PrivateKey, X25519PublicKey};

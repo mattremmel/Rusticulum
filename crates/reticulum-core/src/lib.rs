@@ -15,3 +15,16 @@ pub mod framing;
 pub mod identity;
 pub mod packet;
 pub mod types;
+
+pub use announce::Announce;
+pub use constants::{DestinationType, HeaderType, PacketType, TransportType};
+pub use destination::Destination;
+pub use error::{AnnounceError, FramingError, IdentityError, PacketError};
+pub use identity::Identity;
+pub use packet::context::ContextType;
+pub use packet::flags::PacketFlags;
+pub use packet::wire::RawPacket;
+pub use types::{
+    DestinationHash, FullHash, IdentityHash, InvalidLength, LinkId, NameHash, PacketHash,
+    TruncatedHash,
+};
