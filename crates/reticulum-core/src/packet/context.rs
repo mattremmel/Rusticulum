@@ -6,6 +6,7 @@
 use crate::error::PacketError;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 #[repr(u8)]
 pub enum ContextType {
     None = 0,

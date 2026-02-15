@@ -5,7 +5,7 @@ use reticulum_core::types::{DestinationHash, TruncatedHash};
 use crate::path::InterfaceId;
 
 /// An entry in the reverse table (for proof routing).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct ReverseEntry {
     /// Interface the original packet was received on.
     pub receiving_interface: InterfaceId,
@@ -26,7 +26,7 @@ impl ReverseEntry {
 }
 
 /// An entry in the link table (for link request forwarding).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct LinkTableEntry {
     /// Timestamp when the entry was created.
     pub timestamp: u64,
@@ -49,7 +49,7 @@ pub struct LinkTableEntry {
 }
 
 /// Action returned by the packet router.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RouterAction {
     /// Transmit a packet on a specific interface.
     Transmit {

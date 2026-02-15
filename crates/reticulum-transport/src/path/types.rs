@@ -26,6 +26,7 @@ impl From<InterfaceId> for u64 {
 
 /// Interface operating mode, determines path TTL.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 #[repr(u8)]
 pub enum InterfaceMode {
     Full = 0,

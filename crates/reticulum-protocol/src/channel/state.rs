@@ -11,9 +11,10 @@ use super::constants::*;
 pub const MAX_TRIES: u32 = 5;
 
 /// Outcome of a timeout event on a tracked envelope.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum TimeoutOutcome {
     /// The envelope should be retried (tries < MAX_TRIES).
+    #[default]
     Retry,
     /// The envelope has exhausted all retries — tear down the link.
     Fail,
@@ -33,7 +34,7 @@ pub struct TimeoutResult {
 // ======================================================================== //
 
 /// Initial window parameters computed from link RTT.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct InitialWindow {
     pub window: u16,
     pub window_max: u16,
@@ -65,7 +66,7 @@ pub fn compute_initial_window(rtt: f64) -> InitialWindow {
 }
 
 /// Input state for delivery adaptation.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct DeliveryInput {
     pub rtt: f64,
     pub window: u16,
@@ -76,7 +77,7 @@ pub struct DeliveryInput {
 }
 
 /// Output of delivery adaptation — new window and rate-tracking state.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct DeliveryAdaptation {
     pub new_window: u16,
     pub new_window_max: u16,
@@ -149,7 +150,7 @@ pub fn classify_delivery_adaptation(input: DeliveryInput) -> DeliveryAdaptation 
 }
 
 /// Input state for timeout adaptation.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TimeoutInput {
     pub tries: u32,
     pub window: u16,
@@ -159,7 +160,7 @@ pub struct TimeoutInput {
 }
 
 /// Output of timeout adaptation — new try count, outcome, and window params.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct TimeoutAdaptation {
     pub new_tries: u32,
     pub outcome: TimeoutOutcome,

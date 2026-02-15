@@ -39,7 +39,7 @@ pub enum ResourceState {
 }
 
 /// A resource prepared for sending (sender side).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PreparedResource {
     /// The encrypted data to be split into parts and sent.
     pub encrypted_data: Vec<u8>,
@@ -56,7 +56,7 @@ pub struct PreparedResource {
 }
 
 /// A resource assembled from received parts (receiver side).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AssembledResource {
     /// The original data with metadata prefix (if any).
     pub data_with_metadata: Vec<u8>,

@@ -11,7 +11,7 @@ use super::constants::*;
 // ======================================================================== //
 
 /// Input state for window-complete adaptation.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct WindowCompleteInput {
     pub rate: f64,
     pub window: u16,
@@ -23,7 +23,7 @@ pub struct WindowCompleteInput {
 }
 
 /// Output of window-complete adaptation.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct WindowCompleteAdaptation {
     pub new_window: u16,
     pub new_window_min: u16,
@@ -83,7 +83,7 @@ pub fn classify_window_complete(input: WindowCompleteInput) -> WindowCompleteAda
 }
 
 /// Input state for resource window timeout adaptation.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct WindowTimeoutInput {
     pub window: u16,
     pub window_min: u16,

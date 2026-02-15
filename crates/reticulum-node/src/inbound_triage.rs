@@ -68,7 +68,7 @@ pub enum InboundAction {
 pub fn classify_inbound(packet_type: PacketType) -> InboundAction {
     match packet_type {
         PacketType::Announce => InboundAction::ProcessAnnounce,
-        PacketType::Data | PacketType::LinkRequest | PacketType::Proof => {
+        PacketType::Data | PacketType::LinkRequest | PacketType::Proof | _ => {
             InboundAction::HandleLinkPacket
         }
     }

@@ -32,6 +32,7 @@ pub const FLAGS_LOWER_NIBBLE_MASK: u8 = 0x0F;
 pub const ANNOUNCE_MIN_PAYLOAD: usize = KEYSIZE + NAME_HASH_LENGTH + RANDOM_HASH_LENGTH + SIGLENGTH; // 148
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 #[repr(u8)]
 pub enum HeaderType {
     Header1 = 0,
@@ -60,6 +61,7 @@ impl TryFrom<u8> for HeaderType {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 #[repr(u8)]
 pub enum TransportType {
     Broadcast = 0,
@@ -88,6 +90,7 @@ impl TryFrom<u8> for TransportType {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 #[repr(u8)]
 pub enum DestinationType {
     Single = 0,
@@ -122,6 +125,7 @@ impl TryFrom<u8> for DestinationType {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 #[repr(u8)]
 pub enum PacketType {
     Data = 0,
