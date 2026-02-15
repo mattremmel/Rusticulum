@@ -1,6 +1,7 @@
 //! Path table types.
 
 use std::collections::VecDeque;
+use std::fmt;
 
 use reticulum_core::types::{PacketHash, TruncatedHash};
 
@@ -10,6 +11,18 @@ use crate::error::PathError;
 /// Lightweight interface identifier.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct InterfaceId(pub u64);
+
+impl From<u64> for InterfaceId {
+    fn from(v: u64) -> Self {
+        Self(v)
+    }
+}
+
+impl From<InterfaceId> for u64 {
+    fn from(id: InterfaceId) -> Self {
+        id.0
+    }
+}
 
 /// Interface operating mode, determines path TTL.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -32,6 +45,19 @@ pub mod mode_str {
     pub const MODE_BOUNDARY: &str = "MODE_BOUNDARY";
     pub const MODE_GATEWAY: &str = "MODE_GATEWAY";
     pub const DEFAULT: &str = "default";
+}
+
+impl fmt::Display for InterfaceMode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            InterfaceMode::Full => f.write_str("full"),
+            InterfaceMode::PointToPoint => f.write_str("point-to-point"),
+            InterfaceMode::AccessPoint => f.write_str("access point"),
+            InterfaceMode::Roaming => f.write_str("roaming"),
+            InterfaceMode::Boundary => f.write_str("boundary"),
+            InterfaceMode::Gateway => f.write_str("gateway"),
+        }
+    }
 }
 
 impl InterfaceMode {
@@ -59,7 +85,7 @@ impl InterfaceMode {
             mode_str::MODE_BOUNDARY => Ok(InterfaceMode::Boundary),
             mode_str::MODE_GATEWAY => Ok(InterfaceMode::Gateway),
             mode_str::MODE_FULL | mode_str::DEFAULT => Ok(InterfaceMode::Full),
-            other => Err(PathError::InvalidInterfaceMode(other.to_string())),
+            _ => Err(PathError::InvalidInterfaceMode("unrecognized mode string")),
         }
     }
 

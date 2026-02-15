@@ -33,6 +33,12 @@ impl AsRef<[u8]> for TruncatedHash {
     }
 }
 
+impl From<[u8; 16]> for TruncatedHash {
+    fn from(bytes: [u8; 16]) -> Self {
+        Self(bytes)
+    }
+}
+
 impl TryFrom<&[u8]> for TruncatedHash {
     type Error = InvalidLength;
 
@@ -76,6 +82,12 @@ impl AsRef<[u8]> for FullHash {
     }
 }
 
+impl From<[u8; 32]> for FullHash {
+    fn from(bytes: [u8; 32]) -> Self {
+        Self(bytes)
+    }
+}
+
 impl TryFrom<&[u8]> for FullHash {
     type Error = InvalidLength;
 
@@ -116,6 +128,12 @@ impl NameHash {
 impl AsRef<[u8]> for NameHash {
     fn as_ref(&self) -> &[u8] {
         &self.0
+    }
+}
+
+impl From<[u8; 10]> for NameHash {
+    fn from(bytes: [u8; 10]) -> Self {
+        Self(bytes)
     }
 }
 
@@ -169,6 +187,12 @@ impl AsRef<[u8]> for DestinationHash {
     }
 }
 
+impl From<[u8; 16]> for DestinationHash {
+    fn from(bytes: [u8; 16]) -> Self {
+        Self(TruncatedHash(bytes))
+    }
+}
+
 impl TryFrom<&[u8]> for DestinationHash {
     type Error = InvalidLength;
 
@@ -215,6 +239,12 @@ impl AsRef<[u8]> for IdentityHash {
     }
 }
 
+impl From<[u8; 16]> for IdentityHash {
+    fn from(bytes: [u8; 16]) -> Self {
+        Self(TruncatedHash(bytes))
+    }
+}
+
 impl TryFrom<&[u8]> for IdentityHash {
     type Error = InvalidLength;
 
@@ -258,6 +288,12 @@ impl Deref for LinkId {
 impl AsRef<[u8]> for LinkId {
     fn as_ref(&self) -> &[u8] {
         self.0.as_ref()
+    }
+}
+
+impl From<[u8; 16]> for LinkId {
+    fn from(bytes: [u8; 16]) -> Self {
+        Self(TruncatedHash(bytes))
     }
 }
 
@@ -312,6 +348,12 @@ impl Deref for PacketHash {
 impl AsRef<[u8]> for PacketHash {
     fn as_ref(&self) -> &[u8] {
         self.0.as_ref()
+    }
+}
+
+impl From<[u8; 32]> for PacketHash {
+    fn from(bytes: [u8; 32]) -> Self {
+        Self(FullHash(bytes))
     }
 }
 

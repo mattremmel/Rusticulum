@@ -74,6 +74,18 @@ impl X25519PublicKey {
     }
 }
 
+impl From<[u8; 32]> for X25519PublicKey {
+    fn from(bytes: [u8; 32]) -> Self {
+        Self::from_bytes(bytes)
+    }
+}
+
+impl AsRef<[u8]> for X25519PublicKey {
+    fn as_ref(&self) -> &[u8] {
+        self.0.as_bytes()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

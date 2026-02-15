@@ -3,12 +3,21 @@
 //! Provides key generation, signing, and verification using the Ed25519
 //! signature scheme as required by the Reticulum protocol.
 
+use core::fmt;
+
 use crate::CryptoError;
 use ed25519_dalek::{Signer, Verifier};
 
 /// An Ed25519 private (signing) key wrapping the 32-byte seed.
-#[derive(Debug)]
 pub struct Ed25519PrivateKey(ed25519_dalek::SigningKey);
+
+impl fmt::Debug for Ed25519PrivateKey {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_tuple("Ed25519PrivateKey")
+            .field(&"[REDACTED]")
+            .finish()
+    }
+}
 
 impl Ed25519PrivateKey {
     /// Generate a new random Ed25519 private key using the OS random number generator.
@@ -94,6 +103,18 @@ impl Ed25519Signature {
     #[must_use]
     pub fn to_bytes(&self) -> [u8; 64] {
         self.0.to_bytes()
+    }
+}
+
+impl From<[u8; 64]> for Ed25519Signature {
+    fn from(bytes: [u8; 64]) -> Self {
+        Self::from_bytes(bytes)
+    }
+}
+
+impl AsRef<[u8]> for Ed25519PublicKey {
+    fn as_ref(&self) -> &[u8] {
+        self.0.as_bytes()
     }
 }
 
