@@ -23,6 +23,7 @@ const ONE_BIT_MASK: u8 = 0x01;
 const TWO_BIT_MASK: u8 = 0x03;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[must_use]
 pub struct PacketFlags {
     pub header_type: HeaderType,
     pub context_flag: bool,
@@ -32,6 +33,7 @@ pub struct PacketFlags {
 }
 
 impl PacketFlags {
+    #[must_use = "parsing a flags byte may fail; check the Result"]
     pub fn from_byte(byte: u8) -> Result<Self, PacketError> {
         let header_type = HeaderType::from_u8((byte >> HEADER_TYPE_SHIFT) & ONE_BIT_MASK)?;
         let context_flag = (byte >> CONTEXT_FLAG_SHIFT) & ONE_BIT_MASK != 0;
@@ -48,6 +50,7 @@ impl PacketFlags {
         })
     }
 
+    #[must_use = "returns the encoded byte without side effects"]
     pub fn to_byte(&self) -> u8 {
         ((self.header_type as u8) << HEADER_TYPE_SHIFT)
             | ((self.context_flag as u8) << CONTEXT_FLAG_SHIFT)

@@ -19,6 +19,7 @@ pub const HASHLIST_ROTATION_THRESHOLD: usize = HASHLIST_MAX_SIZE / 2;
 /// Matches the Python reference implementation's rotation strategy:
 /// when `current.len() > HASHLIST_ROTATION_THRESHOLD`, the current set
 /// becomes the previous set and a new empty current set is created.
+#[must_use]
 pub struct PacketHashlist {
     current: HashSet<PacketHash>,
     prev: HashSet<PacketHash>,
@@ -33,6 +34,7 @@ impl PacketHashlist {
     }
 
     /// Check if a packet hash has been seen before.
+    #[must_use]
     pub fn contains(&self, hash: &PacketHash) -> bool {
         self.current.contains(hash) || self.prev.contains(hash)
     }
@@ -57,21 +59,25 @@ impl PacketHashlist {
     }
 
     /// Total number of tracked hashes across both sets.
+    #[must_use]
     pub fn len(&self) -> usize {
         self.current.len() + self.prev.len()
     }
 
     /// Returns true if both sets are empty.
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.current.is_empty() && self.prev.is_empty()
     }
 
     /// Number of hashes in the current set.
+    #[must_use]
     pub fn current_len(&self) -> usize {
         self.current.len()
     }
 
     /// Number of hashes in the previous set.
+    #[must_use]
     pub fn prev_len(&self) -> usize {
         self.prev.len()
     }

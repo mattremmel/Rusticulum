@@ -84,6 +84,7 @@ pub enum RetransmitDecision {
 /// Decide whether a single announce entry should be retransmitted.
 ///
 /// This is the pure decision extracted from `process_retransmissions`.
+#[must_use]
 pub fn decide_retransmission(
     retries: u32,
     retransmit_timeout: f64,
@@ -105,6 +106,7 @@ pub fn decide_retransmission(
 }
 
 /// Announce retransmission table.
+#[must_use]
 pub struct AnnounceTable {
     entries: HashMap<DestinationHash, AnnounceTableEntry>,
 }
@@ -134,6 +136,7 @@ impl AnnounceTable {
     }
 
     /// Get an announce entry.
+    #[must_use]
     pub fn get(&self, destination: &DestinationHash) -> Option<&AnnounceTableEntry> {
         self.entries.get(destination)
     }
@@ -144,6 +147,7 @@ impl AnnounceTable {
     }
 
     /// Check if an entry exists for this destination.
+    #[must_use]
     pub fn contains(&self, destination: &DestinationHash) -> bool {
         self.entries.contains_key(destination)
     }
@@ -191,11 +195,13 @@ impl AnnounceTable {
     }
 
     /// Number of entries.
+    #[must_use]
     pub fn len(&self) -> usize {
         self.entries.len()
     }
 
     /// Whether the table is empty.
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
     }
@@ -210,6 +216,7 @@ impl Default for AnnounceTable {
 /// Compute the minimum wait time before retransmitting an announce.
 ///
 /// Formula: `(size_bits / bitrate) / cap`
+#[must_use]
 pub fn compute_announce_wait_time(size_bytes: usize, bitrate: f64, cap: f64) -> f64 {
     let size_bits = (size_bytes * 8) as f64;
     (size_bits / bitrate) / cap

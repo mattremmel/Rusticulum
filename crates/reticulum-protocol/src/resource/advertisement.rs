@@ -26,6 +26,7 @@ use crate::error::ResourceError;
 /// bit 0: encrypted   (e)
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[must_use]
 pub struct ResourceFlags {
     pub encrypted: bool,
     pub compressed: bool,
@@ -49,6 +50,7 @@ impl ResourceFlags {
     }
 
     /// Encode individual fields back into a flags byte.
+    #[must_use]
     pub fn to_byte(&self) -> u8 {
         (self.has_metadata as u8) << 5
             | (self.is_response as u8) << 4
@@ -68,6 +70,7 @@ impl ResourceFlags {
 /// Serialized as an 11-entry msgpack map with single-character keys:
 /// `t, d, n, h, r, o, i, l, q, f, m`.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[must_use]
 pub struct ResourceAdvertisement {
     /// `"t"` — Encrypted transfer size (bytes).
     pub transfer_size: u64,
@@ -98,6 +101,7 @@ impl ResourceAdvertisement {
     ///
     /// Produces an 11-entry fixmap (`0x8b`) with keys in the canonical order:
     /// `t, d, n, h, r, o, i, l, q, f, m`.
+    #[must_use]
     pub fn to_msgpack(&self) -> Vec<u8> {
         let q_val = match &self.request_id {
             Some(id) => Value::Binary(id.clone()),

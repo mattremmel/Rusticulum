@@ -14,6 +14,7 @@ pub struct X25519PrivateKey(StaticSecret);
 
 impl X25519PrivateKey {
     /// Generate a random X25519 private key using the OS CSPRNG.
+    #[must_use]
     pub fn generate() -> Self {
         let secret = StaticSecret::random_from_rng(rand::rngs::OsRng);
         Self(secret)
@@ -24,11 +25,13 @@ impl X25519PrivateKey {
     /// The `x25519-dalek` library applies Curve25519 clamping internally when
     /// the key is used for scalar multiplication, so the bytes are accepted
     /// as-is without pre-processing.
+    #[must_use]
     pub fn from_bytes(bytes: [u8; 32]) -> Self {
         Self(StaticSecret::from(bytes))
     }
 
     /// Derive the corresponding X25519 public key.
+    #[must_use]
     pub fn public_key(&self) -> X25519PublicKey {
         X25519PublicKey(PublicKey::from(&self.0))
     }
@@ -38,11 +41,13 @@ impl X25519PrivateKey {
     /// Returns the 32-byte shared secret. Both sides computing
     /// `a.diffie_hellman(&B)` and `b.diffie_hellman(&A)` will arrive at the
     /// same shared secret.
+    #[must_use]
     pub fn diffie_hellman(&self, their_public: &X25519PublicKey) -> [u8; 32] {
         *self.0.diffie_hellman(&their_public.0).as_bytes()
     }
 
     /// Extract the raw 32-byte private key material.
+    #[must_use]
     pub fn to_bytes(&self) -> [u8; 32] {
         self.0.to_bytes()
     }
@@ -57,11 +62,13 @@ pub struct X25519PublicKey(PublicKey);
 
 impl X25519PublicKey {
     /// Create an X25519 public key from raw bytes.
+    #[must_use]
     pub fn from_bytes(bytes: [u8; 32]) -> Self {
         Self(PublicKey::from(bytes))
     }
 
     /// Extract the raw 32-byte public key.
+    #[must_use]
     pub fn to_bytes(&self) -> [u8; 32] {
         *self.0.as_bytes()
     }

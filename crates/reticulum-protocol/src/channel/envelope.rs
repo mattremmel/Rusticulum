@@ -8,6 +8,7 @@ use crate::error::ChannelError;
 
 /// A channel envelope containing a typed, sequenced message payload.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[must_use]
 pub struct Envelope {
     /// Message type identifier.
     pub msg_type: u16,
@@ -24,6 +25,7 @@ impl Envelope {
     /// Pack the envelope into its wire format.
     ///
     /// Layout: `msg_type(2) || sequence(2) || data_length(2) || payload`
+    #[must_use]
     pub fn pack(&self) -> Vec<u8> {
         let len = self.payload.len() as u16;
         let mut buf = Vec::with_capacity(Self::OVERHEAD + self.payload.len());

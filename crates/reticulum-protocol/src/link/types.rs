@@ -21,6 +21,7 @@ pub enum TeardownReason {
 }
 
 impl TeardownReason {
+    #[must_use]
     pub fn from_u8(value: u8) -> Option<Self> {
         match value {
             0x01 => Some(Self::Timeout),
@@ -63,6 +64,7 @@ impl LinkMode {
     }
 
     /// Whether this mode is currently enabled (supported) by the implementation.
+    #[must_use]
     pub fn is_enabled(&self) -> bool {
         matches!(self, Self::Aes256Cbc)
     }
@@ -79,6 +81,7 @@ pub enum ResourceStrategy {
 }
 
 impl ResourceStrategy {
+    #[must_use]
     pub fn from_u8(value: u8) -> Option<Self> {
         match value {
             0 => Some(Self::AcceptNone),
@@ -107,6 +110,7 @@ pub struct LinkStats {
 }
 
 /// A 64-byte derived key split into signing (first 32) and encryption (last 32).
+#[must_use]
 pub struct DerivedKey {
     signing: [u8; 32],
     encryption: [u8; 32],
@@ -122,6 +126,7 @@ impl DerivedKey {
     }
 
     /// Reconstruct the full 64-byte key (signing || encryption).
+    #[must_use]
     pub fn to_bytes(&self) -> [u8; 64] {
         let mut out = [0u8; 64];
         out[..32].copy_from_slice(&self.signing);
@@ -130,11 +135,13 @@ impl DerivedKey {
     }
 
     /// First 32 bytes: used for HMAC signing in Token encrypt/decrypt.
+    #[must_use]
     pub fn signing_key(&self) -> &[u8; 32] {
         &self.signing
     }
 
     /// Last 32 bytes: used for AES-256-CBC encryption in Token encrypt/decrypt.
+    #[must_use]
     pub fn encryption_key(&self) -> &[u8; 32] {
         &self.encryption
     }

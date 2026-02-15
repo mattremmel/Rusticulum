@@ -36,6 +36,7 @@ pub mod mode_str {
 
 impl InterfaceMode {
     /// Convert from raw byte value.
+    #[must_use]
     pub fn from_u8(v: u8) -> Option<Self> {
         match v {
             0 => Some(InterfaceMode::Full),
@@ -49,6 +50,7 @@ impl InterfaceMode {
     }
 
     /// Parse from test-vector string representation (e.g. "MODE_FULL", "default").
+    #[must_use = "this returns the parsed mode without modifying the input"]
     pub fn from_vector_str(s: &str) -> Result<Self, PathError> {
         match s {
             mode_str::MODE_ACCESS_POINT => Ok(InterfaceMode::AccessPoint),
@@ -62,6 +64,7 @@ impl InterfaceMode {
     }
 
     /// Get the path TTL for this interface mode.
+    #[must_use]
     pub fn path_ttl(&self) -> u64 {
         match self {
             InterfaceMode::AccessPoint => AP_PATH_TIME,
@@ -76,6 +79,7 @@ impl InterfaceMode {
 
 /// A single entry in the path table.
 #[derive(Debug, Clone)]
+#[must_use]
 pub struct PathEntry {
     /// Timestamp when the path was last updated.
     pub timestamp: u64,
@@ -144,11 +148,13 @@ impl PathEntry {
     }
 
     /// Access the random blobs.
+    #[must_use]
     pub fn random_blobs(&self) -> &VecDeque<[u8; 10]> {
         &self.random_blobs
     }
 
     /// Convert random blobs to a Vec for serialization.
+    #[must_use]
     pub fn random_blobs_to_vec(&self) -> Vec<[u8; 10]> {
         self.random_blobs.iter().copied().collect()
     }
@@ -156,6 +162,7 @@ impl PathEntry {
     /// Check if this path is expired at the given time.
     ///
     /// Uses strict `>` comparison: `now > expires` means expired.
+    #[must_use]
     pub fn is_expired(&self, now: u64) -> bool {
         now > self.expires
     }
@@ -172,6 +179,7 @@ impl PathEntry {
     }
 
     /// Check if a random blob is already tracked.
+    #[must_use]
     pub fn has_random_blob(&self, blob: &[u8; 10]) -> bool {
         self.random_blobs.iter().any(|b| b == blob)
     }
@@ -189,6 +197,7 @@ impl PathEntry {
     /// Compute the emission timebase from random blobs.
     ///
     /// Takes the maximum of bytes [5..10] (big-endian u64) across all blobs.
+    #[must_use]
     pub fn timebase_from_random_blobs(&self) -> u64 {
         self.random_blobs
             .iter()

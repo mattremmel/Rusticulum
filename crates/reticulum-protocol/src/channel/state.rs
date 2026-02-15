@@ -45,6 +45,7 @@ pub struct InitialWindow {
 ///
 /// Very slow links (RTT > RTT_SLOW) get a minimal all-ones window.
 /// All other links start at the default slow-link parameters.
+#[must_use]
 pub fn compute_initial_window(rtt: f64) -> InitialWindow {
     if rtt > RTT_SLOW {
         InitialWindow {
@@ -88,6 +89,7 @@ pub struct DeliveryAdaptation {
 ///
 /// Grows the window by 1 (up to `window_max`), then classifies the RTT to
 /// track consecutive fast/medium rounds and potentially upgrade limits.
+#[must_use]
 pub fn classify_delivery_adaptation(input: DeliveryInput) -> DeliveryAdaptation {
     let mut window = input.window;
     let mut window_max = input.window_max;
@@ -169,6 +171,7 @@ pub struct TimeoutAdaptation {
 ///
 /// If tries+1 exceeds MAX_TRIES, returns Fail without changing the window.
 /// Otherwise shrinks window and window_max within their constraints.
+#[must_use]
 pub fn compute_timeout_adaptation(input: TimeoutInput) -> TimeoutAdaptation {
     let new_tries = input.tries + 1;
     if new_tries > MAX_TRIES {
@@ -206,6 +209,7 @@ pub fn compute_timeout_adaptation(input: TimeoutInput) -> TimeoutAdaptation {
 /// Returns `true` if `sequence` is within the valid receive window starting
 /// at `next_rx_sequence` with width `window_max`, accounting for 16-bit
 /// wraparound at SEQ_MODULUS (65536).
+#[must_use]
 pub fn check_rx_sequence_valid(sequence: u16, next_rx_sequence: u16, window_max: u16) -> bool {
     if sequence >= next_rx_sequence {
         return true;
@@ -233,6 +237,7 @@ pub fn check_rx_sequence_valid(sequence: u16, next_rx_sequence: u16, window_max:
 /// This struct is deliberately decoupled from I/O: it tracks pure protocol
 /// state and produces decisions that the caller acts on.
 #[derive(Debug, Clone)]
+#[must_use]
 pub struct ChannelState {
     // ---- Sequence tracking ----
     /// Next TX sequence number to assign.
@@ -321,11 +326,13 @@ impl ChannelState {
     }
 
     /// Return the current TX sequence without advancing it.
+    #[must_use]
     pub fn peek_tx_sequence(&self) -> u16 {
         self.next_tx_sequence
     }
 
     /// Return the next expected RX sequence.
+    #[must_use]
     pub fn next_rx_sequence(&self) -> u16 {
         self.next_rx_sequence
     }
@@ -339,6 +346,7 @@ impl ChannelState {
     ///
     /// Returns `true` if the sequence is within the valid receive window,
     /// accounting for 16-bit wraparound.
+    #[must_use]
     pub fn is_rx_valid(&self, sequence: u16, window_max: u16) -> bool {
         let valid = check_rx_sequence_valid(sequence, self.next_rx_sequence, window_max);
         if !valid {
@@ -436,6 +444,7 @@ impl ChannelState {
     }
 
     /// Check whether the given try count means the envelope has failed.
+    #[must_use]
     pub fn is_exhausted(tries: u32) -> bool {
         tries >= MAX_TRIES
     }
@@ -447,6 +456,7 @@ impl ChannelState {
     /// Compute the timeout duration (seconds) for a packet.
     ///
     /// Formula: `1.5^(tries-1) * max(rtt*2.5, 0.025) * (tx_ring_length + 1.5)`
+    #[must_use]
     pub fn packet_timeout(tries: u32, rtt: f64, tx_ring_length: usize) -> f64 {
         let exponential_factor = 1.5_f64.powi(tries as i32 - 1);
         let rtt_factor = (rtt * 2.5).max(0.025);
@@ -462,6 +472,7 @@ impl ChannelState {
     ///
     /// This is the maximum payload size that can fit in a single envelope:
     /// `min(outlet_mdu - ENVELOPE_OVERHEAD, 0xFFFF)`.
+    #[must_use]
     pub fn channel_mdu(outlet_mdu: usize) -> usize {
         let raw = outlet_mdu.saturating_sub(ENVELOPE_OVERHEAD);
         raw.min(MAX_CHANNEL_MDU)

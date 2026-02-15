@@ -16,6 +16,7 @@ pub const ESC_MASK: u8 = 0x20;
 ///
 /// Replaces ESC (0x7D) with ESC + 0x5D, and FLAG (0x7E) with ESC + 0x5E.
 /// The escape order (ESC first, then FLAG) is critical for correctness.
+#[must_use = "returns the escaped data without modifying the input"]
 pub fn hdlc_escape(data: &[u8]) -> Vec<u8> {
     let mut result = Vec::with_capacity(data.len());
     for &byte in data {
@@ -35,6 +36,7 @@ pub fn hdlc_escape(data: &[u8]) -> Vec<u8> {
 }
 
 /// Frame data with HDLC delimiters: FLAG + escape(data) + FLAG.
+#[must_use]
 pub fn hdlc_frame(data: &[u8]) -> Vec<u8> {
     let escaped = hdlc_escape(data);
     let mut framed = Vec::with_capacity(escaped.len() + 2);

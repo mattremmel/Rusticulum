@@ -10,6 +10,7 @@ use sha2::Sha256;
 type HmacSha256 = Hmac<Sha256>;
 
 /// Compute the HMAC-SHA256 of `data` using the given `key`.
+#[must_use]
 pub fn hmac_sha256(key: &[u8], data: &[u8]) -> [u8; 32] {
     // SAFETY: HmacSha256::new_from_slice accepts keys of any length; this never fails.
     let mut mac = HmacSha256::new_from_slice(key).expect("HMAC-SHA256 accepts keys of any length");

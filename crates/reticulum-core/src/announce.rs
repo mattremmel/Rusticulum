@@ -42,6 +42,7 @@ use crate::types::{DestinationHash, IdentityHash, NameHash};
 
 /// A parsed or constructed announce.
 #[derive(Debug, Clone)]
+#[must_use]
 pub struct Announce {
     pub destination_hash: DestinationHash,
     pub public_key: [u8; 64],
@@ -58,6 +59,7 @@ pub struct Announce {
 ///
 /// This matches the Python reference implementation's announce random hash format.
 #[cfg(feature = "std")]
+#[must_use = "returns the generated random hash"]
 pub fn make_random_hash() -> [u8; 10] {
     use rand::RngCore;
     let mut rng = rand::thread_rng();
@@ -113,6 +115,7 @@ impl Announce {
     /// `destination_hash` comes from the packet header.
     /// `context_flag` indicates whether a ratchet key is present.
     /// `context` is the context type from the packet header.
+    #[must_use = "parsing may fail; check the Result"]
     pub fn from_payload(
         destination_hash: DestinationHash,
         context_flag: bool,
@@ -190,6 +193,7 @@ impl Announce {
     }
 
     /// Parse an announce from a complete raw packet (header + payload).
+    #[must_use = "parsing may fail; check the Result"]
     pub fn from_raw_packet(raw: &[u8]) -> Result<Self, AnnounceError> {
         let packet = RawPacket::parse(raw)?;
 
@@ -208,6 +212,7 @@ impl Announce {
     /// Build the signed data for this announce.
     ///
     /// `signed_data = dest_hash(16) + public_key(64) + name_hash(10) + random_hash(10) [+ ratchet(32)] [+ app_data]`
+    #[must_use = "returns the signed data without modifying the announce"]
     pub fn signed_data(&self) -> Vec<u8> {
         let mut data = Vec::with_capacity(
             TRUNCATED_HASHLENGTH + KEYSIZE + NAME_HASH_LENGTH + RANDOM_HASH_LENGTH,
@@ -226,6 +231,7 @@ impl Announce {
     }
 
     /// Validate the announce: verify signature and destination hash.
+    #[must_use = "validation may fail; check the Result"]
     pub fn validate(&self) -> Result<(), AnnounceError> {
         // 1. Verify Ed25519 signature
         let ed25519_pub_bytes: [u8; 32] = self.public_key[32..64]
@@ -253,6 +259,7 @@ impl Announce {
     }
 
     /// Serialize the announce to wire payload format.
+    #[must_use = "serialization produces a new Vec without modifying the announce"]
     pub fn to_payload(&self) -> Vec<u8> {
         let mut payload = Vec::with_capacity(ANNOUNCE_MIN_PAYLOAD + 64);
         payload.extend_from_slice(&self.public_key);
@@ -269,6 +276,7 @@ impl Announce {
     }
 
     /// Build a complete raw packet from this announce.
+    #[must_use = "returns a new RawPacket without modifying the announce"]
     pub fn to_raw_packet(&self, hops: u8) -> RawPacket {
         let flags = PacketFlags {
             header_type: HeaderType::Header1,

@@ -16,6 +16,7 @@ use crate::types::{DestinationHash, PacketHash};
 
 /// A parsed packet with references to the original data.
 #[derive(Debug, Clone)]
+#[must_use]
 pub struct RawPacket {
     pub flags: PacketFlags,
     pub hops: u8,
@@ -27,6 +28,7 @@ pub struct RawPacket {
 
 impl RawPacket {
     /// Parse a raw packet from wire bytes.
+    #[must_use = "parsing may fail; check the Result"]
     pub fn parse(raw: &[u8]) -> Result<Self, PacketError> {
         if raw.len() < HEADER_1_SIZE {
             return Err(PacketError::TooShort {
@@ -88,6 +90,7 @@ impl RawPacket {
     }
 
     /// Serialize the packet back to wire format.
+    #[must_use = "serialization produces a new Vec without modifying the packet"]
     pub fn serialize(&self) -> Vec<u8> {
         let header_size = match self.flags.header_type {
             HeaderType::Header1 => HEADER_1_SIZE,
@@ -113,6 +116,7 @@ impl RawPacket {
     /// Per protocol: flags masked to lower 4 bits (& 0x0F), hops stripped,
     /// transport_id stripped for HEADER_2.
     /// Result: masked_flags(1) + destination(16) + context(1) + data
+    #[must_use = "returns the hashable bytes without modifying the packet"]
     pub fn hashable_part(&self) -> Vec<u8> {
         let masked_flags = self.flags.to_byte() & FLAGS_LOWER_NIBBLE_MASK;
 
@@ -126,6 +130,7 @@ impl RawPacket {
     }
 
     /// Compute the full 32-byte SHA-256 packet hash.
+    #[must_use = "returns the computed hash without modifying the packet"]
     pub fn packet_hash(&self) -> PacketHash {
         let hashable = self.hashable_part();
         let hash = reticulum_crypto::sha::sha256(&hashable);

@@ -19,6 +19,7 @@ impl ReverseEntry {
     /// Check if this entry is expired at the given time.
     ///
     /// Uses strict `>` comparison.
+    #[must_use]
     pub fn is_expired(&self, now: u64) -> bool {
         now > self.timestamp + super::constants::REVERSE_TIMEOUT
     }

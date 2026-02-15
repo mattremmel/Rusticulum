@@ -35,6 +35,7 @@ impl<'a> IfacCredentials<'a> {
     /// Convenience constructor from optional name and key.
     ///
     /// Returns `None` if both are `None`.
+    #[must_use]
     pub fn from_options(name: Option<&'a str>, key: Option<&'a str>) -> Option<Self> {
         match (name, key) {
             (Some(n), Some(k)) => Some(Self::NameAndKey { name: n, key: k }),
@@ -46,6 +47,7 @@ impl<'a> IfacCredentials<'a> {
 }
 
 /// IFAC configuration and identity for an interface.
+#[must_use]
 pub struct IfacConfig {
     /// The 64-byte IFAC key.
     pub ifac_key: [u8; 64],
@@ -94,6 +96,7 @@ impl IfacConfig {
 /// 3. Set IFAC flag in header, insert IFAC bytes after 2-byte header
 /// 4. Mask: byte 0 XOR mask[0] | 0x80, byte 1 XOR mask[1],
 ///    bytes 2..2+ifac_size NOT masked, remaining bytes XOR mask[i]
+#[must_use = "this returns the IFAC-protected packet without modifying the input"]
 pub fn ifac_apply(config: &IfacConfig, raw: &[u8]) -> Result<Vec<u8>, IfacError> {
     // Minimum: 2-byte header + at least 1 byte payload
     if raw.len() < 3 {
@@ -157,6 +160,7 @@ pub fn ifac_apply(config: &IfacConfig, raw: &[u8]) -> Result<Vec<u8>, IfacError>
 ///    remaining bytes XOR mask[i]
 /// 5. Clear IFAC flag, reassemble without IFAC bytes
 /// 6. Verify signature matches
+#[must_use = "this returns the verified packet without modifying the input"]
 pub fn ifac_verify(config: &IfacConfig, masked_raw: &[u8]) -> Result<Vec<u8>, IfacError> {
     // Check minimum length before any indexing
     if masked_raw.len() < 2 + config.ifac_size + 1 {
@@ -210,6 +214,7 @@ pub fn ifac_verify(config: &IfacConfig, masked_raw: &[u8]) -> Result<Vec<u8>, If
 }
 
 /// Check if a raw packet has the IFAC flag set.
+#[must_use]
 pub fn has_ifac_flag(raw: &[u8]) -> bool {
     !raw.is_empty() && raw[0] & IFAC_FLAG == IFAC_FLAG
 }

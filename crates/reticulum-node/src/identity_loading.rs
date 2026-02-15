@@ -25,6 +25,7 @@ pub enum IdentityLoadDecision {
 /// - `Some(Ok(false))` → file not found (no identity on disk)
 /// - `Some(Err(()))` → loading failed (corrupt file, I/O error, etc.)
 /// - `None` → storage not available (should match `has_storage == false`)
+#[must_use]
 pub fn classify_identity_load(
     has_storage: bool,
     load_result: Option<Result<bool, ()>>,
@@ -58,6 +59,7 @@ pub enum StateLoadOutcome {
 /// `result` maps the async load call:
 /// - `Ok(count)` → loaded successfully, `count` may be 0
 /// - `Err(msg)` → loading failed
+#[must_use]
 pub fn classify_state_load(result: Result<usize, String>) -> StateLoadOutcome {
     match result {
         Ok(count) if count > 0 => StateLoadOutcome::Loaded { count },

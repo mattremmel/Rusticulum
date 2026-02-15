@@ -25,6 +25,7 @@ pub enum LinkProofOutcome {
 ///
 /// `rtt_raw` is the optional RTT packet bytes returned by
 /// `link_manager.handle_lrproof()`.
+#[must_use]
 pub fn plan_link_proof_response(rtt_raw: Option<Vec<u8>>) -> LinkProofOutcome {
     match rtt_raw {
         Some(rtt_raw) => match RawPacket::parse(&rtt_raw) {
@@ -51,6 +52,7 @@ pub enum LinkRttOutcome {
 ///
 /// `link_id` is the optional LinkId returned by `link_manager.handle_lrrtt()`.
 /// `rtt` is the optional RTT value from `link_manager.get_rtt()`.
+#[must_use]
 pub fn plan_link_rtt_response(link_id: Option<LinkId>, rtt: Option<f64>) -> LinkRttOutcome {
     match link_id {
         Some(link_id) => {
@@ -75,6 +77,7 @@ pub enum LinkRequestOutcome {
 /// `has_identity` indicates whether the node has a transport identity.
 /// `proof_raw` is the optional proof packet bytes returned by
 /// `link_manager.handle_link_request()`.
+#[must_use]
 pub fn plan_link_request_response(
     has_identity: bool,
     proof_raw: Option<Vec<u8>>,

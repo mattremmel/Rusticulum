@@ -17,6 +17,7 @@ pub const CMD_DATA: u8 = 0x00;
 /// Escape special bytes in data using KISS byte-stuffing.
 ///
 /// Replaces FEND (0xC0) with FESC + TFEND, and FESC (0xDB) with FESC + TFESC.
+#[must_use]
 pub fn kiss_escape(data: &[u8]) -> Vec<u8> {
     let mut result = Vec::with_capacity(data.len());
     for &byte in data {
@@ -36,6 +37,7 @@ pub fn kiss_escape(data: &[u8]) -> Vec<u8> {
 }
 
 /// Frame data with KISS delimiters: FEND + CMD_DATA + escape(data) + FEND.
+#[must_use]
 pub fn kiss_frame(data: &[u8]) -> Vec<u8> {
     let escaped = kiss_escape(data);
     let mut framed = Vec::with_capacity(escaped.len() + 3);

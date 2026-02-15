@@ -32,6 +32,7 @@ pub enum ContextType {
 }
 
 impl ContextType {
+    #[must_use = "parsing a context byte may fail; check the Result"]
     pub fn from_byte(byte: u8) -> Result<Self, PacketError> {
         match byte {
             0 => Ok(ContextType::None),
@@ -59,6 +60,7 @@ impl ContextType {
         }
     }
 
+    #[must_use = "returns the encoded byte without side effects"]
     pub fn to_byte(&self) -> u8 {
         *self as u8
     }

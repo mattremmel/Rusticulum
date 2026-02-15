@@ -193,6 +193,7 @@ pub fn build_proof_data(signature: &[u8], x25519_pub: &[u8], signalling: &[u8]) 
 // ---------------------------------------------------------------------------
 
 /// Encode an RTT value as MessagePack float64.
+#[must_use]
 fn encode_rtt_msgpack(rtt: f64) -> Vec<u8> {
     let mut buf = Vec::new();
     rmpv::encode::write_value(&mut buf, &rmpv::Value::F64(rtt))
@@ -232,6 +233,7 @@ fn derive_link_key(
 // ---------------------------------------------------------------------------
 
 /// A link that has been requested but not yet completed the ECDH exchange.
+#[must_use]
 pub struct LinkPending {
     pub link_id: LinkId,
     pub destination_hash: DestinationHash,
@@ -494,6 +496,7 @@ impl std::fmt::Debug for LinkPending {
 /// On the responder side, this state is entered after processing the initiator's
 /// LINKREQUEST and sending the LRPROOF. The responder waits for the LRRTT
 /// packet to transition to `LinkActive`.
+#[must_use]
 pub struct LinkHandshake {
     pub link_id: LinkId,
     pub derived_key: DerivedKey,
@@ -706,6 +709,7 @@ impl std::fmt::Debug for LinkHandshake {
 // ---------------------------------------------------------------------------
 
 /// A fully established, active link.
+#[must_use]
 pub struct LinkActive {
     pub link_id: LinkId,
     pub derived_key: DerivedKey,
@@ -751,11 +755,13 @@ impl LinkActive {
     }
 
     /// Sign data using the link's derived signing key (HMAC-SHA256).
+    #[must_use]
     pub fn sign(&self, data: &[u8]) -> Vec<u8> {
         hmac_sha256(self.derived_key.signing_key(), data).to_vec()
     }
 
     /// Verify a signature against data using the link's derived signing key.
+    #[must_use]
     pub fn verify(&self, data: &[u8], signature: &[u8]) -> bool {
         if let Ok(sig_arr) = <&[u8; 32]>::try_from(signature) {
             hmac_sha256_verify(self.derived_key.signing_key(), data, sig_arr).is_ok()
@@ -831,6 +837,7 @@ impl LinkActive {
     /// Compute the keepalive interval from a measured RTT.
     ///
     /// `keepalive = max(min(rtt * (KEEPALIVE_MAX / KEEPALIVE_MAX_RTT), KEEPALIVE_MAX), KEEPALIVE_MIN)`
+    #[must_use]
     pub fn compute_keepalive(rtt: f64) -> f64 {
         (rtt * (KEEPALIVE_MAX / KEEPALIVE_MAX_RTT)).clamp(KEEPALIVE_MIN, KEEPALIVE_MAX)
     }
@@ -838,6 +845,7 @@ impl LinkActive {
     /// Compute the maximum data unit size for a given MTU.
     ///
     /// `MDU = floor((mtu - IFAC_MIN_SIZE - HEADER_MINSIZE - TOKEN_OVERHEAD) / AES_BLOCKSIZE) * AES_BLOCKSIZE - 1`
+    #[must_use]
     pub fn compute_mdu(mtu: u32) -> u32 {
         let usable =
             mtu as i64 - IFAC_MIN_SIZE as i64 - HEADER_MINSIZE as i64 - TOKEN_OVERHEAD as i64;
@@ -876,6 +884,7 @@ impl std::fmt::Debug for LinkActive {
 
 /// A link that has been torn down.
 #[derive(Debug)]
+#[must_use]
 pub struct LinkClosed {
     pub link_id: LinkId,
     pub teardown_reason: TeardownReason,

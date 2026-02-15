@@ -21,6 +21,7 @@ type Aes256CbcDec = cbc::Decryptor<Aes256>;
 /// The plaintext is PKCS7-padded before encryption. The returned ciphertext
 /// does **not** include the IV — callers must transmit or store the IV
 /// separately.
+#[must_use]
 pub fn aes256_cbc_encrypt(key: &[u8; 32], iv: &[u8; 16], plaintext: &[u8]) -> Vec<u8> {
     let padded = crate::pkcs7::pkcs7_pad(plaintext, 16);
     let encryptor = Aes256CbcEnc::new(key.into(), iv.into());

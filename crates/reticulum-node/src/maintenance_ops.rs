@@ -13,6 +13,7 @@ use crate::routing;
 ///
 /// Announces are deferred from startup until at least one interface is
 /// connected, to avoid sending into the void.
+#[must_use]
 pub fn should_broadcast_pending_announces(
     has_pending: bool,
     has_connected_interface: bool,
@@ -24,6 +25,7 @@ pub fn should_broadcast_pending_announces(
 ///
 /// Wraps [`routing::prepare_announce_retransmission`] with the
 /// "use original if no transform" fallback logic from the event loop.
+#[must_use]
 pub fn plan_announce_retransmission(
     raw: &[u8],
     enable_transport: bool,
@@ -36,6 +38,7 @@ pub fn plan_announce_retransmission(
 }
 
 /// Collect IDs of connected interfaces for table culling.
+#[must_use]
 pub fn collect_active_interface_ids(interfaces: &[(InterfaceId, bool)]) -> Vec<InterfaceId> {
     interfaces
         .iter()

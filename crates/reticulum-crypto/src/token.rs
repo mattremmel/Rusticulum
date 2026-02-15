@@ -24,6 +24,7 @@ use crate::CryptoError;
 ///
 /// Holds a 64-byte key split into a signing key (HMAC-SHA256) and an
 /// encryption key (AES-256-CBC).
+#[must_use]
 pub struct Token {
     signing_key: [u8; 32],
     encryption_key: [u8; 32],
@@ -49,6 +50,7 @@ impl Token {
     /// Encrypt `plaintext` with a randomly generated IV.
     ///
     /// Returns the complete token: `IV || ciphertext || HMAC`.
+    #[must_use]
     pub fn encrypt(&self, plaintext: &[u8]) -> Vec<u8> {
         use rand::Rng;
         let mut iv = [0u8; 16];
@@ -59,6 +61,7 @@ impl Token {
     /// Encrypt `plaintext` with a specific IV (for deterministic testing).
     ///
     /// Returns the complete token: `IV || ciphertext || HMAC`.
+    #[must_use]
     pub fn encrypt_with_iv(&self, plaintext: &[u8], iv: &[u8; 16]) -> Vec<u8> {
         let ciphertext = crate::aes_cbc::aes256_cbc_encrypt(&self.encryption_key, iv, plaintext);
 

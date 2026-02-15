@@ -27,6 +27,7 @@ pub enum PathUpdateDecision {
 /// 2. Duplicate random_hash → `Skip`
 /// 3. Fewer hops or expired entry → `Replace`
 /// 4. Same or worse hops → `TrackBlob`
+#[must_use]
 pub fn decide_path_update(
     existing: Option<&PathEntry>,
     hops: u8,

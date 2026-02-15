@@ -23,6 +23,7 @@ pub enum EarlyDropReason {
 ///
 /// Returns `Some(reason)` if the packet should be dropped, `None` if it
 /// should proceed to full processing.
+#[must_use]
 pub fn should_drop_early(is_new: bool, hops: u8) -> Option<EarlyDropReason> {
     if !is_new {
         return Some(EarlyDropReason::Duplicate);
@@ -40,6 +41,7 @@ pub fn should_drop_early(is_new: bool, hops: u8) -> Option<EarlyDropReason> {
 /// their own delivery/ordering mechanisms (resource windowing, channel
 /// sequencing, keepalive echo, cache request/response) so hashlist-based
 /// dedup would incorrectly suppress legitimate retransmissions.
+#[must_use]
 pub fn bypasses_dedup(context: ContextType) -> bool {
     matches!(
         context,
@@ -62,6 +64,7 @@ pub enum InboundAction {
 }
 
 /// Classify a parsed packet by its [`PacketType`].
+#[must_use]
 pub fn classify_inbound(packet_type: PacketType) -> InboundAction {
     match packet_type {
         PacketType::Announce => InboundAction::ProcessAnnounce,

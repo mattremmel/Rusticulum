@@ -38,6 +38,7 @@ pub struct WindowCompleteAdaptation {
 /// 1. Grow `window` toward `window_max`.
 /// 2. Grow `window_min` if the gap exceeds `window_flexibility - 1`.
 /// 3. Track consecutive fast/very-slow rounds and upgrade/downgrade limits.
+#[must_use]
 pub fn classify_window_complete(input: WindowCompleteInput) -> WindowCompleteAdaptation {
     let mut window = input.window;
     let mut window_min = input.window_min;
@@ -101,6 +102,7 @@ pub struct WindowTimeoutAdaptation {
 ///
 /// All shrink steps are gated by `window > window_min`. When the window
 /// is already at minimum, nothing changes.
+#[must_use]
 pub fn compute_window_timeout(input: WindowTimeoutInput) -> WindowTimeoutAdaptation {
     let mut window = input.window;
     let mut window_max = input.window_max;
@@ -136,6 +138,7 @@ pub fn compute_window_timeout(input: WindowTimeoutInput) -> WindowTimeoutAdaptat
 /// window and shrinks on part-request timeouts. Rate-based thresholds
 /// trigger transitions between slow, medium, and fast `window_max` limits.
 #[derive(Debug, Clone)]
+#[must_use]
 pub struct WindowState {
     /// Current window size (max unacknowledged parts in flight).
     pub window: u16,
@@ -256,6 +259,7 @@ impl WindowState {
     }
 
     /// Check if more parts can be sent given the current outstanding count.
+    #[must_use]
     pub fn is_ready_to_send(&self, outstanding: usize) -> bool {
         outstanding < self.window as usize
     }

@@ -7,6 +7,7 @@
 use sha2::{Digest, Sha256, Sha512};
 
 /// Compute the SHA-256 hash of the given data.
+#[must_use]
 pub fn sha256(data: &[u8]) -> [u8; 32] {
     let mut hasher = Sha256::new();
     hasher.update(data);
@@ -14,6 +15,7 @@ pub fn sha256(data: &[u8]) -> [u8; 32] {
 }
 
 /// Compute the SHA-512 hash of the given data.
+#[must_use]
 pub fn sha512(data: &[u8]) -> [u8; 64] {
     let mut hasher = Sha512::new();
     hasher.update(data);
@@ -22,6 +24,7 @@ pub fn sha512(data: &[u8]) -> [u8; 64] {
 
 /// Compute the truncated hash of the given data: SHA-256, then take the first
 /// 16 bytes (128 bits). This is Reticulum's "name hash" used for addressing.
+#[must_use]
 pub fn truncated_hash(data: &[u8]) -> [u8; 16] {
     let full = sha256(data);
     let mut result = [0u8; 16];
@@ -48,6 +51,7 @@ impl Sha256Hasher {
     }
 
     /// Consume the hasher and return the final SHA-256 digest.
+    #[must_use]
     pub fn finalize(self) -> [u8; 32] {
         self.inner.finalize().into()
     }

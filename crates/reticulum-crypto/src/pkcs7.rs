@@ -16,6 +16,7 @@ use crate::CryptoError;
 /// # Panics
 ///
 /// Panics if `block_size` is 0 or greater than 255.
+#[must_use]
 pub fn pkcs7_pad(data: &[u8], block_size: usize) -> Vec<u8> {
     assert!(
         (1..=255).contains(&block_size),

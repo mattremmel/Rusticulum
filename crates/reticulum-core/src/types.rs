@@ -18,6 +18,7 @@ fn fmt_hex(bytes: &[u8], f: &mut fmt::Formatter<'_>) -> fmt::Result {
 
 /// A 16-byte truncated hash (first 128 bits of SHA-256).
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
+#[must_use]
 pub struct TruncatedHash(pub(crate) [u8; 16]);
 
 impl TruncatedHash {
@@ -60,6 +61,7 @@ impl fmt::Debug for TruncatedHash {
 
 /// A 32-byte full SHA-256 hash.
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
+#[must_use]
 pub struct FullHash(pub(crate) [u8; 32]);
 
 impl FullHash {
@@ -102,6 +104,7 @@ impl fmt::Debug for FullHash {
 
 /// A 10-byte name hash (first 80 bits of SHA-256).
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
+#[must_use]
 pub struct NameHash(pub(crate) [u8; 10]);
 
 impl NameHash {
@@ -144,6 +147,7 @@ impl fmt::Debug for NameHash {
 
 /// A destination hash (16-byte truncated hash).
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
+#[must_use]
 pub struct DestinationHash(pub(crate) TruncatedHash);
 
 impl DestinationHash {
@@ -189,6 +193,7 @@ impl fmt::Debug for DestinationHash {
 
 /// An identity hash (16-byte truncated hash of public keys).
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
+#[must_use]
 pub struct IdentityHash(pub(crate) TruncatedHash);
 
 impl IdentityHash {
@@ -234,6 +239,7 @@ impl fmt::Debug for IdentityHash {
 
 /// A link ID (16-byte truncated hash).
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
+#[must_use]
 pub struct LinkId(pub(crate) TruncatedHash);
 
 impl LinkId {
@@ -279,6 +285,7 @@ impl fmt::Debug for LinkId {
 
 /// A full 32-byte packet hash.
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
+#[must_use]
 pub struct PacketHash(pub(crate) FullHash);
 
 impl PacketHash {
@@ -287,6 +294,7 @@ impl PacketHash {
     }
 
     /// Get the truncated (16-byte) packet hash used for addressing.
+    #[must_use = "returns the truncated hash without modifying the original"]
     pub fn truncated(&self) -> TruncatedHash {
         let mut arr = [0u8; 16];
         arr.copy_from_slice(&self.0.0[..16]);

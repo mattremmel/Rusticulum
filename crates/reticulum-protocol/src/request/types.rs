@@ -8,6 +8,7 @@ use crate::error::RequestError;
 
 /// A path hash identifying a request handler endpoint.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[must_use]
 pub struct PathHash(TruncatedHash);
 
 impl PathHash {
@@ -35,6 +36,7 @@ impl AsRef<[u8]> for PathHash {
 
 /// A request ID derived from the packet's hashable part or packed request data.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[must_use]
 pub struct RequestId(TruncatedHash);
 
 impl RequestId {

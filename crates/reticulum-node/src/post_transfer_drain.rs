@@ -30,6 +30,7 @@ pub enum PostTransferAction {
 ///
 /// The ordering is: channel message → buffer stream → request,
 /// matching the drain order in the original `send_auto_data()`.
+#[must_use]
 pub fn plan_post_transfer_actions(snapshot: &PostTransferSnapshot) -> Vec<PostTransferAction> {
     let mut actions = Vec::new();
 

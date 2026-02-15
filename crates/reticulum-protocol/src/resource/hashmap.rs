@@ -21,6 +21,7 @@ pub type MapHash = [u8; MAPHASH_LEN];
 /// random hash that was used in their computation. Supports segmentation
 /// for sending hashes in advertisement-sized chunks.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[must_use]
 pub struct ResourceHashmap {
     random_hash: [u8; RANDOM_HASH_SIZE],
     parts: Vec<MapHash>,
@@ -36,6 +37,7 @@ impl ResourceHashmap {
     }
 
     /// Compute the map hash for a data chunk: `SHA256(data || random_hash)[0..4]`.
+    #[must_use]
     pub fn compute_map_hash(&self, data: &[u8]) -> MapHash {
         let mut input = Vec::with_capacity(data.len() + RANDOM_HASH_SIZE);
         input.extend_from_slice(data);
@@ -108,6 +110,7 @@ impl ResourceHashmap {
     }
 
     /// Serialize all hashes as concatenated bytes.
+    #[must_use]
     pub fn to_bytes(&self) -> Vec<u8> {
         let mut buf = Vec::with_capacity(self.parts.len() * MAPHASH_LEN);
         for hash in &self.parts {
@@ -117,6 +120,7 @@ impl ResourceHashmap {
     }
 
     /// Verify that data at the given index matches its stored hash.
+    #[must_use]
     pub fn verify_part(&self, index: usize, data: &[u8]) -> bool {
         match self.parts.get(index) {
             Some(expected) => {
@@ -128,21 +132,25 @@ impl ResourceHashmap {
     }
 
     /// Number of part hashes stored.
+    #[must_use]
     pub fn len(&self) -> usize {
         self.parts.len()
     }
 
     /// Whether the hashmap is empty.
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.parts.is_empty()
     }
 
     /// The random hash bound to this hashmap.
+    #[must_use]
     pub fn random_hash(&self) -> &[u8; RANDOM_HASH_SIZE] {
         &self.random_hash
     }
 
     /// Get the hash at the given index.
+    #[must_use]
     pub fn get(&self, index: usize) -> Option<&MapHash> {
         self.parts.get(index)
     }
@@ -152,6 +160,7 @@ impl ResourceHashmap {
     // -------------------------------------------------------------- //
 
     /// Number of segments needed to send all hashes.
+    #[must_use]
     pub fn segment_count(&self) -> usize {
         if self.parts.is_empty() {
             return 0;
@@ -160,6 +169,7 @@ impl ResourceHashmap {
     }
 
     /// Slice of hashes for the given segment index.
+    #[must_use]
     pub fn segment(&self, index: usize) -> &[MapHash] {
         let start = index * HASHMAP_MAX_LEN;
         if start >= self.parts.len() {
@@ -170,6 +180,7 @@ impl ResourceHashmap {
     }
 
     /// Flattened bytes for the given segment index.
+    #[must_use]
     pub fn segment_bytes(&self, index: usize) -> Vec<u8> {
         let seg = self.segment(index);
         let mut buf = Vec::with_capacity(seg.len() * MAPHASH_LEN);
@@ -180,6 +191,7 @@ impl ResourceHashmap {
     }
 
     /// Number of hashes in the given segment.
+    #[must_use]
     pub fn segment_hash_count(&self, index: usize) -> usize {
         self.segment(index).len()
     }
@@ -192,6 +204,7 @@ impl ResourceHashmap {
     ///
     /// Returns the index of the first duplicate hash, or `None` if no
     /// collisions are found.
+    #[must_use]
     pub fn check_collisions(&self) -> Option<usize> {
         let mut window: VecDeque<MapHash> = VecDeque::with_capacity(COLLISION_GUARD_SIZE);
         let mut seen: HashSet<MapHash> = HashSet::with_capacity(COLLISION_GUARD_SIZE);

@@ -24,6 +24,7 @@ pub struct StreamHeader {
 
 impl StreamHeader {
     /// Encode the header as 2 big-endian bytes.
+    #[must_use]
     pub fn encode(&self) -> [u8; 2] {
         let mut val = self.stream_id & STREAM_ID_MAX;
         if self.is_eof {

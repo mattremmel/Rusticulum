@@ -55,6 +55,7 @@ pub enum ResourceAssemblyOutcome {
 /// 3. If no derived key → `NoDerivedKey`
 /// 4. If assembly failed → `AssemblyFailed`
 /// 5. If assembly succeeded → `Assembled` with data preview
+#[must_use]
 pub fn plan_resource_assembly(input: ResourcePartInput) -> ResourceAssemblyOutcome {
     if !input.receive_ok {
         return ResourceAssemblyOutcome::PartError {

@@ -14,6 +14,7 @@ use crate::link_dispatch::LinkPacketKind;
 /// bypasses link encryption because the resource layer handles its own
 /// Token encryption. All other data contexts (ResourceAdv, ResourceReq,
 /// ResourcePrf, Channel, Request, Response) ARE link-encrypted.
+#[must_use]
 pub fn needs_link_encryption(kind: LinkPacketKind) -> bool {
     match kind {
         // Resource parts bypass link encryption — resource layer encrypts
@@ -41,6 +42,7 @@ pub fn needs_link_encryption(kind: LinkPacketKind) -> bool {
 ///
 /// Only `Channel` messages require delivery proofs — the Python Channel
 /// implementation expects them and will retransmit without them.
+#[must_use]
 pub fn needs_delivery_proof(kind: LinkPacketKind) -> bool {
     matches!(kind, LinkPacketKind::ChannelData)
 }
@@ -49,11 +51,13 @@ pub fn needs_delivery_proof(kind: LinkPacketKind) -> bool {
 ///
 /// Only `ResourcePart` uses raw extraction — the resource layer handles
 /// its own encryption, so we must NOT decrypt at the link layer.
+#[must_use]
 pub fn uses_raw_data(kind: LinkPacketKind) -> bool {
     matches!(kind, LinkPacketKind::ResourcePart)
 }
 
 /// Describe the handler for a packet kind (useful for logging/debugging).
+#[must_use]
 pub fn describe_handler(kind: LinkPacketKind) -> &'static str {
     match kind {
         LinkPacketKind::LinkRequest => "link_request",

@@ -32,11 +32,13 @@ impl ReverseTable {
     }
 
     /// Look up a reverse entry without removing it.
+    #[must_use]
     pub fn get(&self, key: &TruncatedHash) -> Option<&ReverseEntry> {
         self.entries.get(key)
     }
 
     /// Check if a key exists.
+    #[must_use]
     pub fn contains(&self, key: &TruncatedHash) -> bool {
         self.entries.contains_key(key)
     }
@@ -52,10 +54,12 @@ impl ReverseTable {
         before - self.entries.len()
     }
 
+    #[must_use]
     pub fn len(&self) -> usize {
         self.entries.len()
     }
 
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
     }
@@ -87,6 +91,7 @@ impl LinkTable {
     }
 
     /// Look up a link table entry.
+    #[must_use]
     pub fn get(&self, link_id: &LinkId) -> Option<&LinkTableEntry> {
         self.entries.get(link_id)
     }
@@ -102,6 +107,7 @@ impl LinkTable {
     }
 
     /// Check if a link ID exists.
+    #[must_use]
     pub fn contains(&self, link_id: &LinkId) -> bool {
         self.entries.contains_key(link_id)
     }
@@ -113,10 +119,12 @@ impl LinkTable {
         before - self.entries.len()
     }
 
+    #[must_use]
     pub fn len(&self) -> usize {
         self.entries.len()
     }
 
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
     }

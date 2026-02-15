@@ -20,6 +20,7 @@ use crate::types::IdentityHash;
 ///
 /// A full identity (with private keys) can sign, decrypt, and create announces.
 /// A public-only identity can verify signatures and encrypt messages to the holder.
+#[must_use]
 pub struct Identity {
     x25519_private: Option<X25519PrivateKey>,
     ed25519_private: Option<Ed25519PrivateKey>,
@@ -94,6 +95,7 @@ impl Identity {
     }
 
     /// Whether this identity has private keys (i.e., can sign and decrypt).
+    #[must_use = "returns a bool without side effects"]
     pub fn has_private_key(&self) -> bool {
         self.x25519_private.is_some() && self.ed25519_private.is_some()
     }
@@ -101,6 +103,7 @@ impl Identity {
     /// Get the 64 raw private key bytes: `x25519_private(32) || ed25519_private(32)`.
     ///
     /// Returns `None` for public-only identities.
+    #[must_use = "returns the private key bytes without side effects"]
     pub fn private_key_bytes(&self) -> Option<[u8; 64]> {
         let x25519_prv = self.x25519_private.as_ref()?;
         let ed25519_prv = self.ed25519_private.as_ref()?;
@@ -111,6 +114,7 @@ impl Identity {
     }
 
     /// Get the 64-byte combined public key: `x25519_public(32) || ed25519_public(32)`.
+    #[must_use = "returns the public key bytes without side effects"]
     pub fn public_key_bytes(&self) -> [u8; 64] {
         let mut result = [0u8; 64];
         result[..32].copy_from_slice(&self.x25519_public.to_bytes());
@@ -119,11 +123,13 @@ impl Identity {
     }
 
     /// Get the 16-byte identity hash.
+    #[must_use = "returns the identity hash without side effects"]
     pub fn hash(&self) -> &IdentityHash {
         &self.hash
     }
 
     /// Get the Ed25519 public key.
+    #[must_use = "returns the public key without side effects"]
     pub fn ed25519_public(&self) -> &Ed25519PublicKey {
         &self.ed25519_public
     }
@@ -134,6 +140,7 @@ impl Identity {
     }
 
     /// Get the X25519 public key.
+    #[must_use = "returns the public key without side effects"]
     pub fn x25519_public(&self) -> &X25519PublicKey {
         &self.x25519_public
     }
@@ -144,6 +151,7 @@ impl Identity {
     }
 
     /// Sign data with the Ed25519 private key.
+    #[must_use = "signing may fail; check the Result"]
     pub fn sign(&self, data: &[u8]) -> Result<Ed25519Signature, IdentityError> {
         let key = self
             .ed25519_private
@@ -153,6 +161,7 @@ impl Identity {
     }
 
     /// Verify an Ed25519 signature.
+    #[must_use = "verification may fail; check the Result"]
     pub fn verify(&self, data: &[u8], signature: &Ed25519Signature) -> Result<(), IdentityError> {
         self.ed25519_public
             .verify(data, signature)
@@ -163,6 +172,7 @@ impl Identity {
     ///
     /// Uses a random ephemeral X25519 keypair. Output format:
     /// `ephemeral_public(32) || Token(IV(16) || ciphertext || HMAC(32))`
+    #[must_use = "returns the ciphertext without modifying the identity"]
     pub fn encrypt(&self, plaintext: &[u8]) -> Vec<u8> {
         let ephemeral = X25519PrivateKey::generate();
         self.encrypt_with_ephemeral(plaintext, &ephemeral)
@@ -192,6 +202,7 @@ impl Identity {
     ///
     /// Requires the X25519 private key. Input format:
     /// `ephemeral_public(32) || Token(IV(16) || ciphertext || HMAC(32))`
+    #[must_use = "decryption may fail; check the Result"]
     pub fn decrypt(&self, ciphertext: &[u8]) -> Result<Vec<u8>, IdentityError> {
         let x25519_prv = self
             .x25519_private

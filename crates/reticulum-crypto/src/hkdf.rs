@@ -22,6 +22,7 @@ const HASH_LEN: usize = 32;
 ///
 /// Computes `PRK = HMAC-SHA256(salt, ikm)`. If `salt` is `None` or empty, 32
 /// zero bytes are used as the salt, matching the Python reference implementation.
+#[must_use]
 pub fn hkdf_extract(salt: Option<&[u8]>, ikm: &[u8]) -> [u8; 32] {
     let effective_salt: &[u8] = match salt {
         Some(s) if !s.is_empty() => s,
@@ -35,6 +36,7 @@ pub fn hkdf_extract(salt: Option<&[u8]>, ikm: &[u8]) -> [u8; 32] {
 /// Expands a pseudorandom key (`prk`) with optional `info` context to produce
 /// `length` bytes of output keying material. The counter byte is computed as
 /// `(i + 1) % 256` to match the Python reference.
+#[must_use]
 pub fn hkdf_expand(prk: &[u8; 32], info: &[u8], length: usize) -> Vec<u8> {
     let num_blocks = length.div_ceil(HASH_LEN);
     let mut derived = Vec::with_capacity(num_blocks * HASH_LEN);
@@ -64,6 +66,7 @@ pub fn hkdf_expand(prk: &[u8; 32], info: &[u8], length: usize) -> Vec<u8> {
 ///
 /// If `salt` is `None` or `Some(&[])`, 32 zero bytes are used. If `context` is
 /// `None`, an empty byte slice is used.
+#[must_use]
 pub fn hkdf(
     length: usize,
     derive_from: &[u8],

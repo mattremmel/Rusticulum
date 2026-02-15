@@ -40,6 +40,7 @@ pub struct StorablePathEntry {
 /// Convert a destination hash + path entry into a storable form.
 ///
 /// Truncates random blobs to [`MAX_PERSISTED_BLOBS`].
+#[must_use]
 pub fn path_entry_to_storable(dest: &DestinationHash, entry: &PathEntry) -> StorablePathEntry {
     let mut blobs = entry.random_blobs_to_vec();
     blobs.truncate(MAX_PERSISTED_BLOBS);

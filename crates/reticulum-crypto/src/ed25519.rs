@@ -12,28 +12,33 @@ pub struct Ed25519PrivateKey(ed25519_dalek::SigningKey);
 
 impl Ed25519PrivateKey {
     /// Generate a new random Ed25519 private key using the OS random number generator.
+    #[must_use]
     pub fn generate() -> Self {
         let mut csprng = rand::rngs::OsRng;
         Self(ed25519_dalek::SigningKey::generate(&mut csprng))
     }
 
     /// Create a private key from the raw 32-byte seed.
+    #[must_use]
     pub fn from_bytes(bytes: [u8; 32]) -> Self {
         Self(ed25519_dalek::SigningKey::from_bytes(&bytes))
     }
 
     /// Derive the corresponding Ed25519 public key.
+    #[must_use]
     pub fn public_key(&self) -> Ed25519PublicKey {
         Ed25519PublicKey(self.0.verifying_key())
     }
 
     /// Sign a message and return the 64-byte Ed25519 signature.
+    #[must_use]
     pub fn sign(&self, message: &[u8]) -> Ed25519Signature {
         let sig = self.0.sign(message);
         Ed25519Signature(sig)
     }
 
     /// Extract the 32-byte seed bytes.
+    #[must_use]
     pub fn to_bytes(&self) -> [u8; 32] {
         self.0.to_bytes()
     }
@@ -68,6 +73,7 @@ impl Ed25519PublicKey {
     }
 
     /// Extract the 32-byte compressed Edwards point representation.
+    #[must_use]
     pub fn to_bytes(&self) -> [u8; 32] {
         self.0.to_bytes()
     }
@@ -79,11 +85,13 @@ pub struct Ed25519Signature(ed25519_dalek::Signature);
 
 impl Ed25519Signature {
     /// Create a signature from raw 64-byte representation.
+    #[must_use]
     pub fn from_bytes(bytes: [u8; 64]) -> Self {
         Self(ed25519_dalek::Signature::from_bytes(&bytes))
     }
 
     /// Extract the raw 64-byte signature.
+    #[must_use]
     pub fn to_bytes(&self) -> [u8; 64] {
         self.0.to_bytes()
     }

@@ -32,6 +32,7 @@ pub enum SkipReason {
 ///
 /// `exclude` is the optional interface to skip (typically the source).
 /// `can_transmit` and `is_connected` come from the interface's runtime state.
+#[must_use]
 pub fn should_transmit_broadcast(
     iface_id: InterfaceId,
     exclude: Option<InterfaceId>,
@@ -61,6 +62,7 @@ pub fn should_transmit_broadcast(
 /// `found` indicates whether the interface exists in the interface map.
 /// `can_transmit` and `is_connected` come from the interface's runtime state
 /// (only meaningful when `found` is true).
+#[must_use]
 pub fn should_transmit_targeted(
     found: bool,
     can_transmit: bool,

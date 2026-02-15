@@ -8,6 +8,7 @@ use super::constants::PATHFINDER_M;
 use super::types::{InterfaceId, PathEntry};
 
 /// Path table mapping destination hashes to path entries.
+#[must_use]
 pub struct PathTable {
     entries: HashMap<DestinationHash, PathEntry>,
 }
@@ -20,6 +21,7 @@ impl PathTable {
     }
 
     /// Get a path entry for a destination.
+    #[must_use]
     pub fn get(&self, dest: &DestinationHash) -> Option<&PathEntry> {
         self.entries.get(dest)
     }
@@ -30,11 +32,13 @@ impl PathTable {
     }
 
     /// Check if a valid (non-expired) path exists to the destination.
+    #[must_use]
     pub fn has_path(&self, dest: &DestinationHash, now: u64) -> bool {
         self.entries.get(dest).is_some_and(|e| !e.is_expired(now))
     }
 
     /// Get the hop count to a destination, or `PATHFINDER_M` if unknown.
+    #[must_use]
     pub fn hops_to(&self, dest: &DestinationHash, now: u64) -> u8 {
         self.entries
             .get(dest)
@@ -44,6 +48,7 @@ impl PathTable {
     }
 
     /// Get the next hop for a destination.
+    #[must_use]
     pub fn next_hop(&self, dest: &DestinationHash, now: u64) -> Option<TruncatedHash> {
         self.entries
             .get(dest)
@@ -52,6 +57,7 @@ impl PathTable {
     }
 
     /// Get the interface that the path was learned on.
+    #[must_use]
     pub fn next_hop_interface(&self, dest: &DestinationHash, now: u64) -> Option<InterfaceId> {
         self.entries
             .get(dest)
@@ -80,16 +86,19 @@ impl PathTable {
     }
 
     /// Check if a destination hash exists in the table (regardless of expiry).
+    #[must_use]
     pub fn contains(&self, dest: &DestinationHash) -> bool {
         self.entries.contains_key(dest)
     }
 
     /// Number of entries in the table.
+    #[must_use]
     pub fn len(&self) -> usize {
         self.entries.len()
     }
 
     /// Whether the table is empty.
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
     }
@@ -111,6 +120,7 @@ impl PathTable {
     }
 
     /// Consume the table and return all entries as `(DestinationHash, PathEntry)` pairs.
+    #[must_use]
     pub fn into_entries(self) -> Vec<(DestinationHash, PathEntry)> {
         self.entries.into_iter().collect()
     }

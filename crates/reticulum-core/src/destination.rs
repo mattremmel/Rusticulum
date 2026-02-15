@@ -16,6 +16,7 @@ use crate::types::{DestinationHash, IdentityHash, NameHash};
 /// Compute the name hash for a destination.
 ///
 /// `name_hash = SHA-256("app_name.aspect1.aspect2")[:10]`
+#[must_use = "returns the computed name hash"]
 pub fn name_hash(app_name: &str, aspects: &[&str]) -> NameHash {
     let base_name = build_base_name(app_name, aspects);
     let hash = sha256(base_name.as_bytes());
@@ -27,6 +28,7 @@ pub fn name_hash(app_name: &str, aspects: &[&str]) -> NameHash {
 /// Compute the destination hash for a SINGLE destination.
 ///
 /// `destination_hash = SHA-256(name_hash || identity_hash)[:16]`
+#[must_use = "returns the computed destination hash"]
 pub fn destination_hash(name_hash: &NameHash, identity_hash: &IdentityHash) -> DestinationHash {
     let mut material = Vec::with_capacity(26);
     material.extend_from_slice(name_hash.as_ref());
@@ -40,6 +42,7 @@ pub fn destination_hash(name_hash: &NameHash, identity_hash: &IdentityHash) -> D
 /// Compute the destination hash for a PLAIN destination (no identity).
 ///
 /// `destination_hash = SHA-256(name_hash)[:16]`
+#[must_use = "returns the computed destination hash"]
 pub fn plain_destination_hash(name_hash: &NameHash) -> DestinationHash {
     let hash = sha256(name_hash.as_ref());
     let mut result = [0u8; 16];
@@ -48,6 +51,7 @@ pub fn plain_destination_hash(name_hash: &NameHash) -> DestinationHash {
 }
 
 /// A Reticulum destination.
+#[must_use]
 pub struct Destination {
     pub identity_hash: Option<IdentityHash>,
     pub app_name: String,
@@ -88,10 +92,12 @@ impl Destination {
         }
     }
 
+    #[must_use = "returns the name hash without side effects"]
     pub fn name_hash(&self) -> &NameHash {
         &self.name_hash
     }
 
+    #[must_use = "returns the destination hash without side effects"]
     pub fn hash(&self) -> &DestinationHash {
         &self.dest_hash
     }

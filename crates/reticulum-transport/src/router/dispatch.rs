@@ -25,6 +25,7 @@ use reticulum_protocol::link::constants::ECPUBSIZE;
 ///
 /// Inserts the 16-byte next_hop transport ID after the hops byte.
 /// Changes header type to HEADER_2 and transport type to TRANSPORT.
+#[must_use = "this returns the transformed packet without modifying the input"]
 pub fn inject_transport_header(
     raw: &[u8],
     next_hop: &TruncatedHash,
@@ -54,6 +55,7 @@ pub fn inject_transport_header(
 ///
 /// Removes the 16-byte transport ID, changes header type to HEADER_1
 /// and transport type to BROADCAST.
+#[must_use = "this returns the transformed packet without modifying the input"]
 pub fn strip_transport_header(raw: &[u8], hops: u8) -> Result<Vec<u8>, RouterError> {
     if raw.len() < HEADER_2_SIZE {
         return Err(RouterError::PacketTooShortForHeader2);
@@ -80,6 +82,7 @@ pub fn strip_transport_header(raw: &[u8], hops: u8) -> Result<Vec<u8>, RouterErr
 ///
 /// The link ID is SHA256(hashable_part_stripped)[:16], where signalling
 /// bytes are stripped if the data portion exceeds ECPUBSIZE.
+#[must_use = "this returns the computed link ID without side effects"]
 pub fn compute_link_id_from_raw(raw: &[u8]) -> Result<LinkId, RouterError> {
     let packet = RawPacket::parse(raw)?;
     let hashable = packet.hashable_part();
@@ -122,6 +125,7 @@ pub struct AnnounceResult {
 ///
 /// Holds all routing tables and processes inbound packets,
 /// returning a list of actions to perform.
+#[must_use]
 pub struct PacketRouter {
     hashlist: PacketHashlist,
     path_table: PathTable,
@@ -192,6 +196,7 @@ impl PacketRouter {
     }
 
     /// Returns a shared reference to the link table.
+    #[must_use]
     pub fn link_table(&self) -> &LinkTable {
         &self.link_table
     }

@@ -153,6 +153,7 @@ pub fn build_data_with_metadata(
 // ------------------------------------------------------------------ //
 
 /// Compress data using bz2. Returns `Some(compressed)` if compression reduces size.
+#[must_use]
 pub fn compress_resource_data(data: &[u8]) -> Option<Vec<u8>> {
     let mut encoder = BzEncoder::new(data, Compression::best());
     let mut compressed = Vec::new();
@@ -181,6 +182,7 @@ pub fn decompress_resource_data(data: &[u8]) -> Result<Vec<u8>, ResourceError> {
 // ------------------------------------------------------------------ //
 
 /// Compute resource hash: `SHA256(data_with_metadata || random_hash)`.
+#[must_use]
 pub fn compute_resource_hash(
     data_with_metadata: &[u8],
     random_hash: &[u8; RANDOM_HASH_SIZE],
@@ -192,6 +194,7 @@ pub fn compute_resource_hash(
 }
 
 /// Compute proof: `SHA256(data_with_metadata || resource_hash)`.
+#[must_use]
 pub fn compute_proof(data_with_metadata: &[u8], resource_hash: &[u8; 32]) -> [u8; 32] {
     let mut input = Vec::with_capacity(data_with_metadata.len() + 32);
     input.extend_from_slice(data_with_metadata);
@@ -202,6 +205,7 @@ pub fn compute_proof(data_with_metadata: &[u8], resource_hash: &[u8; 32]) -> [u8
 /// Validate a received proof payload against the expected proof.
 ///
 /// Proof payload is 64 bytes: `resource_hash(32) || proof(32)`.
+#[must_use]
 pub fn validate_proof(proof_data: &[u8], expected_proof: &[u8; 32]) -> bool {
     proof_data.len() == 64 && proof_data[32..] == expected_proof[..]
 }
@@ -214,6 +218,7 @@ pub fn validate_proof(proof_data: &[u8], expected_proof: &[u8; 32]) -> bool {
 ///
 /// - Not exhausted: `0x00 || resource_hash(32) || map_hashes(N*4)`
 /// - Exhausted: `0xFF || last_map_hash(4) || resource_hash(32) || map_hashes(N*4)`
+#[must_use]
 pub fn encode_part_request(
     exhausted: bool,
     resource_hash: &[u8; 32],
@@ -290,6 +295,7 @@ pub fn decode_part_request(data: &[u8]) -> Result<PartRequest, ResourceError> {
 }
 
 /// Encode a proof payload: `resource_hash(32) || proof(32)`.
+#[must_use]
 pub fn encode_proof_payload(resource_hash: &[u8; 32], proof: &[u8; 32]) -> Vec<u8> {
     let mut buf = Vec::with_capacity(64);
     buf.extend_from_slice(resource_hash);
@@ -313,6 +319,7 @@ pub fn decode_proof_payload(data: &[u8]) -> Result<([u8; 32], [u8; 32]), Resourc
 }
 
 /// Encode a cancellation payload: `resource_hash(32)`.
+#[must_use]
 pub fn encode_cancellation(resource_hash: &[u8; 32]) -> Vec<u8> {
     resource_hash.to_vec()
 }

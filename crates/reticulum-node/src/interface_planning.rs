@@ -63,6 +63,7 @@ pub enum InterfaceSpec {
 
 impl InterfaceSpec {
     /// Returns the interface ID.
+    #[must_use]
     pub fn id(&self) -> InterfaceId {
         match self {
             InterfaceSpec::TcpClient { id, .. }
@@ -76,6 +77,7 @@ impl InterfaceSpec {
 }
 
 /// Plan TCP client interface specs from config entries.
+#[must_use]
 pub fn plan_tcp_clients(
     entries: &[crate::config::TcpClientEntry],
     id_start: u64,
@@ -140,6 +142,7 @@ pub fn plan_udp(
 }
 
 /// Plan local server interface specs from config entries.
+#[must_use]
 pub fn plan_local_servers(
     entries: &[crate::config::LocalServerEntry],
     id_start: u64,
@@ -157,6 +160,7 @@ pub fn plan_local_servers(
 }
 
 /// Plan local client interface specs from config entries.
+#[must_use]
 pub fn plan_local_clients(
     entries: &[crate::config::LocalClientEntry],
     id_start: u64,
@@ -174,6 +178,7 @@ pub fn plan_local_clients(
 }
 
 /// Plan auto-discovery interface specs from config entries.
+#[must_use]
 pub fn plan_auto(
     entries: &[crate::config::AutoEntry],
     id_start: u64,
