@@ -14,7 +14,7 @@ use reticulum_test_vectors::links;
 fn signalling_bytes_encode_all_vectors() {
     let vectors = links::load();
     for v in &vectors.signalling_bytes_vectors {
-        let mode = LinkMode::from_u8(v.input_mode as u8).unwrap();
+        let mode = LinkMode::try_from(v.input_mode as u8).unwrap();
         let result = link::encode(v.input_mtu as u32, mode).unwrap();
         let expected = hex::decode(&v.signalling_bytes).unwrap();
         assert_eq!(
@@ -60,7 +60,7 @@ fn signalling_bytes_decode_mode_all_vectors() {
 fn signalling_bytes_roundtrip_all_vectors() {
     let vectors = links::load();
     for v in &vectors.signalling_bytes_vectors {
-        let mode = LinkMode::from_u8(v.input_mode as u8).unwrap();
+        let mode = LinkMode::try_from(v.input_mode as u8).unwrap();
         let encoded = link::encode(v.input_mtu as u32, mode).unwrap();
         let decoded_mtu = link::decode_mtu(&encoded);
         let decoded_mode = link::decode_mode(&encoded);
@@ -221,15 +221,15 @@ fn mdu_zero_for_tiny_mtu() {
 #[test]
 fn mode_from_u8_all_values() {
     for i in 0..=7u8 {
-        let mode = LinkMode::from_u8(i).unwrap();
+        let mode = LinkMode::try_from(i).unwrap();
         assert_eq!(mode as u8, i);
     }
 }
 
 #[test]
 fn mode_from_u8_invalid() {
-    assert!(LinkMode::from_u8(8).is_err());
-    assert!(LinkMode::from_u8(255).is_err());
+    assert!(LinkMode::try_from(8).is_err());
+    assert!(LinkMode::try_from(255).is_err());
 }
 
 #[test]
@@ -243,7 +243,7 @@ fn mode_is_enabled_matches_vectors() {
     for entry in arr {
         let mode_val = entry["mode_value"].as_u64().unwrap() as u8;
         let enabled = entry["enabled"].as_bool().unwrap();
-        let mode = LinkMode::from_u8(mode_val).unwrap();
+        let mode = LinkMode::try_from(mode_val).unwrap();
         assert_eq!(
             mode.is_enabled(),
             enabled,
@@ -261,7 +261,7 @@ fn mode_default_is_aes256_cbc() {
 
 #[test]
 fn mode_aes128_cbc_not_enabled() {
-    let mode = LinkMode::from_u8(0).unwrap();
+    let mode = LinkMode::try_from(0).unwrap();
     assert!(!mode.is_enabled());
 }
 

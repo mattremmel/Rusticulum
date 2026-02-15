@@ -74,9 +74,10 @@ impl fmt::Display for LinkMode {
     }
 }
 
-impl LinkMode {
-    /// Parse a mode value from a `u8`. Returns `Err(LinkError::UnsupportedMode)` for values >= 8.
-    pub fn from_u8(value: u8) -> Result<Self, LinkError> {
+impl TryFrom<u8> for LinkMode {
+    type Error = LinkError;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
         match value {
             0 => Ok(Self::Aes128Cbc),
             1 => Ok(Self::Aes256Cbc),
@@ -89,7 +90,9 @@ impl LinkMode {
             other => Err(LinkError::UnsupportedMode(other)),
         }
     }
+}
 
+impl LinkMode {
     /// Whether this mode is currently enabled (supported) by the implementation.
     #[must_use]
     pub fn is_enabled(&self) -> bool {

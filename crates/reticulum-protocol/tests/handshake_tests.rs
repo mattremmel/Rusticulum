@@ -72,7 +72,7 @@ fn handshake_step1_request_data_all_vectors() {
         let dest_hash =
             reticulum_core::types::DestinationHash::new(dest_hash_bytes.try_into().unwrap());
 
-        let mode = LinkMode::from_u8(hs.mode as u8).unwrap();
+        let mode = LinkMode::try_from(hs.mode as u8).unwrap();
 
         if hs.use_signalling {
             // With signalling: use new_initiator_deterministic
@@ -132,7 +132,7 @@ fn handshake_step2_derived_key_all_vectors() {
         let expected_signed_data = hex::decode(&step2.signed_data).unwrap();
         let expected_signature = hex::decode(&step2.signature).unwrap();
 
-        let mode = LinkMode::from_u8(hs.mode as u8).unwrap();
+        let mode = LinkMode::try_from(hs.mode as u8).unwrap();
 
         let (handshake, proof_data) = LinkHandshake::from_link_request_deterministic(
             &request_data,
@@ -223,7 +223,7 @@ fn handshake_step3_initiator_verify_all_vectors() {
         let dest_hash =
             reticulum_core::types::DestinationHash::new(dest_hash_bytes.try_into().unwrap());
 
-        let mode = LinkMode::from_u8(hs.mode as u8).unwrap();
+        let mode = LinkMode::try_from(hs.mode as u8).unwrap();
 
         // Rebuild the initiator's pending link
         let (pending, _request_data) = LinkPending::new_initiator_deterministic(
@@ -309,7 +309,7 @@ fn handshake_full_roundtrip_all_vectors() {
         let dest_hash_bytes = hex::decode(&step1.responder_destination_hash).unwrap();
         let dest_hash =
             reticulum_core::types::DestinationHash::new(dest_hash_bytes.try_into().unwrap());
-        let mode = LinkMode::from_u8(hs.mode as u8).unwrap();
+        let mode = LinkMode::try_from(hs.mode as u8).unwrap();
 
         let resp_ed25519_prv = Ed25519PrivateKey::from_bytes(hex_to_32(&resp_kp.ed25519_private));
         let resp_ed25519_pub =
@@ -484,7 +484,7 @@ fn handshake_invalid_proof_rejected() {
     let dest_hash_bytes = hex::decode(&step1.responder_destination_hash).unwrap();
     let dest_hash =
         reticulum_core::types::DestinationHash::new(dest_hash_bytes.try_into().unwrap());
-    let mode = LinkMode::from_u8(hs.mode as u8).unwrap();
+    let mode = LinkMode::try_from(hs.mode as u8).unwrap();
 
     let (pending, _) = LinkPending::new_initiator_deterministic(
         dest_hash,
