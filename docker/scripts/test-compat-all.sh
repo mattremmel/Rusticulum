@@ -22,6 +22,7 @@ TESTS=(
     "test-large-resource.sh:Large Resource"
     "test-storage-persistence.sh:Storage Persistence"
     "test-fuzz.sh:Fuzz Cross-Impl"
+    "test-vector-check.sh:Vector Check"
 )
 
 # Track results

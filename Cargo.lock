@@ -1257,6 +1257,7 @@ dependencies = [
  "reticulum-crypto",
  "reticulum-interfaces",
  "reticulum-protocol",
+ "reticulum-test-vectors",
  "reticulum-transport",
  "rmpv",
  "serde",

@@ -1,0 +1,24 @@
+services:
+  python-rns:
+    volumes:
+      - ./scripts:/scripts:ro
+      - ../.test-vectors:/test-vectors:ro
+      - vector-data:/vector-data
+    command: ["python3", "/scripts/python-vector-check.py"]
+    healthcheck:
+      disable: true
+
+  rust-node:
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        vector-check /vector-data &&
+        echo "=== vector-check: done ==="
+    volumes:
+      - vector-data:/vector-data
+    depends_on:
+      python-rns:
+        condition: service_started
+
+volumes:
+  vector-data:

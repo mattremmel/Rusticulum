@@ -4,7 +4,7 @@ FROM rust:latest AS builder
 WORKDIR /build
 COPY . .
 
-RUN cargo build --release -p reticulum-node --bin reticulum-node --bin fuzz-gen
+RUN cargo build --release -p reticulum-node --bin reticulum-node --bin fuzz-gen --bin vector-check
 
 # Runtime stage
 FROM debian:bookworm-slim
@@ -15,6 +15,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 COPY --from=builder /build/target/release/reticulum-node /usr/local/bin/reticulum-node
 COPY --from=builder /build/target/release/fuzz-gen /usr/local/bin/fuzz-gen
+COPY --from=builder /build/target/release/vector-check /usr/local/bin/vector-check
 
 RUN mkdir -p /etc/reticulum /var/lib/reticulum
 
