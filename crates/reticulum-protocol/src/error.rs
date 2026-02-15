@@ -101,6 +101,9 @@ pub enum ResourceError {
     #[error("invalid payload: {0}")]
     InvalidPayload(String),
 
+    #[error("missing resource part at index {index}")]
+    MissingPart { index: usize },
+
     #[error("link error: {0}")]
     LinkError(#[from] LinkError),
 

@@ -8,18 +8,20 @@
 
 use reticulum_core::types::LinkId;
 
+use crate::resource_manager::ResourceManagerError;
+
 /// Result type for resource advertisement acceptance.
-pub type AdvAcceptResult = Result<([u8; 32], Vec<u8>), String>;
+type AdvAcceptResult = Result<([u8; 32], Vec<u8>), ResourceManagerError>;
 
 /// Result type for resource part request handling.
-pub type PartRequestResult = Result<(LinkId, Vec<Vec<u8>>), String>;
+type PartRequestResult = Result<(LinkId, Vec<Vec<u8>>), ResourceManagerError>;
 
 // ---------------------------------------------------------------------------
 // Resource advertisement outcome
 // ---------------------------------------------------------------------------
 
 /// Outcome of processing a resource advertisement.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug)]
 pub enum ResourceAdvOutcome {
     /// The link was not found (packet not for us).
     NotForUs,
@@ -31,7 +33,7 @@ pub enum ResourceAdvOutcome {
         request_bytes: Vec<u8>,
     },
     /// Advertisement rejected (e.g. bad format).
-    Rejected { error: String },
+    Rejected { error: ResourceManagerError },
 }
 
 /// Plan the outcome of a resource advertisement.
@@ -58,7 +60,7 @@ pub fn plan_resource_adv(
         },
         Some(Err(e)) => ResourceAdvOutcome::Rejected { error: e },
         None => ResourceAdvOutcome::Rejected {
-            error: "accept not attempted".to_string(),
+            error: ResourceManagerError::Preparation("accept not attempted".to_string()),
         },
     }
 }
@@ -68,7 +70,7 @@ pub fn plan_resource_adv(
 // ---------------------------------------------------------------------------
 
 /// Outcome of processing a resource part request.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug)]
 pub enum ResourceReqOutcome {
     /// The link was not found.
     NotForUs,
@@ -80,7 +82,7 @@ pub enum ResourceReqOutcome {
         parts: Vec<Vec<u8>>,
     },
     /// Part request handling failed.
-    Error { error: String },
+    Error { error: ResourceManagerError },
 }
 
 /// Plan the outcome of a resource part request.
@@ -104,7 +106,9 @@ pub fn plan_resource_req(
         Some(Ok((link_id, parts))) => ResourceReqOutcome::SendParts { link_id, parts },
         Some(Err(e)) => ResourceReqOutcome::Error { error: e },
         None => ResourceReqOutcome::Error {
-            error: "part request not attempted".to_string(),
+            error: ResourceManagerError::Preparation(
+                "part request not attempted".to_string(),
+            ),
         },
     }
 }
@@ -114,7 +118,7 @@ pub fn plan_resource_req(
 // ---------------------------------------------------------------------------
 
 /// Outcome of processing a resource proof.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug)]
 pub enum ResourceProofOutcome {
     /// The link was not found.
     NotForUs,
@@ -125,7 +129,7 @@ pub enum ResourceProofOutcome {
     /// Proof was invalid.
     Invalid,
     /// Proof handling encountered an error.
-    Error { error: String },
+    Error { error: ResourceManagerError },
 }
 
 /// Plan the outcome of a resource proof.
@@ -137,7 +141,7 @@ pub enum ResourceProofOutcome {
 pub fn plan_resource_proof(
     has_link: bool,
     plaintext: Option<&[u8]>,
-    proof_result: Option<Result<bool, String>>,
+    proof_result: Option<Result<bool, ResourceManagerError>>,
 ) -> ResourceProofOutcome {
     if !has_link {
         return ResourceProofOutcome::NotForUs;
@@ -150,7 +154,9 @@ pub fn plan_resource_proof(
         Some(Ok(false)) => ResourceProofOutcome::Invalid,
         Some(Err(e)) => ResourceProofOutcome::Error { error: e },
         None => ResourceProofOutcome::Error {
-            error: "proof handling not attempted".to_string(),
+            error: ResourceManagerError::Preparation(
+                "proof handling not attempted".to_string(),
+            ),
         },
     }
 }
@@ -323,7 +329,6 @@ pub fn plan_response_dispatch(has_link: bool, decrypt_ok: bool) -> ResponseOutco
 #[cfg(test)]
 mod tests {
     use super::*;
-    use reticulum_core::types::TruncatedHash;
 
     fn test_link_id() -> LinkId {
         LinkId::new([0xAA; 16])
@@ -333,160 +338,153 @@ mod tests {
 
     #[test]
     fn resource_adv_not_for_us() {
-        assert_eq!(
+        assert!(matches!(
             plan_resource_adv(false, None, None),
             ResourceAdvOutcome::NotForUs
-        );
+        ));
     }
 
     #[test]
     fn resource_adv_decrypt_failed() {
-        assert_eq!(
+        assert!(matches!(
             plan_resource_adv(true, None, None),
             ResourceAdvOutcome::DecryptFailed
-        );
+        ));
     }
 
     #[test]
     fn resource_adv_accepted() {
         let hash = [0x42; 32];
         let req = vec![1, 2, 3];
-        assert_eq!(
-            plan_resource_adv(true, Some(&[0xFF]), Some(Ok((hash, req.clone())))),
+        match plan_resource_adv(true, Some(&[0xFF]), Some(Ok((hash, req.clone())))) {
             ResourceAdvOutcome::Accepted {
-                resource_hash: hash,
-                request_bytes: req,
+                resource_hash,
+                request_bytes,
+            } => {
+                assert_eq!(resource_hash, hash);
+                assert_eq!(request_bytes, req);
             }
-        );
+            other => panic!("expected Accepted, got {other:?}"),
+        }
     }
 
     #[test]
     fn resource_adv_rejected() {
-        assert_eq!(
-            plan_resource_adv(true, Some(&[0xFF]), Some(Err("bad format".to_string()))),
-            ResourceAdvOutcome::Rejected {
-                error: "bad format".to_string()
-            }
-        );
+        let err = ResourceManagerError::Preparation("bad format".to_string());
+        let outcome = plan_resource_adv(true, Some(&[0xFF]), Some(Err(err)));
+        assert!(matches!(outcome, ResourceAdvOutcome::Rejected { .. }));
     }
 
     #[test]
     fn resource_adv_accept_not_attempted() {
-        assert_eq!(
-            plan_resource_adv(true, Some(&[0xFF]), None),
-            ResourceAdvOutcome::Rejected {
-                error: "accept not attempted".to_string()
+        let outcome = plan_resource_adv(true, Some(&[0xFF]), None);
+        match outcome {
+            ResourceAdvOutcome::Rejected { error } => {
+                assert!(error.to_string().contains("accept not attempted"));
             }
-        );
+            other => panic!("expected Rejected, got {other:?}"),
+        }
     }
 
     // === Resource request ===
 
     #[test]
     fn resource_req_not_for_us() {
-        assert_eq!(
+        assert!(matches!(
             plan_resource_req(false, None, None),
             ResourceReqOutcome::NotForUs
-        );
+        ));
     }
 
     #[test]
     fn resource_req_decrypt_failed() {
-        assert_eq!(
+        assert!(matches!(
             plan_resource_req(true, None, None),
             ResourceReqOutcome::DecryptFailed
-        );
+        ));
     }
 
     #[test]
     fn resource_req_send_parts() {
         let lid = test_link_id();
         let parts = vec![vec![1, 2], vec![3, 4]];
-        assert_eq!(
-            plan_resource_req(true, Some(&[0xFF]), Some(Ok((lid, parts.clone())))),
-            ResourceReqOutcome::SendParts {
-                link_id: lid,
-                parts,
+        match plan_resource_req(true, Some(&[0xFF]), Some(Ok((lid, parts.clone())))) {
+            ResourceReqOutcome::SendParts { link_id, parts: p } => {
+                assert_eq!(link_id, lid);
+                assert_eq!(p, parts);
             }
-        );
+            other => panic!("expected SendParts, got {other:?}"),
+        }
     }
 
     #[test]
     fn resource_req_error() {
-        assert_eq!(
-            plan_resource_req(
-                true,
-                Some(&[0xFF]),
-                Some(Err("no such resource".to_string()))
-            ),
-            ResourceReqOutcome::Error {
-                error: "no such resource".to_string()
-            }
-        );
+        let err = ResourceManagerError::UnknownResource("no such resource".to_string());
+        let outcome = plan_resource_req(true, Some(&[0xFF]), Some(Err(err)));
+        assert!(matches!(outcome, ResourceReqOutcome::Error { .. }));
     }
 
     #[test]
     fn resource_req_not_attempted() {
-        assert_eq!(
-            plan_resource_req(true, Some(&[0xFF]), None),
-            ResourceReqOutcome::Error {
-                error: "part request not attempted".to_string()
+        let outcome = plan_resource_req(true, Some(&[0xFF]), None);
+        match outcome {
+            ResourceReqOutcome::Error { error } => {
+                assert!(error.to_string().contains("part request not attempted"));
             }
-        );
+            other => panic!("expected Error, got {other:?}"),
+        }
     }
 
     // === Resource proof ===
 
     #[test]
     fn resource_proof_not_for_us() {
-        assert_eq!(
+        assert!(matches!(
             plan_resource_proof(false, None, None),
             ResourceProofOutcome::NotForUs
-        );
+        ));
     }
 
     #[test]
     fn resource_proof_decrypt_failed() {
-        assert_eq!(
+        assert!(matches!(
             plan_resource_proof(true, None, None),
             ResourceProofOutcome::DecryptFailed
-        );
+        ));
     }
 
     #[test]
     fn resource_proof_verified() {
-        assert_eq!(
+        assert!(matches!(
             plan_resource_proof(true, Some(&[0xFF]), Some(Ok(true))),
             ResourceProofOutcome::Verified
-        );
+        ));
     }
 
     #[test]
     fn resource_proof_invalid() {
-        assert_eq!(
+        assert!(matches!(
             plan_resource_proof(true, Some(&[0xFF]), Some(Ok(false))),
             ResourceProofOutcome::Invalid
-        );
+        ));
     }
 
     #[test]
     fn resource_proof_error() {
-        assert_eq!(
-            plan_resource_proof(true, Some(&[0xFF]), Some(Err("decode error".to_string()))),
-            ResourceProofOutcome::Error {
-                error: "decode error".to_string()
-            }
-        );
+        let err = ResourceManagerError::UnknownResource("decode error".to_string());
+        let outcome = plan_resource_proof(true, Some(&[0xFF]), Some(Err(err)));
+        assert!(matches!(outcome, ResourceProofOutcome::Error { .. }));
     }
 
     #[test]
     fn resource_proof_not_attempted() {
-        assert_eq!(
-            plan_resource_proof(true, Some(&[0xFF]), None),
-            ResourceProofOutcome::Error {
-                error: "proof handling not attempted".to_string()
+        let outcome = plan_resource_proof(true, Some(&[0xFF]), None);
+        match outcome {
+            ResourceProofOutcome::Error { error } => {
+                assert!(error.to_string().contains("proof handling not attempted"));
             }
-        );
+            other => panic!("expected Error, got {other:?}"),
+        }
     }
 
     // === Channel dispatch ===
@@ -694,53 +692,51 @@ mod tests {
 
     #[test]
     fn adv_not_for_us_overrides_decrypt() {
-        // has_link=false, plaintext=None → NotForUs (not DecryptFailed)
-        assert_eq!(
+        assert!(matches!(
             plan_resource_adv(false, None, None),
             ResourceAdvOutcome::NotForUs
-        );
+        ));
     }
 
     #[test]
     fn req_not_for_us_overrides_decrypt() {
-        assert_eq!(
+        assert!(matches!(
             plan_resource_req(false, None, None),
             ResourceReqOutcome::NotForUs
-        );
+        ));
     }
 
     #[test]
     fn proof_not_for_us_overrides_decrypt() {
-        assert_eq!(
+        assert!(matches!(
             plan_resource_proof(false, None, None),
             ResourceProofOutcome::NotForUs
-        );
+        ));
     }
 
     #[test]
     fn adv_decrypt_overrides_result() {
-        // has_link=true, plaintext=None, accept=Ok → DecryptFailed
         let hash = [0x42; 32];
-        assert_eq!(
+        assert!(matches!(
             plan_resource_adv(true, None, Some(Ok((hash, vec![])))),
             ResourceAdvOutcome::DecryptFailed
-        );
+        ));
     }
 
     #[test]
     fn req_decrypt_overrides_result() {
         let lid = test_link_id();
-        assert_eq!(
+        assert!(matches!(
             plan_resource_req(true, None, Some(Ok((lid, vec![])))),
             ResourceReqOutcome::DecryptFailed
-        );
+        ));
     }
 
     #[test]
     fn proof_decrypt_overrides_result() {
-        assert_eq!(
+        assert!(matches!(
             plan_resource_proof(true, None, Some(Ok(true))),
             ResourceProofOutcome::DecryptFailed
-        );
+        ));
     }
 }

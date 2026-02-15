@@ -10,6 +10,7 @@ use reticulum_protocol::buffer::constants::SMT_STREAM_DATA;
 use reticulum_protocol::buffer::stream_data::{StreamDataMessage, StreamHeader};
 use reticulum_protocol::channel::envelope::Envelope;
 use reticulum_protocol::channel::state::check_rx_sequence_valid;
+use reticulum_protocol::error::{BufferError, ChannelError};
 use reticulum_protocol::request::types::{PathHash, Request, RequestId, Response};
 use rmpv::Value;
 
@@ -113,9 +114,8 @@ pub fn classify_channel_envelope(
     plaintext: &[u8],
     next_rx_sequence: u16,
     window_max: u16,
-) -> Result<ClassifiedEnvelope, String> {
-    let envelope =
-        Envelope::unpack(plaintext).map_err(|e| format!("failed to unpack envelope: {e}"))?;
+) -> Result<ClassifiedEnvelope, ChannelError> {
+    let envelope = Envelope::unpack(plaintext)?;
 
     let seq = envelope.sequence;
 
@@ -167,9 +167,8 @@ pub enum StreamAccumulationResult {
 pub fn decide_stream_accumulation(
     stream_packed: &[u8],
     existing_buffer: &[u8],
-) -> Result<StreamAccumulationResult, String> {
-    let msg = StreamDataMessage::unpack(stream_packed)
-        .map_err(|e| format!("failed to unpack stream data: {e}"))?;
+) -> Result<StreamAccumulationResult, BufferError> {
+    let msg = StreamDataMessage::unpack(stream_packed)?;
 
     let mut buffer = Vec::with_capacity(existing_buffer.len() + msg.data.len());
     buffer.extend_from_slice(existing_buffer);

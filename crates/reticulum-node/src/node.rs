@@ -1296,11 +1296,9 @@ impl Node {
 
         let link_id = extract_link_id(packet);
 
-        let accept_result = plaintext.as_ref().map(|pt| {
-            self.resource_manager
-                .accept_advertisement(link_id, pt)
-                .map_err(|e| e.to_string())
-        });
+        let accept_result = plaintext
+            .as_ref()
+            .map(|pt| self.resource_manager.accept_advertisement(link_id, pt));
 
         let outcome =
             packet_outcome::plan_resource_adv(has_link, plaintext.as_deref(), accept_result);
@@ -1342,11 +1340,9 @@ impl Node {
             None
         };
 
-        let part_result = plaintext.as_ref().map(|pt| {
-            self.resource_manager
-                .handle_part_request(pt)
-                .map_err(|e| e.to_string())
-        });
+        let part_result = plaintext
+            .as_ref()
+            .map(|pt| self.resource_manager.handle_part_request(pt));
 
         let outcome =
             packet_outcome::plan_resource_req(has_link, plaintext.as_deref(), part_result);
@@ -1400,7 +1396,7 @@ impl Node {
                 Ok(PartReceptionResult::NeedMore(_) | PartReceptionResult::Unmatched) => {
                     (true, false, None)
                 }
-                Err(e) => (false, false, Some(e.to_string())),
+                Err(e) => (false, false, Some(e)),
             };
 
         let has_derived_key = self.link_manager.get_derived_key(&link_id).is_some();
@@ -1408,8 +1404,7 @@ impl Node {
             let derived_key = self.link_manager.get_derived_key(&link_id).unwrap().clone();
             Some(
                 self.resource_manager
-                    .assemble_and_prove(&link_id, &derived_key)
-                    .map_err(|e| e.to_string()),
+                    .assemble_and_prove(&link_id, &derived_key),
             )
         } else {
             None
@@ -1424,7 +1419,7 @@ impl Node {
             preview_len: 200,
         };
 
-        match resource_assembly::plan_resource_assembly(&input) {
+        match resource_assembly::plan_resource_assembly(input) {
             resource_assembly::ResourceAssemblyOutcome::Assembled {
                 data,
                 proof_bytes,
@@ -1628,11 +1623,9 @@ impl Node {
             None
         };
 
-        let proof_result = plaintext.as_ref().map(|pt| {
-            self.resource_manager
-                .handle_proof(pt)
-                .map_err(|e| e.to_string())
-        });
+        let proof_result = plaintext
+            .as_ref()
+            .map(|pt| self.resource_manager.handle_proof(pt));
 
         let outcome =
             packet_outcome::plan_resource_proof(has_link, plaintext.as_deref(), proof_result);

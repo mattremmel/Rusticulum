@@ -8,6 +8,7 @@ use std::collections::HashMap;
 use std::fmt;
 
 use reticulum_core::types::LinkId;
+use reticulum_protocol::error::ResourceError;
 use reticulum_protocol::link::types::DerivedKey;
 use reticulum_protocol::resource::advertisement::{ResourceAdvertisement, ResourceFlags};
 use reticulum_protocol::resource::constants::SDU;
@@ -26,9 +27,9 @@ pub enum ResourceManagerError {
     /// Resource preparation failed.
     Preparation(String),
     /// Resource assembly failed.
-    Assembly(String),
+    Assembly(ResourceError),
     /// Payload could not be decoded.
-    InvalidPayload(String),
+    InvalidPayload(ResourceError),
 }
 
 impl fmt::Display for ResourceManagerError {

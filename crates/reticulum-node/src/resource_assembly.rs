@@ -5,30 +5,31 @@
 //! can be tested without a running Node or async I/O.
 
 use crate::packet_helpers::format_data_preview;
+use crate::resource_manager::ResourceManagerError;
 use crate::resource_ops::AssembledOutput;
 
 /// Successful assembly output.
 pub type AssemblyOutput = AssembledOutput;
 
 /// Input snapshot for the resource assembly decision.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct ResourcePartInput {
     /// Whether `resource_manager.receive_part()` succeeded.
     pub receive_ok: bool,
     /// Whether all parts have been received (from `ReceiveResult::all_received`).
     pub all_received: bool,
-    /// Error message if `receive_part()` failed.
-    pub receive_error: Option<String>,
+    /// Error from `receive_part()` if it failed.
+    pub receive_error: Option<ResourceManagerError>,
     /// Whether a derived key is available for assembly.
     pub has_derived_key: bool,
-    /// Result of `resource_manager.assemble_and_prove()`: Ok((data, proof)) or Err(msg).
-    pub assembly_result: Option<Result<AssemblyOutput, String>>,
+    /// Result of `resource_manager.assemble_and_prove()`.
+    pub assembly_result: Option<Result<AssemblyOutput, ResourceManagerError>>,
     /// Maximum preview length for data display.
     pub preview_len: usize,
 }
 
 /// Outcome of the resource assembly decision.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug)]
 pub enum ResourceAssemblyOutcome {
     /// Part received successfully, but not all parts are in yet.
     PartReceived,
@@ -41,9 +42,9 @@ pub enum ResourceAssemblyOutcome {
     /// All parts received but no derived key available.
     NoDerivedKey,
     /// All parts received but assembly failed.
-    AssemblyFailed { error: String },
+    AssemblyFailed { error: ResourceManagerError },
     /// Part reception itself failed.
-    PartError { error: String },
+    PartError { error: ResourceManagerError },
 }
 
 /// Plan the outcome of receiving a resource part.
@@ -54,13 +55,14 @@ pub enum ResourceAssemblyOutcome {
 /// 3. If no derived key → `NoDerivedKey`
 /// 4. If assembly failed → `AssemblyFailed`
 /// 5. If assembly succeeded → `Assembled` with data preview
-pub fn plan_resource_assembly(input: &ResourcePartInput) -> ResourceAssemblyOutcome {
+pub fn plan_resource_assembly(input: ResourcePartInput) -> ResourceAssemblyOutcome {
     if !input.receive_ok {
         return ResourceAssemblyOutcome::PartError {
             error: input
                 .receive_error
-                .clone()
-                .unwrap_or_else(|| "unknown error".to_string()),
+                .unwrap_or_else(|| {
+                    ResourceManagerError::Preparation("unknown error".to_string())
+                }),
         };
     }
 
@@ -72,18 +74,20 @@ pub fn plan_resource_assembly(input: &ResourcePartInput) -> ResourceAssemblyOutc
         return ResourceAssemblyOutcome::NoDerivedKey;
     }
 
-    match &input.assembly_result {
+    match input.assembly_result {
         Some(Ok(output)) => {
             let data_preview = format_data_preview(&output.data, input.preview_len);
             ResourceAssemblyOutcome::Assembled {
-                data: output.data.clone(),
-                proof_bytes: output.proof_bytes.clone(),
+                data: output.data,
+                proof_bytes: output.proof_bytes,
                 data_preview,
             }
         }
-        Some(Err(e)) => ResourceAssemblyOutcome::AssemblyFailed { error: e.clone() },
+        Some(Err(e)) => ResourceAssemblyOutcome::AssemblyFailed { error: e },
         None => ResourceAssemblyOutcome::AssemblyFailed {
-            error: "assembly not attempted".to_string(),
+            error: ResourceManagerError::Preparation(
+                "assembly not attempted".to_string(),
+            ),
         },
     }
 }
@@ -111,7 +115,7 @@ mod tests {
     #[test]
     fn assembled_with_preview() {
         let input = base_input();
-        let outcome = plan_resource_assembly(&input);
+        let outcome = plan_resource_assembly(input);
         match outcome {
             ResourceAssemblyOutcome::Assembled {
                 data,
@@ -132,16 +136,18 @@ mod tests {
     fn receive_error_with_message() {
         let input = ResourcePartInput {
             receive_ok: false,
-            receive_error: Some("hash mismatch".to_string()),
+            receive_error: Some(ResourceManagerError::Preparation(
+                "hash mismatch".to_string(),
+            )),
             ..base_input()
         };
-        let outcome = plan_resource_assembly(&input);
-        assert_eq!(
-            outcome,
-            ResourceAssemblyOutcome::PartError {
-                error: "hash mismatch".to_string()
+        let outcome = plan_resource_assembly(input);
+        match outcome {
+            ResourceAssemblyOutcome::PartError { error } => {
+                assert!(error.to_string().contains("hash mismatch"));
             }
-        );
+            other => panic!("expected PartError, got {other:?}"),
+        }
     }
 
     #[test]
@@ -151,13 +157,13 @@ mod tests {
             receive_error: None,
             ..base_input()
         };
-        let outcome = plan_resource_assembly(&input);
-        assert_eq!(
-            outcome,
-            ResourceAssemblyOutcome::PartError {
-                error: "unknown error".to_string()
+        let outcome = plan_resource_assembly(input);
+        match outcome {
+            ResourceAssemblyOutcome::PartError { error } => {
+                assert!(error.to_string().contains("unknown error"));
             }
-        );
+            other => panic!("expected PartError, got {other:?}"),
+        }
     }
 
     // --- not all received ---
@@ -169,8 +175,8 @@ mod tests {
             assembly_result: None,
             ..base_input()
         };
-        let outcome = plan_resource_assembly(&input);
-        assert_eq!(outcome, ResourceAssemblyOutcome::PartReceived);
+        let outcome = plan_resource_assembly(input);
+        assert!(matches!(outcome, ResourceAssemblyOutcome::PartReceived));
     }
 
     // --- no derived key ---
@@ -182,8 +188,8 @@ mod tests {
             assembly_result: None,
             ..base_input()
         };
-        let outcome = plan_resource_assembly(&input);
-        assert_eq!(outcome, ResourceAssemblyOutcome::NoDerivedKey);
+        let outcome = plan_resource_assembly(input);
+        assert!(matches!(outcome, ResourceAssemblyOutcome::NoDerivedKey));
     }
 
     // --- assembly error ---
@@ -191,16 +197,20 @@ mod tests {
     #[test]
     fn assembly_error() {
         let input = ResourcePartInput {
-            assembly_result: Some(Err("decrypt failed".to_string())),
+            assembly_result: Some(Err(ResourceManagerError::Assembly(
+                reticulum_protocol::error::ResourceError::DecryptionFailed(
+                    "decrypt failed".to_string(),
+                ),
+            ))),
             ..base_input()
         };
-        let outcome = plan_resource_assembly(&input);
-        assert_eq!(
-            outcome,
-            ResourceAssemblyOutcome::AssemblyFailed {
-                error: "decrypt failed".to_string()
+        let outcome = plan_resource_assembly(input);
+        match outcome {
+            ResourceAssemblyOutcome::AssemblyFailed { error } => {
+                assert!(error.to_string().contains("decrypt failed"));
             }
-        );
+            other => panic!("expected AssemblyFailed, got {other:?}"),
+        }
     }
 
     #[test]
@@ -209,13 +219,13 @@ mod tests {
             assembly_result: None,
             ..base_input()
         };
-        let outcome = plan_resource_assembly(&input);
-        assert_eq!(
-            outcome,
-            ResourceAssemblyOutcome::AssemblyFailed {
-                error: "assembly not attempted".to_string()
+        let outcome = plan_resource_assembly(input);
+        match outcome {
+            ResourceAssemblyOutcome::AssemblyFailed { error } => {
+                assert!(error.to_string().contains("assembly not attempted"));
             }
-        );
+            other => panic!("expected AssemblyFailed, got {other:?}"),
+        }
     }
 
     // --- preview truncation ---
@@ -230,7 +240,7 @@ mod tests {
             preview_len: 10,
             ..base_input()
         };
-        let outcome = plan_resource_assembly(&input);
+        let outcome = plan_resource_assembly(input);
         match outcome {
             ResourceAssemblyOutcome::Assembled { data_preview, .. } => {
                 assert_eq!(data_preview, "long resou");
@@ -248,7 +258,7 @@ mod tests {
             })),
             ..base_input()
         };
-        let outcome = plan_resource_assembly(&input);
+        let outcome = plan_resource_assembly(input);
         match outcome {
             ResourceAssemblyOutcome::Assembled {
                 data, data_preview, ..
@@ -264,14 +274,19 @@ mod tests {
 
     #[test]
     fn error_messages_preserved_exactly() {
-        let msg = "specific error: code 42 at offset 0xFF".to_string();
+        let msg = "specific error: code 42 at offset 0xFF";
         let input = ResourcePartInput {
             receive_ok: false,
-            receive_error: Some(msg.clone()),
+            receive_error: Some(ResourceManagerError::Preparation(msg.to_string())),
             ..base_input()
         };
-        let outcome = plan_resource_assembly(&input);
-        assert_eq!(outcome, ResourceAssemblyOutcome::PartError { error: msg });
+        let outcome = plan_resource_assembly(input);
+        match outcome {
+            ResourceAssemblyOutcome::PartError { error } => {
+                assert!(error.to_string().contains(msg));
+            }
+            other => panic!("expected PartError, got {other:?}"),
+        }
     }
 
     // --- priority: receive error takes precedence ---
@@ -281,7 +296,7 @@ mod tests {
         let input = ResourcePartInput {
             receive_ok: false,
             all_received: true,
-            receive_error: Some("bad part".to_string()),
+            receive_error: Some(ResourceManagerError::Preparation("bad part".to_string())),
             has_derived_key: true,
             assembly_result: Some(Ok(AssembledOutput {
                 data: vec![1],
@@ -289,7 +304,7 @@ mod tests {
             })),
             preview_len: 200,
         };
-        let outcome = plan_resource_assembly(&input);
+        let outcome = plan_resource_assembly(input);
         assert!(matches!(outcome, ResourceAssemblyOutcome::PartError { .. }));
     }
 
@@ -306,7 +321,7 @@ mod tests {
             })),
             preview_len: 200,
         };
-        let outcome = plan_resource_assembly(&input);
-        assert_eq!(outcome, ResourceAssemblyOutcome::NoDerivedKey);
+        let outcome = plan_resource_assembly(input);
+        assert!(matches!(outcome, ResourceAssemblyOutcome::NoDerivedKey));
     }
 }

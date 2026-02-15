@@ -4,6 +4,7 @@
 //! assembly logic from [`ResourceManager`] into stateless functions that
 //! are easy to unit-test without needing the full transfer lifecycle.
 
+use reticulum_protocol::error::ResourceError;
 use reticulum_protocol::link::types::DerivedKey;
 use reticulum_protocol::resource::advertisement::{ResourceAdvertisement, ResourceFlags};
 use reticulum_protocol::resource::hashmap::ResourceHashmap;
@@ -28,16 +29,14 @@ pub struct ParsedAdvertisement {
 /// Decodes the advertisement msgpack bytes, extracts the hashmap, and builds
 /// a part request for all parts. Returns everything needed to set up an
 /// incoming transfer.
-pub fn parse_advertisement(adv_bytes: &[u8]) -> Result<ParsedAdvertisement, String> {
-    let adv = ResourceAdvertisement::from_msgpack(adv_bytes)
-        .map_err(|e| format!("decode advertisement: {e}"))?;
+pub fn parse_advertisement(adv_bytes: &[u8]) -> Result<ParsedAdvertisement, ResourceError> {
+    let adv = ResourceAdvertisement::from_msgpack(adv_bytes)?;
 
     let flags = adv.decoded_flags();
     let resource_hash = adv.resource_hash;
     let random_hash = adv.random_hash;
 
-    let hashmap = ResourceHashmap::from_bytes(&adv.hashmap, random_hash)
-        .map_err(|e| format!("decode hashmap: {e}"))?;
+    let hashmap = ResourceHashmap::from_bytes(&adv.hashmap, random_hash)?;
 
     let num_parts = hashmap.len();
 
@@ -97,11 +96,14 @@ pub fn collect_and_assemble(
     random_hash: &[u8; 4],
     resource_hash: &[u8; 32],
     compressed: bool,
-) -> Result<AssembledOutput, String> {
+) -> Result<AssembledOutput, ResourceError> {
     let collected: Vec<Vec<u8>> = parts
         .iter()
         .enumerate()
-        .map(|(i, p)| p.clone().ok_or_else(|| format!("missing part {i}")))
+        .map(|(i, p)| {
+            p.clone()
+                .ok_or(ResourceError::MissingPart { index: i })
+        })
         .collect::<Result<Vec<_>, _>>()?;
 
     let assembled = assemble_resource(
@@ -110,8 +112,7 @@ pub fn collect_and_assemble(
         random_hash,
         resource_hash,
         compressed,
-    )
-    .map_err(|e| format!("assemble_resource failed: {e}"))?;
+    )?;
 
     let proof_bytes = encode_proof_payload(&assembled.resource_hash, &assembled.proof);
 
@@ -141,8 +142,8 @@ pub struct PartSelection {
 pub fn select_parts_for_request(
     request_data: &[u8],
     available_parts: &[Vec<u8>],
-) -> Result<PartSelection, String> {
-    let req = decode_part_request(request_data).map_err(|e| format!("decode part request: {e}"))?;
+) -> Result<PartSelection, ResourceError> {
+    let req = decode_part_request(request_data)?;
 
     Ok(PartSelection {
         resource_hash: req.resource_hash,
@@ -170,9 +171,8 @@ pub enum ProofValidation {
 pub fn validate_resource_proof(
     proof_data: &[u8],
     expected_proof: &[u8; 32],
-) -> Result<ProofValidation, String> {
-    let (resource_hash, _proof) =
-        decode_proof_payload(proof_data).map_err(|e| format!("decode proof: {e}"))?;
+) -> Result<ProofValidation, ResourceError> {
+    let (resource_hash, _proof) = decode_proof_payload(proof_data)?;
 
     if validate_proof(proof_data, expected_proof) {
         Ok(ProofValidation::Valid { resource_hash })
@@ -376,7 +376,7 @@ mod tests {
             parsed.flags.compressed,
         );
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("missing part"));
+        assert!(result.unwrap_err().to_string().contains("missing resource part"));
     }
 
     #[test]
