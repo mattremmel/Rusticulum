@@ -22,3 +22,8 @@ serde_json = { workspace = true }
 hex = { workspace = true }
 proptest = { workspace = true }
 reticulum-test-vectors = { path = "../reticulum-test-vectors" }
+criterion = { workspace = true }
+
+[[bench]]
+name = "protocol_bench"
+harness = false

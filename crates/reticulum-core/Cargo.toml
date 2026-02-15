@@ -26,3 +26,8 @@ serde_json = { workspace = true }
 hex = { workspace = true }
 reticulum-test-vectors = { workspace = true }
 proptest = { workspace = true }
+criterion = { workspace = true }
+
+[[bench]]
+name = "wire_bench"
+harness = false
