@@ -9,7 +9,7 @@ fn binary_starts_and_stops_cleanly() {
     let bin = env!("CARGO_BIN_EXE_reticulum-node");
 
     // Write a minimal config to a temp file
-    let config_content = b"[node]\nenable_storage = false\n";
+    let config_content = b"[node]\nenable_storage = false\nshare_instance = false\n";
     let mut config_file = tempfile::NamedTempFile::new().unwrap();
     std::io::Write::write_all(&mut config_file, config_content).unwrap();
 

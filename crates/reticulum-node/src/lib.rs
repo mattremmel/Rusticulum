@@ -14,6 +14,8 @@ pub mod error;
 pub(crate) mod handler_rules;
 pub(crate) mod identity_loading;
 pub(crate) mod inbound_triage;
+pub(crate) mod instance_detection;
+pub mod instance_mode;
 pub mod interface_enum;
 pub(crate) mod interface_planning;
 pub(crate) mod link_dispatch;
@@ -41,6 +43,7 @@ pub(crate) mod transport_guard;
 
 pub use config::NodeConfig;
 pub use error::NodeError;
+pub use instance_mode::InstanceMode;
 pub use interface_enum::AnyInterface;
 pub use node::{Node, ShutdownHandle};
 pub use storage::Storage;

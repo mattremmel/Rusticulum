@@ -50,7 +50,7 @@ pub struct LocalClientInterface {
     id: InterfaceId,
     role: LocalClientRole,
     inner: Arc<LocalClientInner>,
-    rx_receiver: Mutex<mpsc::Receiver<Vec<u8>>>,
+    rx_receiver: Mutex<Option<mpsc::Receiver<Vec<u8>>>>,
     task_handle: Mutex<Option<tokio::task::JoinHandle<()>>>,
 }
 
@@ -113,9 +113,19 @@ impl LocalClientInterface {
             id,
             role,
             inner,
-            rx_receiver: Mutex::new(rx),
+            rx_receiver: Mutex::new(Some(rx)),
             task_handle: Mutex::new(None),
         }
+    }
+
+    /// Take the receive channel from this client for external use.
+    ///
+    /// Returns `Some(Receiver)` the first time it's called. After this,
+    /// the client's own `receive()` will return `Err(Stopped)`.
+    /// Used by the shared instance server to route incoming packets from
+    /// local clients directly to the node event loop.
+    pub async fn take_receiver(&self) -> Option<mpsc::Receiver<Vec<u8>>> {
+        self.rx_receiver.lock().await.take()
     }
 
     /// Run the initiator's connect-and-reconnect loop.
@@ -355,8 +365,11 @@ impl Interface for LocalClientInterface {
     }
 
     async fn receive(&self) -> Result<Vec<u8>, InterfaceError> {
-        let mut rx = self.rx_receiver.lock().await;
-        rx.recv().await.ok_or(InterfaceError::Stopped)
+        let mut guard = self.rx_receiver.lock().await;
+        match guard.as_mut() {
+            Some(rx) => rx.recv().await.ok_or(InterfaceError::Stopped),
+            None => Err(InterfaceError::Stopped),
+        }
     }
 }
 

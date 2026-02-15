@@ -100,6 +100,16 @@ pub struct NodeSection {
     /// Whether to enable persistent storage. Default: true.
     #[serde(default = "default_enable_storage")]
     pub enable_storage: bool,
+    /// Whether to share interfaces with other local programs. Default: true.
+    /// When true, the first node binds a local socket (master), subsequent
+    /// nodes connect as clients.
+    #[serde(default = "default_share_instance")]
+    pub share_instance: bool,
+    /// Name of the shared instance (for socket path). Default: "default".
+    pub instance_name: Option<String>,
+    /// TCP port for shared instance on non-Unix platforms. Default: 37428.
+    #[serde(default = "default_shared_instance_port")]
+    pub shared_instance_port: u16,
 }
 
 fn default_ifac_size() -> u8 {
@@ -114,6 +124,14 @@ fn default_enable_storage() -> bool {
     true
 }
 
+fn default_share_instance() -> bool {
+    true
+}
+
+fn default_shared_instance_port() -> u16 {
+    37428
+}
+
 impl Default for NodeSection {
     fn default() -> Self {
         Self {
@@ -124,6 +142,9 @@ impl Default for NodeSection {
             storage_path: None,
             persist_interval: default_persist_interval(),
             enable_storage: default_enable_storage(),
+            share_instance: default_share_instance(),
+            instance_name: None,
+            shared_instance_port: default_shared_instance_port(),
         }
     }
 }
@@ -261,6 +282,10 @@ mod tests {
         assert!(config.interfaces.tcp_client.is_empty());
         assert!(config.interfaces.udp.is_empty());
         assert!(config.interfaces.auto.is_empty());
+        // Shared instance defaults
+        assert!(config.node.share_instance);
+        assert!(config.node.instance_name.is_none());
+        assert_eq!(config.node.shared_instance_port, 37428);
     }
 
     #[test]
@@ -431,6 +456,20 @@ target = "[::1]:4242"
     // ================================================================== //
     // Config parsing failure paths
     // ================================================================== //
+
+    #[test]
+    fn parse_shared_instance_config() {
+        let toml = r#"
+[node]
+share_instance = false
+instance_name = "mynet"
+shared_instance_port = 12345
+"#;
+        let config = NodeConfig::parse(toml).unwrap();
+        assert!(!config.node.share_instance);
+        assert_eq!(config.node.instance_name.as_deref(), Some("mynet"));
+        assert_eq!(config.node.shared_instance_port, 12345);
+    }
 
     #[test]
     fn test_parse_malformed_toml() {

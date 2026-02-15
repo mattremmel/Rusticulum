@@ -127,6 +127,27 @@ impl AnyInterface {
             Self::Auto(i) => i.receive().await,
         }
     }
+
+    /// Transmit data to all connected local clients (only meaningful for LocalServer).
+    /// No-op for all other interface types.
+    #[cfg(unix)]
+    pub async fn transmit_to_local_clients(&self, data: &[u8]) {
+        if let Self::LocalServer(server) = self {
+            server.transmit_to_clients(data).await;
+        }
+    }
+
+    /// Whether this interface is a local shared-instance server.
+    pub fn is_local_shared_instance(&self) -> bool {
+        #[cfg(unix)]
+        {
+            matches!(self, Self::LocalServer(_))
+        }
+        #[cfg(not(unix))]
+        {
+            false
+        }
+    }
 }
 
 impl std::fmt::Debug for AnyInterface {

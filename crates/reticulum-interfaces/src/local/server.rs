@@ -6,7 +6,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use tokio::net::UnixListener;
-use tokio::sync::{Mutex, watch};
+use tokio::sync::{Mutex, mpsc, watch};
 use tracing::{debug, info, trace, warn};
 
 use reticulum_transport::path::{InterfaceId, InterfaceMode};
@@ -16,6 +16,10 @@ use super::{BITRATE_GUESS, INITIAL_CONNECT_TIMEOUT, LocalClientConfig, LocalServ
 use crate::error::InterfaceError;
 use crate::shutdown::ShutdownToken;
 use crate::traits::Interface;
+
+/// Type alias for the event forwarder channel that routes packets
+/// from local clients back to the node.
+type EventForwarder = Arc<Mutex<Option<mpsc::Sender<(InterfaceId, Vec<u8>)>>>>;
 
 /// A Unix domain socket server interface that accepts incoming connections and
 /// spawns [`LocalClientInterface`] instances in responder mode for each one.
@@ -31,6 +35,9 @@ pub struct LocalServerInterface {
     next_client_id: AtomicU64,
     /// Shared shutdown token for online state, stop signaling, and task tracking.
     shutdown: ShutdownToken,
+    /// Optional channel for forwarding packets from local clients back to the node.
+    /// When set, a receive bridge task is spawned for each accepted client.
+    event_forwarder: EventForwarder,
 }
 
 impl LocalServerInterface {
@@ -41,6 +48,7 @@ impl LocalServerInterface {
             spawned_clients: Arc::new(Mutex::new(Vec::new())),
             next_client_id: AtomicU64::new(id.0.wrapping_mul(1000) + 1),
             shutdown: ShutdownToken::new(),
+            event_forwarder: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -58,6 +66,15 @@ impl LocalServerInterface {
     /// Access the list of spawned client interfaces.
     pub async fn clients(&self) -> tokio::sync::MutexGuard<'_, Vec<LocalClientInterface>> {
         self.spawned_clients.lock().await
+    }
+
+    /// Set an event forwarder channel for receiving packets from local clients.
+    ///
+    /// When set, each newly accepted client gets a receive bridge task that
+    /// forwards incoming packets through this channel back to the node.
+    /// Must be called before `start()`.
+    pub async fn set_event_forwarder(&self, tx: mpsc::Sender<(InterfaceId, Vec<u8>)>) {
+        *self.event_forwarder.lock().await = Some(tx);
     }
 
     /// Handle stale socket file before binding.
@@ -106,6 +123,7 @@ impl LocalServerInterface {
         next_id: Arc<AtomicU64>,
         mut stop_rx: watch::Receiver<bool>,
         server_config: LocalServerConfig,
+        forwarder: EventForwarder,
     ) {
         loop {
             let stream = tokio::select! {
@@ -160,7 +178,60 @@ impl LocalServerInterface {
                 }
             };
 
+            // If an event forwarder is configured, take the client's receive
+            // channel and spawn a bridge task that forwards packets to the node.
+            let fwd = forwarder.lock().await.clone();
+            if let Some(fwd_tx) = fwd {
+                let iface_id = InterfaceId(client_id);
+                if let Some(rx) = client.take_receiver().await {
+                    tokio::spawn(async move {
+                        Self::client_receive_bridge(iface_id, rx, fwd_tx).await;
+                    });
+                }
+            }
+
             spawned.lock().await.push(client);
+        }
+    }
+
+    /// Receive bridge for a single local client, forwarding packets to the node.
+    async fn client_receive_bridge(
+        client_id: InterfaceId,
+        mut rx: mpsc::Receiver<Vec<u8>>,
+        fwd_tx: mpsc::Sender<(InterfaceId, Vec<u8>)>,
+    ) {
+        loop {
+            match rx.recv().await {
+                Some(data) => {
+                    if fwd_tx.send((client_id, data)).await.is_err() {
+                        debug!(id = client_id.0, "forwarder channel closed");
+                        break;
+                    }
+                }
+                None => {
+                    debug!(id = client_id.0, "local client disconnected");
+                    break;
+                }
+            }
+        }
+    }
+
+    /// Transmit data to all connected local clients.
+    ///
+    /// Iterates spawned clients, transmitting to each connected one.
+    /// Per-client failures are logged and skipped.
+    pub async fn transmit_to_clients(&self, data: &[u8]) {
+        let clients = self.spawned_clients.lock().await;
+        for client in clients.iter() {
+            if !client.is_connected() {
+                continue;
+            }
+            if let Err(e) = client.transmit(data).await {
+                warn!(
+                    "{}: failed to transmit to local client: {}",
+                    self.config.name, e
+                );
+            }
         }
     }
 }
@@ -210,9 +281,10 @@ impl Interface for LocalServerInterface {
         let next_id = Arc::new(AtomicU64::new(self.next_client_id.load(Ordering::SeqCst)));
         let stop_rx = self.shutdown.subscribe();
         let server_config = self.config.clone();
+        let forwarder = Arc::clone(&self.event_forwarder);
 
         let handle = tokio::spawn(async move {
-            Self::accept_loop(listener, spawned, next_id, stop_rx, server_config).await;
+            Self::accept_loop(listener, spawned, next_id, stop_rx, server_config, forwarder).await;
         });
         self.shutdown.set_task(handle).await;
 

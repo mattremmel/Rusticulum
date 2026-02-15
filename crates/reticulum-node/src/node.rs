@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use tokio::sync::{mpsc, watch};
 
-use reticulum_interfaces::InterfaceId;
+use reticulum_interfaces::{Interface, InterfaceId};
 use reticulum_interfaces::tcp::{
     TcpClientConfig, TcpClientInterface, TcpServerConfig, TcpServerInterface,
 };
@@ -46,6 +46,8 @@ use crate::config::NodeConfig;
 use crate::error::NodeError;
 use crate::identity_loading;
 use crate::inbound_triage;
+use crate::instance_detection;
+use crate::instance_mode::InstanceMode;
 use crate::interface_enum::AnyInterface;
 use crate::link_dispatch::{self, LinkPacketKind};
 use crate::link_manager::LinkManager;
@@ -91,6 +93,7 @@ enum NodeEvent {
 /// A Reticulum node that manages interfaces, routing, and the event loop.
 pub struct Node {
     config: NodeConfig,
+    instance_mode: InstanceMode,
     router: PacketRouter,
     link_manager: LinkManager,
     resource_manager: ResourceManager,
@@ -108,6 +111,10 @@ pub struct Node {
     pending_announces: Vec<Vec<u8>>,
     announce_cache: AnnounceCache,
     discovery_tags: DiscoveryTagTable,
+    /// Receiver for packets from local shared-instance clients.
+    /// Only populated in SharedMaster mode.
+    #[cfg(unix)]
+    local_client_rx: Option<mpsc::Receiver<(InterfaceId, Vec<u8>)>>,
 }
 
 impl Node {
@@ -163,6 +170,7 @@ impl Node {
 
         Self {
             config,
+            instance_mode: InstanceMode::Standalone,
             router,
             link_manager,
             resource_manager,
@@ -180,6 +188,8 @@ impl Node {
             pending_announces: Vec::new(),
             announce_cache,
             discovery_tags: DiscoveryTagTable::new(),
+            #[cfg(unix)]
+            local_client_rx: None,
         }
     }
 
@@ -189,7 +199,27 @@ impl Node {
             return Err(NodeError::AlreadyRunning);
         }
 
-        // Load or generate transport identity
+        // Detect instance mode (master/client/standalone)
+        self.detect_and_establish_mode().await;
+        tracing::info!(mode = ?self.instance_mode, "instance mode determined");
+
+        // Client mode: generate a local identity (not persisted)
+        // but skip loading state, announce building, and hardware interfaces.
+        if self.instance_mode.is_client() {
+            self.transport_identity = Some(Identity::generate());
+            tracing::info!("generated ephemeral identity for client mode");
+
+            self.start_interfaces().await?;
+            self.spawn_receive_bridges();
+
+            tracing::info!(
+                "node started in client mode with {} interface(s)",
+                self.interfaces.len()
+            );
+            return Ok(());
+        }
+
+        // Load or generate transport identity (master/standalone only)
         let identity_load_result = if let Some(ref storage) = self.storage {
             match storage.load_identity().await {
                 Ok(Some(id)) => {
@@ -341,13 +371,171 @@ impl Node {
             }
         }
 
+        // Create hardware interfaces (master/standalone only)
         self.create_interfaces()?;
         self.start_interfaces().await?;
         self.spawn_receive_bridges();
 
-        tracing::info!("node started with {} interface(s)", self.interfaces.len());
+        tracing::info!(
+            mode = ?self.instance_mode,
+            interfaces = self.interfaces.len(),
+            "node started"
+        );
 
         Ok(())
+    }
+
+    /// Detect the instance mode and establish the appropriate connection.
+    ///
+    /// On Unix:
+    /// 1. If `share_instance == false` → Standalone
+    /// 2. Try to bind a LocalServer on the socket path → SharedMaster
+    /// 3. If bind fails (in use), try connecting as LocalClient → SharedClient
+    /// 4. Both fail → Standalone fallback
+    ///
+    /// On non-Unix: always Standalone.
+    async fn detect_and_establish_mode(&mut self) {
+        #[cfg(not(unix))]
+        {
+            self.instance_mode = InstanceMode::Standalone;
+            return;
+        }
+
+        #[cfg(unix)]
+        {
+            if !self.config.node.share_instance {
+                let input = instance_detection::DetectionInput {
+                    share_instance: false,
+                    bind_succeeded: None,
+                    connect_succeeded: None,
+                };
+                self.instance_mode = instance_detection::decide_instance_mode(&input);
+                return;
+            }
+
+            let socket_path =
+                instance_detection::compute_socket_path(self.config.node.instance_name.as_deref());
+            tracing::debug!(path = ?socket_path, "attempting shared instance detection");
+
+            // Try to bind as server (master)
+            let server_id = InterfaceId(self.next_id);
+            self.next_id += 1;
+            let server_config =
+                LocalServerConfig::new("Shared Instance", socket_path.clone());
+            let server = LocalServerInterface::new(server_config, server_id);
+
+            // Set up event forwarder BEFORE starting so the accept loop
+            // will spawn receive bridges for newly connected clients
+            let (local_tx, local_rx) = mpsc::channel(256);
+            server.set_event_forwarder(local_tx).await;
+
+            match server.start().await {
+                Ok(()) => {
+                    tracing::info!(path = ?socket_path, "bound shared instance socket (master)");
+
+                    self.local_client_rx = Some(local_rx);
+
+                    let iface = AnyInterface::LocalServer(server);
+                    self.interfaces.insert(server_id, Arc::new(iface));
+
+                    let input = instance_detection::DetectionInput {
+                        share_instance: true,
+                        bind_succeeded: Some(true),
+                        connect_succeeded: None,
+                    };
+                    self.instance_mode = instance_detection::decide_instance_mode(&input);
+                }
+                Err(e) => {
+                    tracing::debug!(
+                        path = ?socket_path,
+                        error = %e,
+                        "could not bind shared instance socket, trying client mode"
+                    );
+
+                    // Try connecting as client
+                    let client_id = InterfaceId(self.next_id);
+                    self.next_id += 1;
+                    let client_config =
+                        LocalClientConfig::initiator("Shared Instance", socket_path.clone());
+                    match LocalClientInterface::new(client_config, client_id) {
+                        Ok(client) => {
+                            if let Err(e) = client.start().await {
+                                tracing::warn!(
+                                    "failed to start shared instance client: {e}"
+                                );
+                                let input = instance_detection::DetectionInput {
+                                    share_instance: true,
+                                    bind_succeeded: Some(false),
+                                    connect_succeeded: Some(false),
+                                };
+                                self.instance_mode =
+                                    instance_detection::decide_instance_mode(&input);
+                                return;
+                            }
+
+                            // Wait for connection (up to 5s)
+                            let connected = tokio::time::timeout(
+                                std::time::Duration::from_secs(5),
+                                async {
+                                    loop {
+                                        if client.is_connected() {
+                                            return true;
+                                        }
+                                        tokio::time::sleep(
+                                            std::time::Duration::from_millis(50),
+                                        )
+                                        .await;
+                                    }
+                                },
+                            )
+                            .await
+                            .unwrap_or(false);
+
+                            if connected {
+                                tracing::info!(
+                                    path = ?socket_path,
+                                    "connected to shared instance (client)"
+                                );
+                                let iface = AnyInterface::LocalClient(client);
+                                self.interfaces.insert(client_id, Arc::new(iface));
+
+                                let input = instance_detection::DetectionInput {
+                                    share_instance: true,
+                                    bind_succeeded: Some(false),
+                                    connect_succeeded: Some(true),
+                                };
+                                self.instance_mode =
+                                    instance_detection::decide_instance_mode(&input);
+                            } else {
+                                tracing::warn!(
+                                    "shared instance client connection timed out, falling back to standalone"
+                                );
+                                let _ = client.stop().await;
+                                let input = instance_detection::DetectionInput {
+                                    share_instance: true,
+                                    bind_succeeded: Some(false),
+                                    connect_succeeded: Some(false),
+                                };
+                                self.instance_mode =
+                                    instance_detection::decide_instance_mode(&input);
+                            }
+                        }
+                        Err(e) => {
+                            tracing::warn!(
+                                "failed to create shared instance client: {e}"
+                            );
+                            let input = instance_detection::DetectionInput {
+                                share_instance: true,
+                                bind_succeeded: Some(false),
+                                connect_succeeded: Some(false),
+                            };
+                            self.instance_mode =
+                                instance_detection::decide_instance_mode(&input);
+                        }
+                    }
+                }
+            }
+        }
     }
 
     /// Create interface objects from configuration.
@@ -549,7 +737,19 @@ impl Node {
     }
 
     /// Run the main event loop. Returns when shutdown is signalled.
+    ///
+    /// Dispatches to either the full event loop (master/standalone)
+    /// or the simplified client event loop.
     pub async fn run(&mut self) {
+        if self.instance_mode.is_client() {
+            self.run_client_loop().await;
+        } else {
+            self.run_full_loop().await;
+        }
+    }
+
+    /// Full event loop for master and standalone modes.
+    async fn run_full_loop(&mut self) {
         let mut maintenance_interval = tokio::time::interval(std::time::Duration::from_secs(1));
         let mut cull_interval = tokio::time::interval(std::time::Duration::from_secs(5));
 
@@ -569,6 +769,19 @@ impl Node {
         tracing::info!("entering event loop");
 
         loop {
+            // Take local_client_rx for select! (only in master mode on unix)
+            #[cfg(unix)]
+            let local_rx_event = async {
+                if let Some(ref mut rx) = self.local_client_rx {
+                    rx.recv().await
+                } else {
+                    // Never resolve if no local clients
+                    std::future::pending().await
+                }
+            };
+            #[cfg(not(unix))]
+            let local_rx_event = std::future::pending::<Option<(InterfaceId, Vec<u8>)>>();
+
             tokio::select! {
                 biased;
 
@@ -576,6 +789,12 @@ impl Node {
                     match event {
                         Some(NodeEvent::InboundPacket { interface_id, raw }) => {
                             self.handle_inbound_packet(interface_id, &raw).await;
+
+                            // Forward to local clients (master mode)
+                            #[cfg(unix)]
+                            if self.instance_mode == InstanceMode::SharedMaster {
+                                self.forward_to_local_clients(&raw).await;
+                            }
 
                             // Process any pending link initiations (queued by announce processing)
                             self.process_pending_link_targets().await;
@@ -586,6 +805,24 @@ impl Node {
                         None => {
                             tracing::info!("event channel closed, exiting");
                             break;
+                        }
+                    }
+                }
+
+                // Packets from local shared-instance clients (master mode)
+                local_event = local_rx_event => {
+                    match local_event {
+                        Some((client_id, raw)) => {
+                            tracing::debug!(
+                                client_id = client_id.0,
+                                len = raw.len(),
+                                "local_client_packet"
+                            );
+                            // Process locally (skip IFAC — local IPC is trusted)
+                            self.handle_local_client_packet(client_id, &raw).await;
+                        }
+                        None => {
+                            tracing::debug!("local client channel closed");
                         }
                     }
                 }
@@ -657,6 +894,143 @@ impl Node {
         }
     }
 
+    /// Simplified event loop for shared instance client mode.
+    ///
+    /// The client only has its LocalClientInterface to the master.
+    /// No maintenance ticks, no table culling, no persistence.
+    /// Processes link packets locally, registers identities from announces.
+    async fn run_client_loop(&mut self) {
+        tracing::info!("entering client event loop");
+
+        loop {
+            tokio::select! {
+                biased;
+
+                event = self.event_rx.recv() => {
+                    match event {
+                        Some(NodeEvent::InboundPacket { interface_id, raw }) => {
+                            // Skip IFAC — master already verified
+                            let packet = match RawPacket::parse(&raw) {
+                                Ok(p) => p,
+                                Err(e) => {
+                                    tracing::debug!(
+                                        id = interface_id.0,
+                                        "client: packet parse failed: {e}"
+                                    );
+                                    continue;
+                                }
+                            };
+
+                            // Register identities from announces
+                            if packet.flags.packet_type == PacketType::Announce {
+                                let pkt_hash = packet.packet_hash();
+                                if let Ok(announce) =
+                                    reticulum_core::announce::Announce::from_payload(
+                                        packet.destination,
+                                        packet.flags.context_flag,
+                                        packet.context,
+                                        &packet.data,
+                                    )
+                                {
+                                    let dest_hash = packet.destination;
+                                    self.link_manager
+                                        .register_identity_from_announce(dest_hash, &announce, pkt_hash);
+                                }
+                            }
+
+                            // Handle link packets locally
+                            self.handle_link_packet(&packet).await;
+
+                            // Process pending link targets
+                            self.process_pending_link_targets().await;
+                        }
+                        Some(NodeEvent::InterfaceDown { interface_id }) => {
+                            tracing::warn!(
+                                id = interface_id.0,
+                                "shared instance connection lost"
+                            );
+                        }
+                        None => {
+                            tracing::info!("event channel closed, exiting client loop");
+                            break;
+                        }
+                    }
+                }
+
+                _ = self.shutdown_rx.changed() => {
+                    tracing::info!("shutdown signal received (client)");
+                    break;
+                }
+            }
+        }
+    }
+
+    /// Handle a packet received from a local shared-instance client.
+    ///
+    /// Skips IFAC verification (local IPC is trusted), parses and processes
+    /// normally, then forwards to hardware interfaces.
+    async fn handle_local_client_packet(&mut self, _from_client: InterfaceId, raw: &[u8]) {
+        if raw.is_empty() {
+            return;
+        }
+
+        let packet = match RawPacket::parse(raw) {
+            Ok(p) => p,
+            Err(e) => {
+                tracing::debug!("local client packet parse failed: {e}");
+                return;
+            }
+        };
+
+        // Dedup
+        let dedup_exempt = inbound_triage::bypasses_dedup(packet.context);
+        let hash = packet.packet_hash();
+        let is_new = if dedup_exempt {
+            true
+        } else {
+            self.router.hashlist_mut().insert(hash)
+        };
+        if let Some(reason) = inbound_triage::should_drop_early(is_new, packet.hops) {
+            tracing::trace!(reason = ?reason, "local client packet dropped");
+            return;
+        }
+
+        // Forward to hardware interfaces (with IFAC applied on outbound)
+        self.broadcast_to_interfaces(None, raw).await;
+
+        // Also process locally (announces, link packets, etc.)
+        self.handle_link_packet(&packet).await;
+
+        if packet.flags.packet_type == PacketType::Announce {
+            let pkt_hash = packet.packet_hash();
+            if let Ok(announce) = reticulum_core::announce::Announce::from_payload(
+                packet.destination,
+                packet.flags.context_flag,
+                packet.context,
+                &packet.data,
+            ) {
+                let dest_hash = packet.destination;
+                self.link_manager
+                    .register_identity_from_announce(dest_hash, &announce, pkt_hash);
+            }
+        }
+    }
+
+    /// Forward raw packet data to all connected local shared-instance clients.
+    ///
+    /// Does NOT apply IFAC (local IPC is trusted).
+    #[cfg(unix)]
+    async fn forward_to_local_clients(&self, raw: &[u8]) {
+        for iface in self.interfaces.values() {
+            iface.transmit_to_local_clients(raw).await;
+        }
+    }
+
+    /// Get the current instance mode.
+    pub fn instance_mode(&self) -> InstanceMode {
+        self.instance_mode
+    }
+
     /// Get a handle that can trigger shutdown from another task.
     pub fn shutdown_handle(&self) -> ShutdownHandle {
         ShutdownHandle {
@@ -671,21 +1045,36 @@ impl Node {
 
     /// Shut down all interfaces and clean up.
     pub async fn shutdown(mut self) {
-        tracing::info!("shutting down node");
+        tracing::info!(mode = ?self.instance_mode, "shutting down node");
         self.trigger_shutdown();
 
-        // Final state persistence before shutdown
-        self.persist_state().await;
+        // Client mode skips state persistence (client doesn't own state)
+        if self.instance_mode.manages_state() {
+            self.persist_state().await;
+        }
 
         // Wait for all bridge tasks to finish.
         for handle in self.bridge_handles.drain(..) {
             let _ = handle.await;
         }
 
-        // Stop each interface.
+        // Stop each interface. In master mode, stop the local server last
+        // so clients remain connected while hardware interfaces shut down.
+        let mut local_server_ids = Vec::new();
         for (id, iface) in &self.interfaces {
+            if iface.is_local_shared_instance() {
+                local_server_ids.push(*id);
+                continue;
+            }
             if let Err(e) = iface.stop().await {
                 tracing::warn!(id = id.0, "error stopping interface: {e}");
+            }
+        }
+        for id in local_server_ids {
+            if let Some(iface) = self.interfaces.get(&id)
+                && let Err(e) = iface.stop().await
+            {
+                tracing::warn!(id = id.0, "error stopping local server: {e}");
             }
         }
 
@@ -1935,6 +2324,14 @@ mod tests {
     use super::*;
     use crate::config::NodeConfig;
 
+    /// Create a default config with share_instance disabled.
+    /// Tests run in parallel and would race on the shared socket.
+    fn standalone_config() -> NodeConfig {
+        let mut config = NodeConfig::default();
+        config.node.share_instance = false;
+        config
+    }
+
     #[test]
     fn node_new_no_ifac() {
         let config = NodeConfig::default();
@@ -1960,10 +2357,10 @@ ifac_size = 8
 
     #[tokio::test]
     async fn node_start_empty() {
-        let config = NodeConfig::default();
+        let config = standalone_config();
         let mut node = Node::new(config);
         node.start().await.unwrap();
-        assert!(node.interfaces.is_empty());
+        // In standalone mode with no interfaces config, only the node exists
     }
 
     #[tokio::test]
@@ -1978,7 +2375,7 @@ bind = "127.0.0.1:0"
         // We can't actually start with port 0 in this simple test,
         // but creating with port 0 and immediately creating again tests the double-start guard.
         // Instead, test with empty config that succeeds:
-        let config2 = NodeConfig::default();
+        let config2 = standalone_config();
         let mut node2 = Node::new(config2);
         node2.start().await.unwrap();
         // Starting again should fail — but with no interfaces it won't trigger AlreadyRunning.
@@ -1987,7 +2384,7 @@ bind = "127.0.0.1:0"
 
     #[tokio::test]
     async fn node_shutdown_empty() {
-        let config = NodeConfig::default();
+        let config = standalone_config();
         let mut node = Node::new(config);
         node.start().await.unwrap();
         node.shutdown().await;
@@ -1995,7 +2392,7 @@ bind = "127.0.0.1:0"
 
     #[tokio::test]
     async fn node_trigger_shutdown() {
-        let config = NodeConfig::default();
+        let config = standalone_config();
         let mut node = Node::new(config);
         node.start().await.unwrap();
 
@@ -2009,7 +2406,7 @@ bind = "127.0.0.1:0"
 
     #[tokio::test]
     async fn shutdown_handle_from_spawned_task() {
-        let mut config = NodeConfig::default();
+        let mut config = standalone_config();
         config.node.enable_storage = false;
         let mut node = Node::new(config);
         node.start().await.unwrap();
@@ -2196,7 +2593,7 @@ bind = "127.0.0.1:0"
 
     #[tokio::test]
     async fn test_double_trigger_shutdown() {
-        let mut config = NodeConfig::default();
+        let mut config = standalone_config();
         config.node.enable_storage = false;
         let mut node = Node::new(config);
         node.start().await.unwrap();
@@ -2213,7 +2610,7 @@ bind = "127.0.0.1:0"
 
     #[tokio::test]
     async fn test_shutdown_handle_double_signal() {
-        let mut config = NodeConfig::default();
+        let mut config = standalone_config();
         config.node.enable_storage = false;
         let mut node = Node::new(config);
         node.start().await.unwrap();
@@ -2232,7 +2629,7 @@ bind = "127.0.0.1:0"
 
     #[tokio::test]
     async fn test_event_channel_closed_exits_run() {
-        let mut config = NodeConfig::default();
+        let mut config = standalone_config();
         config.node.enable_storage = false;
         let mut node = Node::new(config);
         node.start().await.unwrap();
@@ -2261,7 +2658,7 @@ bind = "127.0.0.1:0"
         use reticulum_core::packet::flags::PacketFlags;
         use reticulum_core::types::DestinationHash;
 
-        let mut config = NodeConfig::default();
+        let mut config = standalone_config();
         config.node.enable_storage = false;
         let mut node = Node::new(config);
         node.start().await.unwrap();
@@ -2302,7 +2699,7 @@ bind = "127.0.0.1:0"
 
     #[tokio::test]
     async fn test_empty_packet_ignored() {
-        let mut config = NodeConfig::default();
+        let mut config = standalone_config();
         config.node.enable_storage = false;
         let mut node = Node::new(config);
         node.start().await.unwrap();
@@ -2326,7 +2723,7 @@ bind = "127.0.0.1:0"
 
     #[tokio::test]
     async fn test_malformed_packet_ignored() {
-        let mut config = NodeConfig::default();
+        let mut config = standalone_config();
         config.node.enable_storage = false;
         let mut node = Node::new(config);
         node.start().await.unwrap();
